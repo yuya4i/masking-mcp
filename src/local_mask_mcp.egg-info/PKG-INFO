@@ -16,6 +16,8 @@ Requires-Dist: Pillow>=10.4.0
 Requires-Dist: pypdf>=4.3.0
 Requires-Dist: pytesseract>=0.3.10
 Requires-Dist: mcp>=1.9.0
+Requires-Dist: sudachipy>=0.6.10
+Requires-Dist: sudachidict-core>=20260116
 
 # local-mask-mcp
 
@@ -58,41 +60,58 @@ local-mask-mcp/
 
 ## セットアップ
 
-```bash
-cd /home/ubuntu/local-mask-mcp
-cp .env.example .env
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -e .[dev]
-```
+本プロジェクトは **Docker 前提** で管理しています。ホストに Python や uv をインストールする必要はありません。必要なのは `docker` と `docker compose` だけです。
 
-OCRで日本語を扱う場合は、OS側のTesseract本体と言語データを別途導入してください。PoCでは英語OCRを前提にし、日本語対応は追加実装とするのが安全です。
-
-## 起動方法
-
-### HTTPゲートウェイ
+`Makefile` 経由で全部済ませるのが一番短い道です。host に必要なのは `docker` / `docker compose` / `make` だけ。
 
 ```bash
-cd /home/ubuntu/local-mask-mcp
-source .venv/bin/activate
-uvicorn app.main:app --host 127.0.0.1 --port 8081 --app-dir src
+cd /path/to/local-mask-mcp
+make up                        # build + 起動 + /health 待ち + admin_token 表示
+make config                    # 認証済みで /admin/config を pretty-print
+make logs                      # コンテナログを tail
+make down                      # 停止 (data/ は保持)
+make help                      # 全ターゲット一覧
 ```
 
-### MCPサーバ
+`make up` は内部で `mkdir -p data && docker compose up -d --build` を行い、`/health` が 200 を返すまで最大 60 秒待機します。`.env` は **任意** で、`ADMIN_TOKEN` は初回リクエスト時に自動生成されて `data/admin_token` (mode 0600) に保存されるため、`.env` を用意しなくてもそのまま動きます。
+
+コードを書き換えた後は `make up` がそのまま `--build` を含むので毎回拾ってくれますが、レイヤキャッシュが壊れた気配があるときは `make rebuild` (`docker compose build --no-cache` のエイリアス) を使ってください。
+
+以後 `curl` を直接叩くときは:
 
 ```bash
-cd /home/ubuntu/local-mask-mcp
-source .venv/bin/activate
-python -m mcp_server.server
+TOKEN=$(cat data/admin_token)
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8081/admin/config
 ```
+
+明示的な固定値にしたい / チームで共有したい場合だけ `.env` に `ADMIN_TOKEN=...` を書いてください (env var があればそちらが優先)。
+
+初回ビルドは spaCy `en_core_web_lg` (~400 MB) の取得があるため数分かかります。2 回目以降はレイヤキャッシュが効きます。
+
+OCRで日本語を扱う場合は、Dockerfile の `tesseract-ocr-eng` の横に `tesseract-ocr-jpn` を追加してから再ビルドしてください。
+
+### パッケージ管理について
+
+依存は `uv.lock` で完全にロックされており、**このファイルは repo にコミットします**。`docker compose build` は `uv.lock` を基に `uv sync --frozen` で再現性のあるインストールを実行します。依存を変更するときのみ、使い捨てコンテナで uv を走らせてロックファイルを更新します:
+
+```bash
+# lockfile を更新する使い捨てコンテナを起動
+docker run --rm -it -v "$PWD:/app" -w /app \
+    ghcr.io/astral-sh/uv:0.11-python3.11-bookworm-slim \
+    sh -c 'uv add <package> && cat uv.lock > /dev/null'
+```
+
+`uv add` / `uv lock --upgrade` のような依存操作は上記パターン、それ以外 (実行・テスト・lint) は全部コンテナ内です。
 
 ## 使い方
+
+ゲートウェイは `docker compose up -d` で起動済みの前提です。以下の `curl` はすべてホストから動作中のコンテナ (`127.0.0.1:8081`) に対して叩きます。
 
 ### 1. ON/OFF切替
 
 ```bash
 curl -X POST http://127.0.0.1:8081/admin/toggle \
-  -H 'Authorization: Bearer change-me' \
+  -H "Authorization: Bearer $(cat data/admin_token)" \
   -H 'Content-Type: application/json' \
   -d '{"enabled": true}'
 ```
@@ -101,7 +120,7 @@ curl -X POST http://127.0.0.1:8081/admin/toggle \
 
 ```bash
 curl -X POST http://127.0.0.1:8081/sanitize/text \
-  -H 'Authorization: Bearer change-me' \
+  -H "Authorization: Bearer $(cat data/admin_token)" \
   -H 'Content-Type: application/json' \
   -d '{"text": "John Doe lives at 1 Main St. Email john@example.com"}'
 ```
@@ -110,7 +129,7 @@ curl -X POST http://127.0.0.1:8081/sanitize/text \
 
 ```bash
 cat <<'JSON' | curl -X PUT http://127.0.0.1:8081/admin/config \
-  -H 'Authorization: Bearer change-me' \
+  -H "Authorization: Bearer $(cat data/admin_token)" \
   -H 'Content-Type: application/json' \
   -d @-
 {
@@ -198,7 +217,7 @@ curl -X POST http://127.0.0.1:8081/proxy/generic/custom-local-llm \
 
 ```bash
 curl -X POST http://127.0.0.1:8081/sanitize/text \
-  -H 'Authorization: Bearer change-me' \
+  -H "Authorization: Bearer $(cat data/admin_token)" \
   -H 'Content-Type: application/json' \
   -d '{
     "text": "John Doe lives in Tokyo. Contact john@example.com",
@@ -225,6 +244,17 @@ curl -X POST http://127.0.0.1:8081/sanitize/text \
 ### 7. MCPから既定プロバイダを切替
 
 MCPツールとして `set_provider(provider_id)` を追加しているため、MCPクライアントから `openai` `anthropic` `manus` などへ既定送信先を変更できます。
+
+## テスト
+
+テストは Docker のビルドステージで走らせます。host に何もインストールする必要はありません。
+
+```bash
+make test
+# 内部で: docker build --target test --progress=plain -t local-mask-mcp:test .
+```
+
+`Dockerfile` の `test` ステージは `builder` を引き継ぎ、dev 依存 (pytest / pytest-asyncio / ruff) と spaCy モデル、tesseract を追加してから `uv run pytest tests/ -v` を実行します。**どれか 1 本でもテストが落ちるとビルドが失敗する** ので、CI ゲートとしてそのまま使えます。通常の `make up` / `docker compose build` はこのステージをスキップします。
 
 ## 次の実装タスク
 

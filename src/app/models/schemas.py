@@ -46,6 +46,14 @@ class RuntimeConfig(BaseModel):
     #: geography-aware assistant). Empty list = mask everything detected.
     allow_entity_types: list[str] = Field(default_factory=list)
     mask_strategy: MaskStrategy = "tag"
+    #: Opt-in Japanese morphological analyzer. When set to ``"sudachi"``
+    #: the masking pipeline runs text through SudachiPy and folds its
+    #: proper-noun detections (``PROPER_NOUN_PERSON`` / ``_LOCATION`` /
+    #: ``_ORG`` / fallback ``PROPER_NOUN``) into the Presidio result set
+    #: before masking. The default ``"none"`` keeps the pre-existing
+    #: English-only behaviour untouched, so this field is backward-
+    #: compatible with every existing ``runtime_config.json`` on disk.
+    morphological_analyzer: Literal["none", "sudachi"] = "none"
     default_provider_id: str = "openai"
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 

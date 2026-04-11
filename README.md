@@ -206,6 +206,59 @@ curl -X POST http://127.0.0.1:8081/sanitize/text \
 
 恒常的に適用したい場合は `PUT /admin/config` で `allow_entity_types` を指定してください。
 
+### 補足: 日本語 (Sudachi) 固有名詞マスキング
+
+Presidio は既定で英語向けに構成されているため、日本語の固有名詞 (人名・地名・組織名) は拾いきれません。`RuntimeConfig.morphological_analyzer` を `"sudachi"` に切り替えると、SudachiPy による形態素解析が Presidio の検出結果にアドオンされ、`("名詞","固有名詞",...)` のみが `PROPER_NOUN_PERSON` / `PROPER_NOUN_LOCATION` / `PROPER_NOUN_ORG` / `PROPER_NOUN` としてマスキング対象に加わります。`("名詞","一般",...)` はマスクされません — 「会社」「車」のような一般名詞は素通しします。
+
+既定値は `"none"` で、英語のみを扱ってきた既存のデプロイには影響しません。Sudachi 辞書のロードは初回リクエスト時まで遅延されるので、フラグを立てていないユーザは起動コストも払いません。
+
+```bash
+# 1) 恒常的に有効化 (RuntimeConfig を更新)
+cat <<'JSON' | curl -X PUT http://127.0.0.1:8081/admin/config \
+  -H "Authorization: Bearer $(cat data/admin_token)" \
+  -H 'Content-Type: application/json' \
+  -d @-
+{
+  "filter_enabled": true,
+  "fail_closed": true,
+  "entity_types": ["PERSON", "PHONE_NUMBER", "EMAIL_ADDRESS", "LOCATION"],
+  "mask_strategy": "tag",
+  "morphological_analyzer": "sudachi"
+}
+JSON
+
+# 2) 日本語テキストをマスク
+curl -X POST http://127.0.0.1:8081/sanitize/text \
+  -H "Authorization: Bearer $(cat data/admin_token)" \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "田中太郎は東京本社にいる"}'
+```
+
+期待されるレスポンス (抜粋):
+
+```jsonc
+{
+  "filter_enabled": true,
+  "sanitized_text": "<PROPER_NOUN_PERSON>は<PROPER_NOUN_LOCATION>本社にいる",
+  "detections": [
+    {
+      "entity_type": "PROPER_NOUN_PERSON",
+      "start": 0, "end": 4,
+      "text": "田中太郎",
+      "action": "masked"
+    },
+    {
+      "entity_type": "PROPER_NOUN_LOCATION",
+      "start": 5, "end": 7,
+      "text": "東京",
+      "action": "masked"
+    }
+  ]
+}
+```
+
+検出ラベルは `allow_entity_types` とも組み合わせられます。例えば `"allow_entity_types": ["PROPER_NOUN_LOCATION"]` を指定すれば、人名はマスクしつつ地名だけ pass-through にできます (監査ログには `action: "allowed"` として残ります)。
+
 ### 補足: 検出結果のテーブル表示
 
 `sanitize/text` / `sanitize/file` のレスポンス `detections` は以下のカラムを持つので、どのクライアントでもそのままテーブル描画できます。

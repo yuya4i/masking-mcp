@@ -12,6 +12,7 @@ from presidio_anonymizer.entities import OperatorConfig
 
 from app.models.schemas import AuditRecord, DetectionResult, SanitizeResponse, TextSanitizeRequest
 from app.services.repositories import AuditRepository, ConfigRepository
+from app.services.sudachi_analyzer import SudachiProperNounAnalyzer
 
 
 #: Number of characters of surrounding text kept in each DetectionResult's
@@ -26,6 +27,16 @@ class MaskingService:
         self.audit_repo = audit_repo
         self.analyzer = AnalyzerEngine()
         self.anonymizer = AnonymizerEngine()
+        # Lazily constructed on first Japanese request so operators who
+        # never opt in to ``morphological_analyzer="sudachi"`` do not pay
+        # the ~50 MB dict-load cost at service boot.
+        self._sudachi: SudachiProperNounAnalyzer | None = None
+
+    def _ensure_sudachi(self) -> SudachiProperNounAnalyzer:
+        """Return the cached Sudachi analyzer, creating it on demand."""
+        if self._sudachi is None:
+            self._sudachi = SudachiProperNounAnalyzer()
+        return self._sudachi
 
     def sanitize_text(self, request: TextSanitizeRequest) -> SanitizeResponse:
         started = time.perf_counter()
@@ -58,6 +69,27 @@ class MaskingService:
         recognizer_results = self.analyzer.analyze(
             text=request.text, entities=entity_types, language="en"
         )
+
+        # Optional Japanese morphological pass — opt-in via RuntimeConfig.
+        # We keep Sudachi additive on top of Presidio so operators do not
+        # have to choose one or the other; the overlap resolver drops any
+        # span that is fully contained within a higher-scoring neighbour
+        # so the merged list stays clean.
+        if config.morphological_analyzer == "sudachi":
+            sudachi_results = [
+                RecognizerResult(
+                    entity_type=det.entity_type,
+                    start=det.start,
+                    end=det.end,
+                    score=det.score,
+                )
+                for det in self._ensure_sudachi().analyze(request.text)
+            ]
+            if sudachi_results:
+                recognizer_results = _resolve_overlaps(
+                    list(recognizer_results) + sudachi_results
+                )
+
         maskable = [r for r in recognizer_results if r.entity_type not in allow_types]
 
         sanitized_text = self._apply_strategy(request.text, maskable, mask_strategy)
@@ -163,6 +195,38 @@ class MaskingService:
             created_at=self.audit_repo.now(),
         )
         self.audit_repo.append(record)
+
+
+def _resolve_overlaps(results: list[RecognizerResult]) -> list[RecognizerResult]:
+    """Drop detections fully contained within a higher-scoring neighbour.
+
+    Presidio + Sudachi can sometimes flag the same Japanese span twice —
+    e.g. a ``LOCATION`` from Presidio's English NER and a
+    ``PROPER_NOUN_LOCATION`` from Sudachi on the same character range.
+    Keeping both would produce duplicate entries in ``detections`` and,
+    worse, the ``partial`` and ``hash`` masking strategies would mutate
+    the same offsets twice. This resolver keeps partial overlaps intact
+    (they may legitimately describe different pieces of information) but
+    discards any entry that is a strict subset of another with a higher
+    score. Ties stay deterministic: the first entry wins.
+    """
+    keepers: list[RecognizerResult] = []
+    for candidate in sorted(results, key=lambda r: (r.start, -r.score, r.end)):
+        dominated = False
+        for other in results:
+            if other is candidate:
+                continue
+            if (
+                other.start <= candidate.start
+                and other.end >= candidate.end
+                and (other.end - other.start) > (candidate.end - candidate.start)
+                and other.score >= candidate.score
+            ):
+                dominated = True
+                break
+        if not dominated:
+            keepers.append(candidate)
+    return keepers
 
 
 def _locate_offset(text: str, offset: int) -> tuple[int, int]:

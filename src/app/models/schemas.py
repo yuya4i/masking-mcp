@@ -94,6 +94,13 @@ class RuntimeConfig(BaseModel):
     #: own default so changing it is an opt-in tuning knob rather than
     #: a breaking change.
     language_detection_ja_threshold: float = 0.2
+    #: Minimum confidence score (0.0–1.0). Detections whose ``score`` is
+    #: strictly below this threshold are discarded before masking. 0.0
+    #: disables the filter. Presidio scores vary per recognizer;
+    #: Sudachi POS-based detections are always 1.0; RegexAnalyzer is
+    #: always 1.0. Tune this to silence Presidio false positives without
+    #: touching the analyzer configuration itself.
+    min_score: float = 0.0
     default_provider_id: str = "openai"
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 

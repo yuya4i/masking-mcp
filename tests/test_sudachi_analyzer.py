@@ -141,3 +141,116 @@ def test_opt_in_default_off() -> None:
     assert "sudachi" not in service._analyzers, (
         "Sudachi analyzer was constructed despite morphological_analyzer='none'"
     )
+
+
+def test_split_mode_a_splits_compounds() -> None:
+    """SplitMode.A must produce *more* tokens than C on a compound proper
+    noun. The exact surfaces depend on the Sudachi dictionary version,
+    so we compare counts rather than fixed strings. ``東京スカイツリー``
+    is a compound where both halves are proper nouns in the default
+    core dictionary: under C the whole string fuses into a single
+    ``PROPER_NOUN`` detection, under A it splits into ``東京`` +
+    ``スカイツリー``. ``東京タワー`` would *not* work here — ``タワー``
+    is a common noun in the core dict and gets filtered out by the POS
+    filter, collapsing A's output back to one.
+    """
+    compound = "東京スカイツリー"
+
+    analyzer_c = SudachiProperNounAnalyzer(split_mode="C")
+    detections_c = analyzer_c.analyze(compound)
+
+    analyzer_a = SudachiProperNounAnalyzer(split_mode="A")
+    detections_a = analyzer_a.analyze(compound)
+
+    assert len(detections_a) > len(detections_c), (
+        f"expected split_mode=A to yield more detections than C for {compound!r}; "
+        f"got A={[(d.surface, d.entity_type) for d in detections_a]} "
+        f"vs C={[(d.surface, d.entity_type) for d in detections_c]}"
+    )
+    assert len(detections_c) == 1, (
+        f"expected split_mode=C to fuse {compound!r} into a single proper-noun "
+        f"detection, got {detections_c}"
+    )
+    # The POS filter is orthogonal to the split mode, so every morpheme
+    # A returns must still be a proper-noun subcategory.
+    for det in detections_a:
+        assert det.entity_type in {
+            "PROPER_NOUN",
+            "PROPER_NOUN_PERSON",
+            "PROPER_NOUN_LOCATION",
+            "PROPER_NOUN_ORG",
+        }, f"unexpected entity_type from split_mode=A: {det}"
+
+
+def test_pos_pattern_excludes_location() -> None:
+    """Narrowing ``pos_patterns`` to ``["名詞", "固有名詞", "人名"]`` must
+    keep personal names but drop place names. This exercises both sides
+    of the prefix match: ``田中太郎`` has a ``人名`` slot and survives
+    while ``東京`` — whose POS tuple starts with ``("名詞", "固有名詞",
+    "地名", ...)`` — is filtered out."""
+    analyzer = SudachiProperNounAnalyzer(
+        pos_patterns=[["名詞", "固有名詞", "人名"]],
+    )
+    detections = analyzer.analyze("田中太郎は東京に住んでいる")
+    surfaces = {det.surface for det in detections}
+
+    person_detected = (
+        "田中太郎" in surfaces
+        or ("田中" in surfaces and "太郎" in surfaces)
+    )
+    assert person_detected, (
+        f"expected 田中太郎 (or its split form) to still be detected under "
+        f"人名-only filter, got {surfaces}"
+    )
+
+    assert "東京" not in surfaces, (
+        f"東京 must be filtered out when pos_patterns requires 人名 "
+        f"specifically, got {surfaces}"
+    )
+
+    # Every remaining detection must be a PERSON — the filter excludes
+    # every other proper-noun subcategory by construction.
+    for det in detections:
+        assert det.entity_type == "PROPER_NOUN_PERSON", (
+            f"expected only PROPER_NOUN_PERSON detections with 人名 filter, got {det}"
+        )
+
+
+def test_masking_service_honors_sudachi_config() -> None:
+    """The masking service must thread ``sudachi_split_mode`` and
+    ``proper_noun_pos_patterns`` from ``RuntimeConfig`` through to the
+    analyzer. We pick ``A`` specifically to distinguish this from the
+    default ``C`` code path, and use the default POS pattern so the
+    fused assertions still hold for either split mode.
+    """
+    config = RuntimeConfig(
+        filter_enabled=True,
+        morphological_analyzer="sudachi",
+        sudachi_split_mode="A",
+        proper_noun_pos_patterns=[["名詞", "固有名詞"]],
+    )
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    request = TextSanitizeRequest(text="田中太郎は東京本社にいる")
+
+    result = service.sanitize_text(request)
+
+    # The exact sanitized text depends on Sudachi's split-mode behaviour
+    # on this particular compound, so we use loose assertions: at least
+    # one proper-noun detection must fire, and the original literal
+    # names must not survive in the sanitized output.
+    masked = [d for d in result.detections if d.action == "masked"]
+    assert masked, "expected at least one masked Japanese detection"
+    assert any(d.entity_type.startswith("PROPER_NOUN") for d in masked)
+    assert "田中太郎" not in result.sanitized_text
+    assert "東京" not in result.sanitized_text
+
+    # The service must have constructed the Sudachi analyzer with the
+    # config-supplied split_mode, so the cached instance should match.
+    sudachi = service._analyzers.get("sudachi")
+    assert sudachi is not None, "expected Sudachi analyzer to be cached after first call"
+    # Fingerprint check — we threaded the config through, so the service
+    # should have stored (split_mode, pos_patterns) as the rebuild key.
+    assert service._analyzer_fingerprints.get("sudachi") == (
+        "A",
+        (("名詞", "固有名詞"),),
+    )

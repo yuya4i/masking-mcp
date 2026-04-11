@@ -1,5 +1,7 @@
+from presidio_analyzer import RecognizerResult
+
 from app.models.schemas import RuntimeConfig, TextSanitizeRequest
-from app.services.masking_service import MaskingService
+from app.services.masking_service import MaskingService, _resolve_overlaps
 
 from conftest import DummyAuditRepository, DummyConfigRepository
 
@@ -182,3 +184,81 @@ def test_min_score_filters_low_confidence_detections() -> None:
     assert "<EMAIL_ADDRESS>" in result.sanitized_text
     # But no PERSON false-positive from 'Reach' — the threshold culls it.
     assert "<PERSON>" not in result.sanitized_text
+
+
+def test_resolve_overlaps_sweep_line_on_50_detection_input() -> None:
+    """Pin correctness of the sweep-line ``_resolve_overlaps`` rewrite
+    on a 50-detection synthetic input.
+
+    This is NOT a timing benchmark — we assert only on the keep/drop
+    semantics. The test constructs a mixture of partially-overlapping
+    and strictly-nested spans with varied scores so the sweep's
+    "envelope" branch fires many times in a single call. Any future
+    refactor that regresses the "drop strict subset of a higher-scored
+    result" contract fails this test loudly.
+    """
+    # Build 50 synthetic results:
+    #   - 10 long "dominator" spans at widely-spaced offsets, score 0.9
+    #   - 30 short spans strictly contained in a dominator, score 0.5
+    #     (must all be dropped)
+    #   - 10 short spans lying outside every dominator, score 0.5
+    #     (must all survive)
+    results: list[RecognizerResult] = []
+    dominators: list[RecognizerResult] = []
+    for i in range(10):
+        dom = RecognizerResult(
+            entity_type="PERSON",
+            start=i * 100,
+            end=i * 100 + 50,
+            score=0.9,
+        )
+        dominators.append(dom)
+        results.append(dom)
+    # Strict subsets — each contained in its corresponding dominator.
+    dominated: list[RecognizerResult] = []
+    for i, dom in enumerate(dominators):
+        for k in range(3):
+            sub = RecognizerResult(
+                entity_type="PROPER_NOUN",
+                start=dom.start + 10 + k * 5,
+                end=dom.start + 15 + k * 5,
+                score=0.5,
+            )
+            dominated.append(sub)
+            results.append(sub)
+    # Standalone spans that do not intersect any dominator.
+    standalones: list[RecognizerResult] = []
+    for i in range(10):
+        solo = RecognizerResult(
+            entity_type="EMAIL_ADDRESS",
+            start=2000 + i * 30,
+            end=2000 + i * 30 + 10,
+            score=0.5,
+        )
+        standalones.append(solo)
+        results.append(solo)
+
+    assert len(results) == 50, "test fixture must build exactly 50 detections"
+
+    kept = _resolve_overlaps(results)
+    kept_ids = {(r.start, r.end, r.entity_type) for r in kept}
+
+    # Every dominator must survive.
+    for dom in dominators:
+        assert (dom.start, dom.end, dom.entity_type) in kept_ids, (
+            f"dominator {dom} was incorrectly dropped"
+        )
+    # Every strict subset with lower score must be dropped.
+    for sub in dominated:
+        assert (sub.start, sub.end, sub.entity_type) not in kept_ids, (
+            f"strict subset {sub} should have been dominated"
+        )
+    # Every standalone span must survive.
+    for solo in standalones:
+        assert (solo.start, solo.end, solo.entity_type) in kept_ids, (
+            f"standalone {solo} was incorrectly dropped"
+        )
+    # Final count: 10 dominators + 10 standalones = 20 survivors.
+    assert len(kept) == 20, (
+        f"expected 20 survivors (10 dominators + 10 standalones), got {len(kept)}"
+    )

@@ -395,23 +395,74 @@ def _resolve_overlaps(results: list[RecognizerResult]) -> list[RecognizerResult]
     (they may legitimately describe different pieces of information) but
     discards any entry that is a strict subset of another with a higher
     score. Ties stay deterministic: the first entry wins.
+
+    The implementation is a single linear sweep-line over results
+    sorted by ``(start ascending, end descending)``. That sort order
+    guarantees every candidate's potential dominator appears strictly
+    before it in the walk:
+
+    * If ``prior.start < candidate.start``, then length is strict by
+      construction whenever ``prior.end >= candidate.end``.
+    * If ``prior.start == candidate.start``, the ``-end`` secondary
+      key puts the longer span first, so again any prior with
+      ``prior.end > candidate.end`` has strictly greater length; a
+      tied ``(start, end)`` pair is *not* considered dominance.
+
+    The sweep maintains a single running "envelope" — the strongest
+    dominator seen so far, identified by ``(end, score)``. Each
+    candidate is checked against the envelope in O(1); if it survives,
+    it optionally replaces the envelope when it extends further or
+    matches the end with a strictly higher score. The final complexity
+    is ``O(n log n)`` dominated by the sort plus an ``O(n)`` sweep —
+    a clean improvement over the previous ``O(n²)`` nested scan on
+    payloads with hundreds of detections.
     """
+    if len(results) < 2:
+        return list(results)
+
+    # Sort once. ``(start, -end)`` = (start ASC, end DESC) because the
+    # tuple comparison treats the second element as a number. That
+    # order is what lets the sweep treat "processed earlier" as
+    # "potentially dominates the current candidate".
+    ordered = sorted(results, key=lambda r: (r.start, -r.end))
+
     keepers: list[RecognizerResult] = []
-    for candidate in sorted(results, key=lambda r: (r.start, -r.score, r.end)):
-        dominated = False
-        for other in results:
-            if other is candidate:
-                continue
-            if (
-                other.start <= candidate.start
-                and other.end >= candidate.end
-                and (other.end - other.start) > (candidate.end - candidate.start)
-                and other.score >= candidate.score
-            ):
-                dominated = True
-                break
-        if not dominated:
-            keepers.append(candidate)
+    # Envelope = the strongest dominator candidate walked so far. The
+    # sentinel values here (``-1`` / ``-1.0``) are unreachable from a
+    # real ``RecognizerResult`` — offsets are non-negative and scores
+    # live in ``[0.0, 1.0]`` — so the first iteration always installs
+    # a real envelope without a special-case branch.
+    envelope_start = -1
+    envelope_end = -1
+    envelope_score = -1.0
+
+    for candidate in ordered:
+        # By the sort contract, ``envelope_start <= candidate.start``
+        # holds whenever the envelope is set. Length-strict dominance
+        # therefore reduces to "envelope started earlier OR ended
+        # later" — exactly the ``(start, end) != candidate's span``
+        # escape hatch that stops identical spans from eliminating
+        # each other.
+        if (
+            envelope_end >= candidate.end
+            and envelope_score >= candidate.score
+            and (envelope_start < candidate.start or envelope_end > candidate.end)
+        ):
+            continue
+
+        keepers.append(candidate)
+
+        # Promote the envelope to the strictly-stronger of the two:
+        # longer span wins, and on an end-tie the higher score wins.
+        # That keeps the envelope maximally useful for subsequent
+        # smaller candidates without ever demoting to a weaker one.
+        if candidate.end > envelope_end or (
+            candidate.end == envelope_end and candidate.score > envelope_score
+        ):
+            envelope_start = candidate.start
+            envelope_end = candidate.end
+            envelope_score = candidate.score
+
     return keepers
 
 

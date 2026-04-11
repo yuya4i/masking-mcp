@@ -1,0 +1,45 @@
+{
+  "filter_enabled": true,
+  "fail_closed": true,
+  "entity_types": [
+    "PERSON",
+    "PHONE_NUMBER",
+    "EMAIL_ADDRESS",
+    "CREDIT_CARD",
+    "LOCATION"
+  ],
+  "allow_entity_types": [],
+  "mask_strategy": "tag",
+  "default_provider_id": "openai",
+  "providers": {
+    "openai": {
+      "provider_id": "openai",
+      "provider_type": "openai",
+      "base_url": "https://api.openai.com",
+      "enabled": true,
+      "route_mode": "native",
+      "default_headers": {},
+      "model_mapping": {}
+    },
+    "anthropic": {
+      "provider_id": "anthropic",
+      "provider_type": "anthropic",
+      "base_url": "https://api.anthropic.com",
+      "enabled": true,
+      "route_mode": "native",
+      "default_headers": {
+        "anthropic-version": "2023-06-01"
+      },
+      "model_mapping": {}
+    },
+    "manus": {
+      "provider_id": "manus",
+      "provider_type": "manus",
+      "base_url": "https://api.manus.im",
+      "enabled": false,
+      "route_mode": "native",
+      "default_headers": {},
+      "model_mapping": {}
+    }
+  }
+}

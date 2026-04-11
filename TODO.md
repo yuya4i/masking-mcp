@@ -94,7 +94,7 @@ existing Presidio English path.
     curl round-trip shows `田中太郎` masked in `sanitized_text`.
   - Depends on: nothing.
 
-- [x] **feat/pos-filter-config** — merged in `<pending>` alongside
+- [x] **feat/pos-filter-config** — merged in `1c47adc` alongside
   `feat/sudachi-split-mode-config` on the shared
   `feat/sudachi-config-pack` branch, 18/18 tests green.
   - Expose the set of POS prefixes that count as "proper noun" as
@@ -165,7 +165,7 @@ against Japanese (or vice versa).
 - [ ] **docs/architecture-diagram** — ASCII / Mermaid diagram of
   analyzer chain, language routing, MITM proxy flow.
 
-- [x] **feat/sudachi-split-mode-config** — merged in `<pending>`
+- [x] **feat/sudachi-split-mode-config** — merged in `1c47adc`
   alongside `feat/pos-filter-config` on the shared
   `feat/sudachi-config-pack` branch, 18/18 tests green.
   Exposes `sudachi_split_mode: Literal["A", "B", "C"] = "C"` in

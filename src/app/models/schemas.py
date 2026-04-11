@@ -101,6 +101,16 @@ class RuntimeConfig(BaseModel):
     #: always 1.0. Tune this to silence Presidio false positives without
     #: touching the analyzer configuration itself.
     min_score: float = 0.0
+    #: Pragmatic hack for the handful of surfaces (``千葉`` / ``神戸`` /
+    #: ``岡山`` / ``福岡``) that Sudachi's default dictionary returns as
+    #: ``PROPER_NOUN_LOCATION`` even though they are at least as common
+    #: as Japanese surnames. When set to ``True`` the Sudachi analyzer
+    #: relabels those specific surfaces to ``PROPER_NOUN_PERSON`` *after*
+    #: the POS filter has already let them through. Default ``False``
+    #: preserves the pre-existing behaviour byte-for-byte. This is NOT a
+    #: machine-learned disambiguator — see the analyzer docstring for
+    #: the explicit hardcoded set and its rationale.
+    prefer_surname_for_ambiguous: bool = False
     default_provider_id: str = "openai"
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 

@@ -172,12 +172,18 @@ against Japanese (or vice versa).
   are unaffected; raise it to silence Presidio false positives like
   `Reach → PERSON`. 30/30 tests green.
 
-- [ ] **feat/audit-query-endpoint** — `/admin/audits` accepts `since`
-  / `entity_type` / `action` query params instead of just returning
-  the last N records.
+- [x] **feat/audit-query-endpoint** — merged on `feat/final-wave`
+  (SHA pending). `/admin/audits` now accepts optional `since=<iso>`,
+  `entity_type=<str>`, `action=masked|allowed`, and `limit=<int>`
+  query params. Zero-param call is byte-for-byte compatible with the
+  legacy "last 100" behaviour; the four filters layer on top and
+  `limit` applies after filtering so narrow queries still return up
+  to N matches.
 
-- [ ] **docs/architecture-diagram** — ASCII / Mermaid diagram of
-  analyzer chain, language routing, MITM proxy flow.
+- [x] **docs/architecture-diagram** — merged on `feat/final-wave`
+  (SHA pending). Added a 37-line ASCII diagram to the
+  アーキテクチャ概要 section in `README.md` covering the analyzer
+  chain, language dispatch, MITM proxy flow, and audit log.
 
 - [x] **feat/sudachi-split-mode-config** — merged in `1c47adc`
   alongside `feat/pos-filter-config` on the shared
@@ -188,17 +194,23 @@ against Japanese (or vice versa).
   in. `MaskingService` rebuilds the cached Sudachi analyzer whenever
   the configured split mode changes between requests.
 
-- [ ] **chore/sudachi-overlap-sweep-line** — the overlap resolver
-  introduced with `feat/sudachi-analyzer` is an O(n²) nested scan.
-  Fine for PoC payloads but scales poorly on long PDF extracts with
-  hundreds of detections. Rewrite as an interval-sweep in
-  `masking_service.py` once input sizes justify it. Depends on: nothing.
+- [x] **chore/sudachi-overlap-sweep-line** — merged on
+  `feat/final-wave` (SHA pending). Rewrote `_resolve_overlaps` in
+  `masking_service.py` as a single linear sweep over results sorted
+  by `(start, -end)` with a running "envelope" of the strongest
+  dominator. Final complexity is O(n log n) from the sort plus O(n)
+  walk; semantics are preserved exactly (identical spans still
+  survive each other, ties deterministic). Pinned correctness with
+  one 50-detection synthetic test.
 
-- [ ] **feat/sudachi-surname-placename-disambiguation** — surfaces like
-  `千葉` / `神戸` are both `人名` (surname) and `地名` (city) in the Sudachi
-  default dictionary. A per-request confidence threshold, a custom
-  user dictionary, or a contextual heuristic would reduce misfires.
-  Depends on: nothing, but benefits from `feat/score-threshold`.
+- [x] **feat/sudachi-surname-placename-disambiguation** — merged on
+  `feat/final-wave` (SHA pending). Added a `prefer_surname_for_ambiguous`
+  bool to `RuntimeConfig` (default `False`). When set, the Sudachi
+  analyzer relabels detections whose surface is in a hardcoded
+  `{千葉, 神戸, 岡山, 福岡}` set from `PROPER_NOUN_LOCATION` to
+  `PROPER_NOUN_PERSON`. Pragmatic hack, not ML — the docstring calls
+  that out explicitly. Operators needing real disambiguation should
+  reach for GiNZA / spaCy-ja or a custom NER, both out of scope.
 
 - [x] **chore/tests-conftest** — merged on `feat/polish-pack`. The
   duplicated `DummyConfigRepository` / `DummyAuditRepository` helpers
@@ -211,10 +223,16 @@ against Japanese (or vice versa).
 
 ## Milestone 5 — MCP surface
 
-- [ ] **feat/mcp-language-tool** — expose `detect_language(text)` as
-  an MCP tool.
-- [ ] **feat/mcp-analyzer-tool** — MCP tool to enable/disable individual
-  analyzers at runtime (mirroring `toggle_filter` but per-analyzer).
+- [x] **feat/mcp-language-tool** — merged on `feat/final-wave`
+  (SHA pending). Exposed `detect_language(text) -> {"language": ...}`
+  as an MCP tool, thin wrapper over
+  `app.services.language_detection.detect_language`.
+- [x] **feat/mcp-analyzer-tool** — merged on `feat/final-wave`
+  (SHA pending). Added
+  `set_analyzer_config(morphological_analyzer, analyzers_by_language)`
+  that updates RuntimeConfig via `config_repo.save()` and returns
+  the new config. Tight scope: two fields only, Pydantic does the
+  validation.
 
 ---
 

@@ -8,6 +8,44 @@
 
 本プロジェクトは、`FastAPI` によるローカル常駐サービスを中核にし、**複数のアナライザを合成できるマスキングパイプライン** + `pytesseract` による OCR + `FastMCP` による MCP ツール提供を行う雛形です。
 
+```text
+      HTTP request (/sanitize/text, /proxy/*)        MCP stdio (sanitize_text, ...)
+              │                                                │
+              ▼                                                ▼
+        FastAPI router  ───────────────────────────────▶  FastMCP server
+              │             (shared MaskingService)
+              ▼
+     ┌──────────────────────────────────────────────┐
+     │             MaskingService                   │
+     │  detect_language(text)  →  "ja"/"en"/"mixed" │
+     │          │                                   │
+     │          ▼                                   │
+     │  analyzers_by_language[lang]  (or legacy)    │
+     │          │                                   │
+     │   ┌──────┼──────────┬───────────┐            │
+     │   ▼      ▼          ▼           ▼            │
+     │ Presidio Sudachi  Regex  (future analyzer)   │
+     │   │      │          │                        │
+     │   └──────┴──────────┘                        │
+     │        merged RecognizerResult[]             │
+     │        │                                     │
+     │        ▼                                     │
+     │  _resolve_overlaps (sweep-line)              │
+     │        │                                     │
+     │        ▼                                     │
+     │  allow-list filter + mask strategy           │
+     │  (tag | partial | hash)                      │
+     └────────────────────┬─────────────────────────┘
+                          ▼
+           sanitized text + DetectionResult[]
+                          │
+                          ▼
+          MITM proxy → upstream LLM  (optional)
+                          │
+                          ▼
+           audit log (JSONL) + admin_token bootstrap
+```
+
 アナライザの現状と予定:
 
 - **Presidio** (実装済み): 英語中心の NER + 正規表現。`PERSON` / `EMAIL_ADDRESS` / `CREDIT_CARD` など固定カテゴリで検出する `entity_types` 指定に対応。

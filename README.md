@@ -2,9 +2,20 @@
 
 `local-mask-mcp` は、生成AIへ送信する前にローカルPC上で個人情報を検出・マスクするための軽量ゲートウェイです。MCP対応クライアント向けのツール提供と、OpenAI、Claude、Manus、その他プロバイダ向けのローカルHTTPプロキシを同居させる構成を想定しています。
 
+> **ロードマップ**: 実装中 / 予定している機能一覧は [TODO.md](./TODO.md) を参照してください。現在の最重点は **日本語文書を形態素解析して固有名詞 (人名・地名・組織名など) のみをマスクする** 機能 (`feat/sudachi-analyzer`) です。一般名詞はマスクしません。
+
 ## アーキテクチャ概要
 
-本プロジェクトは、`FastAPI` によるローカル常駐サービスを中核にし、`Presidio` を用いたPII検出・匿名化、`pytesseract` を用いたOCR、`FastMCP` を用いたMCPツール提供を行う雛形です。初期実装では、設定はJSON、監査ログはJSON Linesで保持します。外部AIへの転送は `ProviderResolver + ProviderAdapter` パターンで実装し、プロバイダ追加時は既存のマスキング処理を変更せずにアダプタを差し込める構成としています。
+本プロジェクトは、`FastAPI` によるローカル常駐サービスを中核にし、**複数のアナライザを合成できるマスキングパイプライン** + `pytesseract` による OCR + `FastMCP` による MCP ツール提供を行う雛形です。
+
+アナライザの現状と予定:
+
+- **Presidio** (実装済み): 英語中心の NER + 正規表現。`PERSON` / `EMAIL_ADDRESS` / `CREDIT_CARD` など固定カテゴリで検出する `entity_types` 指定に対応。
+- **SudachiPy 固有名詞抽出** ([feat/sudachi-analyzer](./TODO.md#milestone-1--japanese-proper-noun-masking-mvp) で追加予定): 日本語形態素解析により **POS = 名詞,固有名詞** のトークンのみを検出対象にする。カテゴリに縛られず、人名・地名・組織名・商品名を一括でマスクできる。一般名詞 (名詞,一般) は意図的に除外。
+- **カスタム正規表現レコグナイザー** (Milestone 2): 社内 ID・プロジェクトコードなど業務固有パターン。
+- **アナライザ抽象化** (Milestone 2): `Analyzer` プロトコルで 3 つを統一し、`MaskingService` は合成チェーンのみを持つ。
+
+設定は JSON、監査ログは JSON Lines で保持します。外部 AI への転送は **pure MITM パススルー** で、プロバイダごとの認証ヘッダはクライアントがそのまま送る方式です (`PASSTHROUGH_HEADER_MAPPING`)。
 
 ## ディレクトリ構成
 

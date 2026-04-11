@@ -6,13 +6,18 @@ import uuid
 from collections import Counter
 from typing import Iterable
 
-from presidio_analyzer import AnalyzerEngine, RecognizerResult
+from presidio_analyzer import RecognizerResult
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
 
 from app.models.schemas import AuditRecord, DetectionResult, SanitizeResponse, TextSanitizeRequest
+from app.services.analyzers import (
+    Analyzer,
+    AnalyzerRequest,
+    PresidioAnalyzer,
+    SudachiProperNounAnalyzer,
+)
 from app.services.repositories import AuditRepository, ConfigRepository
-from app.services.sudachi_analyzer import SudachiProperNounAnalyzer
 
 
 #: Number of characters of surrounding text kept in each DetectionResult's
@@ -25,18 +30,37 @@ class MaskingService:
     def __init__(self, config_repo: ConfigRepository, audit_repo: AuditRepository) -> None:
         self.config_repo = config_repo
         self.audit_repo = audit_repo
-        self.analyzer = AnalyzerEngine()
         self.anonymizer = AnonymizerEngine()
-        # Lazily constructed on first Japanese request so operators who
-        # never opt in to ``morphological_analyzer="sudachi"`` do not pay
-        # the ~50 MB dict-load cost at service boot.
-        self._sudachi: SudachiProperNounAnalyzer | None = None
+        #: Lazily populated map of active analyzers keyed by ``Analyzer.name``.
+        #: A dict (rather than a list) because a future ``allow_entity_types``
+        #: extension may want to disable a specific analyzer by string, which
+        #: is an O(1) lookup here and avoids a linear scan over instances.
+        #: Analyzers are added on first use so operators who never opt in to
+        #: ``morphological_analyzer="sudachi"`` never pay the Sudachi dict
+        #: load cost at service boot.
+        self._analyzers: dict[str, Analyzer] = {}
 
-    def _ensure_sudachi(self) -> SudachiProperNounAnalyzer:
-        """Return the cached Sudachi analyzer, creating it on demand."""
-        if self._sudachi is None:
-            self._sudachi = SudachiProperNounAnalyzer()
-        return self._sudachi
+    def _get_analyzer(self, name: str) -> Analyzer:
+        """Return the cached analyzer for ``name``, constructing it on demand.
+
+        The constructor map is intentionally kept inline — adding a new
+        analyzer means adding one elif branch here plus a new module in
+        ``app.services.analyzers``. When the list grows beyond three or
+        four backends, consider promoting this to a registry decorator.
+        """
+        cached = self._analyzers.get(name)
+        if cached is not None:
+            return cached
+
+        if name == "presidio":
+            analyzer: Analyzer = PresidioAnalyzer()
+        elif name == "sudachi":
+            analyzer = SudachiProperNounAnalyzer()
+        else:
+            raise ValueError(f"unknown analyzer: {name!r}")
+
+        self._analyzers[name] = analyzer
+        return analyzer
 
     def sanitize_text(self, request: TextSanitizeRequest) -> SanitizeResponse:
         started = time.perf_counter()
@@ -63,31 +87,32 @@ class MaskingService:
             self._write_audit(audit_id, "text", False, [], None, "success", started)
             return response
 
+        # Presidio always runs (pre-refactor default). Sudachi is the
+        # opt-in secondary pass that was previously hard-wired behind an
+        # ``if config.morphological_analyzer == "sudachi"`` branch. We
+        # keep the primary / secondary split explicit so the behaviour
+        # is byte-for-byte identical to the pre-refactor code: the
+        # overlap resolver is only invoked when Sudachi actually
+        # contributed at least one span, preserving Presidio's native
+        # ordering in the common English-only case.
+        analyzer_request = AnalyzerRequest(
+            text=request.text,
+            entity_types=list(entity_types),
+            language="en",
+        )
+
         # Detect everything the operator asked for. The allow-list filters
         # the masking step only, so allowed entities still show up in the
         # audit trail with ``action="allowed"``.
-        recognizer_results = self.analyzer.analyze(
-            text=request.text, entities=entity_types, language="en"
-        )
+        recognizer_results: list[RecognizerResult] = self._get_analyzer(
+            "presidio"
+        ).analyze(analyzer_request)
 
-        # Optional Japanese morphological pass — opt-in via RuntimeConfig.
-        # We keep Sudachi additive on top of Presidio so operators do not
-        # have to choose one or the other; the overlap resolver drops any
-        # span that is fully contained within a higher-scoring neighbour
-        # so the merged list stays clean.
         if config.morphological_analyzer == "sudachi":
-            sudachi_results = [
-                RecognizerResult(
-                    entity_type=det.entity_type,
-                    start=det.start,
-                    end=det.end,
-                    score=det.score,
-                )
-                for det in self._ensure_sudachi().analyze(request.text)
-            ]
+            sudachi_results = self._get_analyzer("sudachi").analyze(analyzer_request)
             if sudachi_results:
                 recognizer_results = _resolve_overlaps(
-                    list(recognizer_results) + sudachi_results
+                    list(recognizer_results) + list(sudachi_results)
                 )
 
         maskable = [r for r in recognizer_results if r.entity_type not in allow_types]

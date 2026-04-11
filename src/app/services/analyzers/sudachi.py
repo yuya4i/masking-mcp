@@ -2,10 +2,10 @@
 
 This module is deliberately self-contained: it exposes a small analyzer
 class that returns plain dataclass instances and has no dependency on
-Presidio. The ``MaskingService`` integration lifts those records into
-``RecognizerResult`` objects at call time so the rest of the pipeline
-(allow-list filtering, strategy application, detection reporting) keeps
-working unchanged.
+Presidio at the tokenization layer. The ``MaskingService`` integration
+lifts those records into ``RecognizerResult`` objects at call time so
+the rest of the pipeline (allow-list filtering, strategy application,
+detection reporting) keeps working unchanged.
 
 The analyzer only reports morphemes whose part-of-speech tuple starts
 with ``("名詞", "固有名詞", ...)``. Everything else — including the
@@ -26,9 +26,12 @@ producing garbled spans.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, overload
 
+from presidio_analyzer import RecognizerResult
 from sudachipy import Dictionary, SplitMode, Tokenizer
+
+from app.services.analyzers.base import AnalyzerRequest
 
 
 #: Sudachi offers three split granularities.  ``C`` keeps multi-morpheme
@@ -85,13 +88,68 @@ class SudachiProperNounAnalyzer:
     memory), so ``MaskingService`` lazily creates a single instance the
     first time a request opts in to morphological analysis. Subsequent
     calls reuse the same tokenizer.
+
+    The class carries two public responsibilities on purpose:
+
+    * The low-level tokenizer API — ``analyze(text: str)`` — returns a
+      list of :class:`SudachiDetection` dataclass instances. Tests and
+      anyone who wants raw proper-noun morphemes (with the ``surface``
+      field intact) rely on this shape, so it is preserved verbatim
+      from the pre-refactor ``sudachi_analyzer`` module.
+    * The :class:`app.services.analyzers.base.Analyzer` protocol —
+      ``analyze(request: AnalyzerRequest)`` returns a list of
+      ``RecognizerResult`` instead, which is what ``MaskingService``
+      concatenates with every other analyzer's output before running
+      the masking strategy. That adapter used to live inline in
+      ``MaskingService.sanitize_text``; hoisting it here means adding a
+      new analyzer is a one-file drop-in.
+
+    Runtime dispatch is a plain ``isinstance`` check on the argument,
+    which is unambiguous because ``AnalyzerRequest`` is a dataclass and
+    ``str`` is, well, a string. Both call sites keep their natural
+    ergonomics and neither needs a second method name.
     """
+
+    name = "sudachi"
 
     def __init__(self, split_mode: SudachiSplitMode = "C") -> None:
         self._mode: SplitMode = _split_mode_from_str(split_mode)
         self._tokenizer: Tokenizer = Dictionary().create()
 
-    def analyze(self, text: str) -> list[SudachiDetection]:
+    @overload
+    def analyze(self, arg: str) -> list[SudachiDetection]:
+        ...
+
+    @overload
+    def analyze(self, arg: AnalyzerRequest) -> list[RecognizerResult]:
+        ...
+
+    def analyze(
+        self, arg: str | AnalyzerRequest
+    ) -> list[SudachiDetection] | list[RecognizerResult]:
+        """Tokenize ``arg`` and return proper-noun detections.
+
+        Passing a raw ``str`` returns the low-level
+        :class:`SudachiDetection` records so callers who want the
+        ``surface`` field (tests, ad-hoc experimentation) keep working
+        unchanged. Passing an :class:`AnalyzerRequest` returns
+        ``RecognizerResult`` records — Presidio's native type, which is
+        what the ``MaskingService`` pipeline feeds into the overlap
+        resolver and masking strategies.
+        """
+        if isinstance(arg, AnalyzerRequest):
+            return [
+                RecognizerResult(
+                    entity_type=det.entity_type,
+                    start=det.start,
+                    end=det.end,
+                    score=det.score,
+                )
+                for det in self._tokenize(arg.text)
+            ]
+        return self._tokenize(arg)
+
+    def _tokenize(self, text: str) -> list[SudachiDetection]:
         """Return every proper-noun morpheme detected in ``text``.
 
         Empty input returns an empty list without touching the

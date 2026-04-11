@@ -131,7 +131,7 @@ backend (GiNZA, Fugashi, custom regex) is a one-file change.
   `feat/language-and-regex` branch (combined with Milestone 3 below
   because the three features all touch the Analyzer protocol +
   MaskingService and would conflict if done separately). 29/29 tests
-  green. Merge SHA `<pending>`.
+  green. Merge SHA `6ee2001`.
   - `RegexAnalyzer` — pattern list in config, first-class analyzer.
   - Useful for employee IDs, internal project codes, free-text
     passwords that slip past both Presidio and Sudachi.
@@ -148,7 +148,7 @@ against Japanese (or vice versa).
 - [x] **feat/language-detection** — landed on the shared
   `feat/language-and-regex` branch together with
   `feat/language-aware-dispatch` and `feat/custom-regex-recognizer`.
-  29/29 tests green. Merge SHA `<pending>`.
+  29/29 tests green. Merge SHA `6ee2001`.
   - Simple CJK-ratio detector returning `"ja"` / `"en"` / `"mixed"`.
   - Pure-Python, no new dependency.
 
@@ -156,7 +156,7 @@ against Japanese (or vice versa).
   `feat/language-and-regex` branch alongside `feat/language-detection`
   and `feat/custom-regex-recognizer`. Opt-in via
   `RuntimeConfig.analyzers_by_language`; legacy path is byte-for-byte
-  preserved. 29/29 tests green. Merge SHA `<pending>`.
+  preserved. 29/29 tests green. Merge SHA `6ee2001`.
   - `MaskingService` selects analyzer subset by detected language.
   - Config: `analyzers_by_language: dict[str, list[str]]`.
   - Depends on: `refactor/analyzer-protocol` + `feat/language-detection`.

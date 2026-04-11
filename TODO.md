@@ -165,9 +165,12 @@ against Japanese (or vice versa).
 
 ## Milestone 4 — Observability & polish
 
-- [ ] **feat/score-threshold** — per-entity minimum score filter; drops
-  low-confidence detections before they hit `sanitized_text`. Closes
-  the current `Reach → PERSON` false-positive noted in the e2e test.
+- [x] **feat/score-threshold** — merged on `feat/polish-pack`. Adds
+  `RuntimeConfig.min_score: float = 0.0` and applies it once on the
+  merged analyzer result set in `MaskingService.sanitize_text`, before
+  the allow-list filter. Default 0.0 is a no-op so existing deployments
+  are unaffected; raise it to silence Presidio false positives like
+  `Reach → PERSON`. 30/30 tests green.
 
 - [ ] **feat/audit-query-endpoint** — `/admin/audits` accepts `since`
   / `entity_type` / `action` query params instead of just returning
@@ -197,11 +200,12 @@ against Japanese (or vice versa).
   user dictionary, or a contextual heuristic would reduce misfires.
   Depends on: nothing, but benefits from `feat/score-threshold`.
 
-- [ ] **chore/tests-conftest** — `DummyConfigRepository` /
-  `DummyAuditRepository` helpers are duplicated between
-  `test_masking_service.py` and `test_sudachi_analyzer.py`. Lift them
-  into `tests/conftest.py` as pytest fixtures before adding the next
-  test file. Depends on: nothing; should be done before Milestone 2.
+- [x] **chore/tests-conftest** — merged on `feat/polish-pack`. The
+  duplicated `DummyConfigRepository` / `DummyAuditRepository` helpers
+  now live in `tests/conftest.py` and are exported both as importable
+  classes (for tests that pass a custom `RuntimeConfig`) and as
+  `dummy_config_repo` / `dummy_audit_repo` pytest fixtures. 30/30
+  tests green.
 
 ---
 

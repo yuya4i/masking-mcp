@@ -199,6 +199,17 @@ class MaskingService:
                 analyzer_request, config
             )
 
+        # Drop low-confidence detections before anything else touches the
+        # merged list. Applied exactly once, on the already-merged result
+        # set, so the filter sees the final union of every analyzer that
+        # ran — no individual analyzer has to know about ``min_score``
+        # itself. ``min_score == 0.0`` (the default) is a no-op and
+        # preserves the pre-threshold behaviour byte-for-byte.
+        if config.min_score > 0.0:
+            recognizer_results = [
+                r for r in recognizer_results if r.score >= config.min_score
+            ]
+
         maskable = [r for r in recognizer_results if r.entity_type not in allow_types]
 
         sanitized_text = self._apply_strategy(request.text, maskable, mask_strategy)

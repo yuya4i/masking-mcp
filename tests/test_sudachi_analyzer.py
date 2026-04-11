@@ -2,42 +2,17 @@
 
 These cover both the standalone ``SudachiProperNounAnalyzer`` and its
 integration into ``MaskingService`` behind the opt-in
-``RuntimeConfig.morphological_analyzer`` flag. The integration tests
-reuse the ``DummyConfigRepository`` / ``DummyAuditRepository`` pattern
-from ``test_masking_service.py`` deliberately — keeping the helpers
-local makes this PR reviewable in isolation; extracting a conftest is
-a follow-up that should ride with a broader test-refactor commit.
+``RuntimeConfig.morphological_analyzer`` flag. The ``DummyConfigRepository``
+/ ``DummyAuditRepository`` helpers live in ``tests/conftest.py`` so the
+same in-memory stubs are shared across the whole suite.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 from app.models.schemas import RuntimeConfig, TextSanitizeRequest
-from app.services.masking_service import MaskingService
-from app.services.repositories import AuditRepository, ConfigRepository
 from app.services.analyzers import SudachiProperNounAnalyzer
+from app.services.masking_service import MaskingService
 
-
-class DummyConfigRepository(ConfigRepository):
-    def __init__(self, config: RuntimeConfig | None = None) -> None:
-        self._config = config or RuntimeConfig(filter_enabled=True)
-        self.path = Path("/tmp/runtime_config_sudachi_test.json")
-
-    def load(self) -> RuntimeConfig:
-        return self._config
-
-    def save(self, config: RuntimeConfig) -> RuntimeConfig:
-        self._config = config
-        return config
-
-
-class DummyAuditRepository(AuditRepository):
-    def __init__(self) -> None:
-        self.records: list = []
-        self.path = Path("/tmp/audit_sudachi_test.jsonl")
-
-    def append(self, record) -> None:
-        self.records.append(record)
+from conftest import DummyAuditRepository, DummyConfigRepository
 
 
 def test_detects_person_and_location() -> None:

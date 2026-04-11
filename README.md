@@ -280,6 +280,66 @@ curl -X POST http://127.0.0.1:8081/sanitize/text \
 
 検出ラベルは `allow_entity_types` とも組み合わせられます。例えば `"allow_entity_types": ["PROPER_NOUN_LOCATION"]` を指定すれば、人名はマスクしつつ地名だけ pass-through にできます (監査ログには `action: "allowed"` として残ります)。
 
+### 補足: 言語別のアナライザ振り分け + 正規表現カスタム検出
+
+長文の英語と日本語が混在するワークロードでは、Presidio を日本語に当てても拾えず、Sudachi を英語に当てても空振りするだけなので、**入力テキストの CJK 比率で振り分け**できます。加えて、社内 ID や案件コードのように Presidio の定型カテゴリでも Sudachi の固有名詞抽出でも拾えない業務固有パターンには、**`RegexAnalyzer` によるカスタム正規表現** を 1 本の分析器として追加できます。
+
+`RuntimeConfig.analyzers_by_language` を設定すると、各リクエストのテキストに対して以下の流れが動きます:
+
+1. `app.services.language_detection.detect_language(text)` が `"ja"` / `"en"` / `"mixed"` を返す (CJK 比率 ≥ `language_detection_ja_threshold` で `"ja"`、0 で `"en"`、その間を `"mixed"`)
+2. 設定されたマップから、その言語に対応するアナライザの順序付きリストを取り出す (なければ `mixed` → `en` の順でフォールバック)
+3. そのリストに含まれるアナライザだけが走る
+
+`analyzers_by_language` が未設定 (`null`) の場合は従来どおり **Presidio 常時 + Sudachi 任意** の挙動になるため、既存デプロイはまったく影響を受けません。
+
+```bash
+# 1) 言語別ディスパッチ + 社内 ID 正規表現を有効化
+cat <<'JSON' | curl -X PUT http://127.0.0.1:8081/admin/config \
+  -H "Authorization: Bearer $(cat data/admin_token)" \
+  -H 'Content-Type: application/json' \
+  -d @-
+{
+  "filter_enabled": true,
+  "fail_closed": true,
+  "entity_types": ["PERSON", "PHONE_NUMBER", "EMAIL_ADDRESS", "LOCATION"],
+  "mask_strategy": "tag",
+  "morphological_analyzer": "sudachi",
+  "analyzers_by_language": {
+    "en":    ["presidio", "regex"],
+    "ja":    ["sudachi",  "regex"],
+    "mixed": ["presidio", "sudachi", "regex"]
+  },
+  "regex_patterns": [
+    ["EMPLOYEE_ID",   "EMP-\\d{5}"],
+    ["PROJECT_CODE",  "PRJ-[A-Z]{3}-\\d{4}"]
+  ],
+  "language_detection_ja_threshold": 0.2
+}
+JSON
+
+# 2) 英語テキストに社員 ID を混ぜる
+curl -X POST http://127.0.0.1:8081/sanitize/text \
+  -H "Authorization: Bearer $(cat data/admin_token)" \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "employee EMP-12345 filed project PRJ-ABC-0099 yesterday"}'
+```
+
+期待されるレスポンス (抜粋):
+
+```jsonc
+{
+  "sanitized_text": "employee <EMPLOYEE_ID> filed project <PROJECT_CODE> yesterday",
+  "detections": [
+    { "entity_type": "EMPLOYEE_ID",  "text": "EMP-12345",    "action": "masked" },
+    { "entity_type": "PROJECT_CODE", "text": "PRJ-ABC-0099", "action": "masked" }
+  ]
+}
+```
+
+`regex_patterns` の各要素は `[entity_type, regex]` の 2 要素リストで、JSON エスケープの都合上 `\\d` のようにバックスラッシュを二重化して書きます。正規表現はコンパイル時にエラーになると `MaskingService` の次回リクエスト時に `re.error` を透過させるので、テスト環境で構文エラーを検出できます。`analyzers_by_language` に `"regex"` を並べておき `regex_patterns` を空にしておくと、チェーン構成は維持したままパターンだけを切り離せます。
+
+`language_detection_ja_threshold` は 0.0–1.0 の実数です。デフォルトの 0.2 は「英語長文の中に 1 つだけ漢字が混ざる」程度では `"ja"` に傾かず `"mixed"` に落とすバランスで、オペレータが全体を漢字寄りに寄せたければ下げる (例: 0.1) ことができます。
+
 ### 補足: 検出結果のテーブル表示
 
 `sanitize/text` / `sanitize/file` のレスポンス `detections` は以下のカラムを持つので、どのクライアントでもそのままテーブル描画できます。

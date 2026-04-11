@@ -74,12 +74,16 @@ class MaskingService:
         if name == "sudachi":
             # Sudachi's constructor kwargs are exposed in RuntimeConfig,
             # so the fingerprint needs to round-trip through a hashable
-            # value for the equality check below.
+            # tuple for the equality check below. Nested lists become
+            # tuples of tuples — cheap, deterministic.
             if config is None:
                 raise ValueError(
                     "MaskingService._get_analyzer('sudachi') requires a RuntimeConfig"
                 )
-            fingerprint = config.sudachi_split_mode
+            fingerprint = (
+                config.sudachi_split_mode,
+                tuple(tuple(p) for p in config.proper_noun_pos_patterns),
+            )
 
         cached = self._analyzers.get(name)
         if cached is not None and self._analyzer_fingerprints.get(name) == fingerprint:
@@ -91,6 +95,7 @@ class MaskingService:
             assert config is not None  # guarded above; helps the type checker
             analyzer = SudachiProperNounAnalyzer(
                 split_mode=config.sudachi_split_mode,
+                pos_patterns=[list(p) for p in config.proper_noun_pos_patterns],
             )
         else:
             raise ValueError(f"unknown analyzer: {name!r}")

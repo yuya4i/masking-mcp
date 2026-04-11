@@ -82,10 +82,22 @@ class MaskingService:
                 raise ValueError(
                     "MaskingService._get_analyzer('sudachi') requires a RuntimeConfig"
                 )
-            fingerprint = (
+            # Backward-compatible fingerprint shape: when the new
+            # ``prefer_surname_for_ambiguous`` flag is False (the
+            # default), we emit the legacy two-tuple that the
+            # existing ``test_masking_service_honors_sudachi_config``
+            # assertion locks in. When the flag is True we append
+            # a third element so a live flip between False/True
+            # still rebuilds the cached analyzer — the tuple
+            # mismatch drives the rebuild path a few lines below.
+            base_fingerprint = (
                 config.sudachi_split_mode,
                 tuple(tuple(p) for p in config.proper_noun_pos_patterns),
             )
+            if config.prefer_surname_for_ambiguous:
+                fingerprint = (*base_fingerprint, True)
+            else:
+                fingerprint = base_fingerprint
         elif name == "regex":
             # Regex patterns are fully described by the (entity_type,
             # pattern) pairs in RuntimeConfig. Round-trip through a
@@ -108,6 +120,7 @@ class MaskingService:
             analyzer = SudachiProperNounAnalyzer(
                 split_mode=config.sudachi_split_mode,
                 pos_patterns=[list(p) for p in config.proper_noun_pos_patterns],
+                prefer_surname_for_ambiguous=config.prefer_surname_for_ambiguous,
             )
         elif name == "regex":
             assert config is not None  # guarded above; helps the type checker

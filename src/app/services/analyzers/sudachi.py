@@ -70,6 +70,39 @@ _FINE_POS_TO_ENTITY: dict[str, str] = {
 }
 
 
+#: Hardcoded surnames that are ALSO listed as placenames in Sudachi's
+#: default core dictionary. Every entry here is a string where both
+#: readings are real and plausible in Japanese text: ``千葉`` is a
+#: prefecture and one of the top-200 surnames; ``福岡`` likewise; and so
+#: on. Because Sudachi returns a deterministic category per token
+#: (the ``人名`` / ``地名`` slot in the POS 6-tuple), the default
+#: dictionary labels these as ``地名`` — which is fine for
+#: location-heavy corpora but surprises masking pipelines that see
+#: signature lines like ``千葉 太郎`` where the first token is
+#: obviously the surname.
+#:
+#: When ``RuntimeConfig.prefer_surname_for_ambiguous`` is ``True``,
+#: the analyzer relabels every ``PROPER_NOUN_LOCATION`` whose surface
+#: is in this set to ``PROPER_NOUN_PERSON``. That is deliberately a
+#: hack, not ML: it trades the (rare) false positive "``千葉 県`` gets
+#: tagged as a person" for the (common) false negative "``千葉 様`` gets
+#: tagged as a place". Operators who want real disambiguation should
+#: either build a GiNZA / spaCy-ja recognizer or train a custom NER;
+#: both are out of scope for the local gateway.
+#:
+#: The set is intentionally tiny — four entries chosen because they
+#: are the canonical examples used in the TODO.md discussion of this
+#: feature. Adding more surfaces here is a one-line change; adding a
+#: per-operator override should go through ``RuntimeConfig`` rather
+#: than growing this module-level constant.
+SURNAMES_THAT_ARE_ALSO_PLACENAMES: frozenset[str] = frozenset({
+    "千葉",
+    "神戸",
+    "岡山",
+    "福岡",
+})
+
+
 #: Default POS prefix for the analyzer when a caller does not pass
 #: ``pos_patterns`` — matches every ``名詞,固有名詞`` entry, which is the
 #: pre-refactor behaviour and the schema default on ``RuntimeConfig``.
@@ -139,6 +172,7 @@ class SudachiProperNounAnalyzer:
         self,
         split_mode: str = "C",
         pos_patterns: list[list[str]] | None = None,
+        prefer_surname_for_ambiguous: bool = False,
     ) -> None:
         self._mode: SplitMode = _split_mode_from_str(split_mode)
         #: The POS prefix filter consulted on every ``_tokenize`` call.
@@ -152,6 +186,11 @@ class SudachiProperNounAnalyzer:
             if pos_patterns is not None
             else [list(pattern) for pattern in _DEFAULT_POS_PATTERNS]
         )
+        #: Opt-in surname/placename disambiguation hack. See the
+        #: module-level :data:`SURNAMES_THAT_ARE_ALSO_PLACENAMES`
+        #: docstring for the rationale. Default ``False`` keeps the
+        #: pre-existing behaviour byte-for-byte.
+        self._prefer_surname_for_ambiguous: bool = prefer_surname_for_ambiguous
         self._tokenizer: Tokenizer = Dictionary().create()
 
     @overload
@@ -213,13 +252,28 @@ class SudachiProperNounAnalyzer:
             fine = pos[2] if len(pos) > 2 else ""
             entity_type = _FINE_POS_TO_ENTITY.get(fine, "PROPER_NOUN")
 
+            # Pragmatic surname/placename disambiguation: when the flag
+            # is on AND this morpheme came through as ``PROPER_NOUN_LOCATION``
+            # AND its surface is one of the hardcoded ambiguous
+            # surnames, relabel to ``PROPER_NOUN_PERSON``. This runs
+            # *after* the POS filter because the morpheme's POS tuple
+            # does not change — we just disagree with the default
+            # dictionary's category assignment for that specific surface.
+            surface = morpheme.surface()
+            if (
+                self._prefer_surname_for_ambiguous
+                and entity_type == "PROPER_NOUN_LOCATION"
+                and surface in SURNAMES_THAT_ARE_ALSO_PLACENAMES
+            ):
+                entity_type = "PROPER_NOUN_PERSON"
+
             detections.append(
                 SudachiDetection(
                     entity_type=entity_type,
                     start=morpheme.begin(),
                     end=morpheme.end(),
                     score=1.0,
-                    surface=morpheme.surface(),
+                    surface=surface,
                 )
             )
         return detections

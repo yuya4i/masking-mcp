@@ -191,6 +191,39 @@ def test_pos_pattern_excludes_location() -> None:
         )
 
 
+def test_prefer_surname_for_ambiguous_relabels_location_to_person() -> None:
+    """With the opt-in flag set, Sudachi's ``千葉`` (tagged ``地名`` in
+    the default core dictionary) must come through as
+    ``PROPER_NOUN_PERSON`` rather than ``PROPER_NOUN_LOCATION``.
+
+    Default ``False`` preserves the pre-existing behaviour and is
+    covered by every other test in this file; here we only pin the
+    opt-in branch. The hardcoded set lives in the analyzer module
+    under ``SURNAMES_THAT_ARE_ALSO_PLACENAMES`` and is intentionally
+    tiny — see the docstring there for the rationale.
+    """
+    analyzer = SudachiProperNounAnalyzer(prefer_surname_for_ambiguous=True)
+    detections = analyzer.analyze("千葉は大阪に住んでいる")
+
+    chiba = next((det for det in detections if det.surface == "千葉"), None)
+    assert chiba is not None, (
+        f"expected 千葉 to be detected, got {[(d.surface, d.entity_type) for d in detections]}"
+    )
+    assert chiba.entity_type == "PROPER_NOUN_PERSON", (
+        f"expected 千葉 to be relabeled to PROPER_NOUN_PERSON under the "
+        f"opt-in flag, got {chiba.entity_type}"
+    )
+
+    # Sanity check: 大阪 is NOT in the hardcoded set so it must remain
+    # a location. This guards against the relabel accidentally firing
+    # on every PROPER_NOUN_LOCATION.
+    osaka = next((det for det in detections if det.surface == "大阪"), None)
+    if osaka is not None:
+        assert osaka.entity_type == "PROPER_NOUN_LOCATION", (
+            f"expected 大阪 to stay a LOCATION, got {osaka.entity_type}"
+        )
+
+
 def test_masking_service_honors_sudachi_config() -> None:
     """The masking service must thread ``sudachi_split_mode`` and
     ``proper_noun_pos_patterns`` from ``RuntimeConfig`` through to the

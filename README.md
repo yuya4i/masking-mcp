@@ -234,7 +234,12 @@ cat <<'JSON' | curl -X PUT http://127.0.0.1:8081/admin/config \
   "fail_closed": true,
   "entity_types": ["PERSON", "PHONE_NUMBER", "EMAIL_ADDRESS", "LOCATION"],
   "mask_strategy": "tag",
-  "morphological_analyzer": "sudachi"
+  "morphological_analyzer": "sudachi",
+  "sudachi_split_mode": "A",
+  "proper_noun_pos_patterns": [
+    ["名詞", "固有名詞"],
+    ["名詞", "一般", "人名"]
+  ]
 }
 JSON
 
@@ -244,6 +249,11 @@ curl -X POST http://127.0.0.1:8081/sanitize/text \
   -H 'Content-Type: application/json' \
   -d '{"text": "田中太郎は東京本社にいる"}'
 ```
+
+`sudachi_split_mode` と `proper_noun_pos_patterns` は両方とも省略可能で、既定値はそれぞれ `"C"` (複合固有名詞を 1 トークンに融合) と `[["名詞", "固有名詞"]]` (Sudachi の固有名詞タグすべてを対象) です。既定値は `feat/sudachi-analyzer` 時点の挙動と完全に一致するため、既存デプロイは何もしなくても従来どおりに動作します。
+
+- `sudachi_split_mode`: `"A"` は最小単位まで分割 (例: `東京スカイツリー` → `東京` + `スカイツリー`)、`"B"` は中間、`"C"` は最長単位で融合。固有名詞の *一部* だけをマスクしたい (`東京` だけ出す) ようなケースでは `"A"` を指定します。
+- `proper_noun_pos_patterns`: POS 6 要素タプルの *接頭辞* をリストで渡します。`["名詞", "固有名詞", "人名"]` のように 3 要素目まで指定すれば人名だけに絞り込めますし、IPAdic 系辞書に移行した場合などは `["名詞", "一般", "人名"]` を追加することでカテゴリを補完できます。逆に地名をマスクしたくない運用では `[["名詞", "固有名詞", "人名"], ["名詞", "固有名詞", "組織"], ["名詞", "固有名詞", "一般"]]` のように `地名` を省いたリストを渡します。
 
 期待されるレスポンス (抜粋):
 

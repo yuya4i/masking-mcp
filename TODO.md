@@ -55,7 +55,10 @@ Goal: a user can POST Japanese text containing person/place/organization
 names through `/sanitize/text` and see them masked, without touching the
 existing Presidio English path.
 
-- [ ] **feat/sudachi-analyzer**
+- [x] **feat/sudachi-analyzer** — merged in `7614b83`, 5 commits, 15/15 tests green.
+  Follow-ups discovered during implementation are tracked in Milestone 4 below
+  (split-mode config, overlap resolver optimization, surname/placename
+  ambiguity, conftest extraction).
   - Add `sudachipy` + `sudachidict_core` as runtime dependencies via
     `uv add`; commit both `pyproject.toml` and the regenerated
     `uv.lock`.
@@ -155,6 +158,31 @@ against Japanese (or vice versa).
 
 - [ ] **docs/architecture-diagram** — ASCII / Mermaid diagram of
   analyzer chain, language routing, MITM proxy flow.
+
+- [ ] **feat/sudachi-split-mode-config** — `SudachiProperNounAnalyzer`
+  is currently hard-coded to `SplitMode.C` (longest). Expose
+  `sudachi_split_mode: Literal["A", "B", "C"] = "C"` in `RuntimeConfig`
+  so operators who prefer finer-grained tokenization (e.g. to mask
+  morpheme-level components of compound names) can opt in. Depends on:
+  nothing.
+
+- [ ] **chore/sudachi-overlap-sweep-line** — the overlap resolver
+  introduced with `feat/sudachi-analyzer` is an O(n²) nested scan.
+  Fine for PoC payloads but scales poorly on long PDF extracts with
+  hundreds of detections. Rewrite as an interval-sweep in
+  `masking_service.py` once input sizes justify it. Depends on: nothing.
+
+- [ ] **feat/sudachi-surname-placename-disambiguation** — surfaces like
+  `千葉` / `神戸` are both `人名` (surname) and `地名` (city) in the Sudachi
+  default dictionary. A per-request confidence threshold, a custom
+  user dictionary, or a contextual heuristic would reduce misfires.
+  Depends on: nothing, but benefits from `feat/score-threshold`.
+
+- [ ] **chore/tests-conftest** — `DummyConfigRepository` /
+  `DummyAuditRepository` helpers are duplicated between
+  `test_masking_service.py` and `test_sudachi_analyzer.py`. Lift them
+  into `tests/conftest.py` as pytest fixtures before adding the next
+  test file. Depends on: nothing; should be done before Milestone 2.
 
 ---
 

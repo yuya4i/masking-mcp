@@ -1,1 +1,21 @@
+# secrets
 .env
+.env.*
+!.env.example
+
+# python build / cache artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# host-only python pinning (we're Docker-only; see TODO.md working agreement)
+.venv/
+.python-version
+
+# OS / editor
+.DS_Store
+*.swp

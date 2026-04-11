@@ -54,6 +54,10 @@ class RuntimeConfig(BaseModel):
     #: English-only behaviour untouched, so this field is backward-
     #: compatible with every existing ``runtime_config.json`` on disk.
     morphological_analyzer: Literal["none", "sudachi"] = "none"
+    #: Sudachi split granularity. C keeps multi-morpheme proper nouns
+    #: fused (東京タワー as one token); A splits into minimum units; B is
+    #: in between. Only consulted when ``morphological_analyzer == "sudachi"``.
+    sudachi_split_mode: Literal["A", "B", "C"] = "C"
     default_provider_id: str = "openai"
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 

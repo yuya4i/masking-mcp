@@ -6,8 +6,8 @@ from app.services.repositories import AuditRepository, ConfigRepository
 
 
 class DummyConfigRepository(ConfigRepository):
-    def __init__(self) -> None:
-        self._config = RuntimeConfig(filter_enabled=True)
+    def __init__(self, config: RuntimeConfig | None = None) -> None:
+        self._config = config or RuntimeConfig(filter_enabled=True)
         self.path = Path("/tmp/runtime_config_test.json")
 
     def load(self) -> RuntimeConfig:

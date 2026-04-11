@@ -21,8 +21,10 @@ from app.services.analyzers import (
     Analyzer,
     AnalyzerRequest,
     PresidioAnalyzer,
+    RegexAnalyzer,
     SudachiProperNounAnalyzer,
 )
+from app.services.language_detection import detect_language
 from app.services.repositories import AuditRepository, ConfigRepository
 
 
@@ -84,6 +86,16 @@ class MaskingService:
                 config.sudachi_split_mode,
                 tuple(tuple(p) for p in config.proper_noun_pos_patterns),
             )
+        elif name == "regex":
+            # Regex patterns are fully described by the (entity_type,
+            # pattern) pairs in RuntimeConfig. Round-trip through a
+            # tuple so the equality check below can detect a live-edit
+            # to ``regex_patterns`` and rebuild the compiled analyzer.
+            if config is None:
+                raise ValueError(
+                    "MaskingService._get_analyzer('regex') requires a RuntimeConfig"
+                )
+            fingerprint = tuple(tuple(p) for p in config.regex_patterns)
 
         cached = self._analyzers.get(name)
         if cached is not None and self._analyzer_fingerprints.get(name) == fingerprint:
@@ -97,6 +109,17 @@ class MaskingService:
                 split_mode=config.sudachi_split_mode,
                 pos_patterns=[list(p) for p in config.proper_noun_pos_patterns],
             )
+        elif name == "regex":
+            assert config is not None  # guarded above; helps the type checker
+            # Coerce each inner list to a 2-tuple for RegexAnalyzer's
+            # signature. Patterns shorter than 2 elements are ignored
+            # defensively — an operator who hand-edits runtime_config.json
+            # should get a cleaner fall-through than a RegexAnalyzer
+            # TypeError at construction time.
+            compiled: list[tuple[str, str]] = [
+                (entry[0], entry[1]) for entry in config.regex_patterns if len(entry) >= 2
+            ]
+            analyzer = RegexAnalyzer(compiled)
         else:
             raise ValueError(f"unknown analyzer: {name!r}")
 
@@ -143,21 +166,38 @@ class MaskingService:
             language="en",
         )
 
-        # Detect everything the operator asked for. The allow-list filters
-        # the masking step only, so allowed entities still show up in the
-        # audit trail with ``action="allowed"``.
-        recognizer_results: list[RecognizerResult] = self._get_analyzer(
-            "presidio"
-        ).analyze(analyzer_request)
+        # Two dispatch modes, chosen by whether the operator opted in to
+        # per-language routing via ``config.analyzers_by_language``:
+        #
+        # - legacy (``analyzers_by_language is None``): Presidio always,
+        #   Sudachi conditionally. Byte-for-byte identical to every
+        #   release before this commit.
+        # - language-aware: run the CJK-ratio detector on the request
+        #   text, look up the analyzer chain for the detected language
+        #   (falling back through ``mixed`` → ``en`` so an operator only
+        #   has to configure the two or three chains they actually need),
+        #   and run exactly that subset of analyzers.
+        #
+        # Result merging / overlap resolution / allow filter / masking
+        # strategy is shared between the two modes — only the analyzer
+        # selection differs.
+        if config.analyzers_by_language is None:
+            recognizer_results: list[RecognizerResult] = self._get_analyzer(
+                "presidio"
+            ).analyze(analyzer_request)
 
-        if config.morphological_analyzer == "sudachi":
-            sudachi_results = self._get_analyzer("sudachi", config).analyze(
-                analyzer_request
-            )
-            if sudachi_results:
-                recognizer_results = _resolve_overlaps(
-                    list(recognizer_results) + list(sudachi_results)
+            if config.morphological_analyzer == "sudachi":
+                sudachi_results = self._get_analyzer("sudachi", config).analyze(
+                    analyzer_request
                 )
+                if sudachi_results:
+                    recognizer_results = _resolve_overlaps(
+                        list(recognizer_results) + list(sudachi_results)
+                    )
+        else:
+            recognizer_results = self._run_language_aware_chain(
+                analyzer_request, config
+            )
 
         maskable = [r for r in recognizer_results if r.entity_type not in allow_types]
 
@@ -172,6 +212,72 @@ class MaskingService:
             sanitized_text=sanitized_text,
             detections=detections,
         )
+
+    def _run_language_aware_chain(
+        self,
+        analyzer_request: AnalyzerRequest,
+        config: RuntimeConfig,
+    ) -> list[RecognizerResult]:
+        """Run the analyzer chain selected by the detected language.
+
+        Called only when ``config.analyzers_by_language is not None``.
+        Everything about result merging, overlap resolution, the
+        allow-list filter, and the masking strategy is identical to
+        the legacy path — the only thing that differs here is
+        *which* analyzers run. That keeps the dispatcher trivially
+        reviewable and means adding a new analyzer to the chain is a
+        one-line config change rather than a code change.
+
+        Fallback ladder: the detector returns ``"ja"`` / ``"en"`` /
+        ``"mixed"``. If the operator did not provide an explicit chain
+        for the detected label, we fall back to ``"mixed"`` (the most
+        permissive) and then ``"en"`` (the pre-language-aware default
+        chain). An empty chain after the fallback means "no analyzer
+        runs", which is a legitimate pass-through mode — we honour it
+        rather than silently re-enabling Presidio.
+        """
+        # Presidio expects ``language="en"`` today; teach analyzers that
+        # actually care about locale about the detected label while
+        # keeping the existing contract for the English-only backend.
+        detected = detect_language(
+            analyzer_request.text,
+            ja_threshold=config.language_detection_ja_threshold,
+        )
+        chain_map = config.analyzers_by_language
+        # ``chain_map`` can be ``None`` only in the legacy path, which
+        # is branched above; the assert documents the invariant for
+        # any future refactor that might call this helper directly.
+        assert chain_map is not None
+        if detected in chain_map:
+            chain = chain_map[detected]
+        else:
+            chain = chain_map.get("mixed", chain_map.get("en", []))
+
+        recognizer_results: list[RecognizerResult] = []
+        contributed_names: set[str] = set()
+        for analyzer_name in chain:
+            # ``regex`` is the one analyzer whose chain membership is
+            # conditional on the config actually containing any
+            # patterns — an empty ``regex_patterns`` list with ``regex``
+            # listed in the chain is treated as a no-op, not an error,
+            # so operators can leave the chain config stable while they
+            # enable / disable the pattern set independently.
+            if analyzer_name == "regex" and not config.regex_patterns:
+                continue
+            analyzer = self._get_analyzer(analyzer_name, config)
+            results = analyzer.analyze(analyzer_request)
+            if results:
+                recognizer_results.extend(results)
+                contributed_names.add(analyzer_name)
+
+        # Only run the overlap resolver when at least two analyzers
+        # contributed — a single analyzer cannot overlap with itself
+        # in a way the resolver cares about, and skipping it preserves
+        # result order for the common "just Presidio" or "just Sudachi"
+        # case.
+        if len(contributed_names) > 1:
+            recognizer_results = _resolve_overlaps(recognizer_results)
+        return recognizer_results
 
     def _apply_strategy(
         self,

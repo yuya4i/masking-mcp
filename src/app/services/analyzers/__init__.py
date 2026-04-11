@@ -14,11 +14,13 @@ without chasing module paths.
 
 from app.services.analyzers.base import Analyzer, AnalyzerRequest
 from app.services.analyzers.presidio import PresidioAnalyzer
+from app.services.analyzers.regex import RegexAnalyzer
 from app.services.analyzers.sudachi import SudachiProperNounAnalyzer
 
 __all__ = [
     "Analyzer",
     "AnalyzerRequest",
     "PresidioAnalyzer",
+    "RegexAnalyzer",
     "SudachiProperNounAnalyzer",
 ]

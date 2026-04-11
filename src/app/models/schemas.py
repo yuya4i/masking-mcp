@@ -67,6 +67,33 @@ class RuntimeConfig(BaseModel):
     proper_noun_pos_patterns: list[list[str]] = Field(
         default_factory=lambda: [["名詞", "固有名詞"]]
     )
+    #: Per-language analyzer preference. Maps a detected-language code
+    #: (``"ja"`` / ``"en"`` / ``"mixed"``) to the ordered list of
+    #: analyzer names that should run on text classified as that
+    #: language. Valid analyzer names are ``"presidio"``, ``"sudachi"``,
+    #: and ``"regex"``. An empty list disables every analyzer for that
+    #: language (useful for pass-through modes). When this field is
+    #: ``None`` the dispatcher is disabled entirely and the legacy code
+    #: path (Presidio always, Sudachi conditional on
+    #: ``morphological_analyzer``) runs unchanged — existing deployments
+    #: see byte-for-byte identical output until they opt in.
+    analyzers_by_language: dict[str, list[str]] | None = None
+    #: Regex recognizer patterns loaded into ``RegexAnalyzer``. Each
+    #: entry is ``[entity_type, regex_pattern]`` (a two-element list is
+    #: the JSON-friendly shape for ``runtime_config.json``). The
+    #: analyzer is instantiated lazily on the first request that needs
+    #: it; when ``analyzers_by_language`` is set, the analyzer is only
+    #: built if ``"regex"`` appears in the chain for the detected
+    #: language. An empty list is a no-op even if the analyzer is
+    #: listed in the chain.
+    regex_patterns: list[list[str]] = Field(default_factory=list)
+    #: Override the automatic language-detection threshold used by
+    #: :func:`app.services.language_detection.detect_language`. Only
+    #: consulted when ``analyzers_by_language`` is set; the legacy path
+    #: does not call the detector. The default matches the detector's
+    #: own default so changing it is an opt-in tuning knob rather than
+    #: a breaking change.
+    language_detection_ja_threshold: float = 0.2
     default_provider_id: str = "openai"
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 

@@ -6,8 +6,8 @@ from app.services.repositories import AuditRepository, ConfigRepository
 
 
 class DummyConfigRepository(ConfigRepository):
-    def __init__(self) -> None:
-        self._config = RuntimeConfig(filter_enabled=True)
+    def __init__(self, config: RuntimeConfig | None = None) -> None:
+        self._config = config or RuntimeConfig(filter_enabled=True)
         self.path = Path("/tmp/runtime_config_test.json")
 
     def load(self) -> RuntimeConfig:
@@ -93,3 +93,94 @@ def test_allow_entity_types_are_detected_but_not_masked() -> None:
     )
     assert email is not None, "allowed types must still appear in detections"
     assert email.action == "allowed"
+
+
+def test_analyzers_by_language_dispatch_en() -> None:
+    """With ``analyzers_by_language`` set, an English payload must run
+    only the ``en`` chain — here, Presidio only. Sudachi must not
+    contribute any PROPER_NOUN_* detections because it never ran.
+
+    We deliberately include Sudachi in the ``ja`` chain so the test
+    also pins the other half of the dispatcher contract: wiring
+    Sudachi into some chain must not cause it to fire on English
+    text when the detector picked ``en``.
+    """
+    config = RuntimeConfig(
+        filter_enabled=True,
+        analyzers_by_language={
+            "en": ["presidio"],
+            "ja": ["sudachi"],
+        },
+    )
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    request = TextSanitizeRequest(text="Contact user@example.com right now")
+
+    result = service.sanitize_text(request)
+
+    # Presidio picks up the email address — that is enough evidence
+    # that the ``en`` chain ran.
+    assert any(d.entity_type == "EMAIL_ADDRESS" for d in result.detections)
+    # And no PROPER_NOUN_* — Sudachi is configured for ``ja`` only, so
+    # on a pure-English payload it must not have been invoked.
+    assert not any(
+        d.entity_type.startswith("PROPER_NOUN") for d in result.detections
+    ), f"Sudachi leaked on English input: {result.detections}"
+    # As a belt-and-braces check, the Sudachi analyzer must not have
+    # been cached by the service — the lazy construction is our
+    # tripwire for "was it called at all?".
+    assert "sudachi" not in service._analyzers, (
+        "Sudachi analyzer was constructed on an English payload despite "
+        "analyzers_by_language routing it to the ``ja`` chain only"
+    )
+
+
+def test_analyzers_by_language_dispatch_ja() -> None:
+    """With the same config, a Japanese payload must route through
+    Sudachi and surface at least one PROPER_NOUN_* detection."""
+    config = RuntimeConfig(
+        filter_enabled=True,
+        analyzers_by_language={
+            "en": ["presidio"],
+            "ja": ["sudachi"],
+        },
+    )
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    request = TextSanitizeRequest(text="田中太郎は東京本社にいる")
+
+    result = service.sanitize_text(request)
+
+    masked = [d for d in result.detections if d.action == "masked"]
+    assert masked, "expected at least one Sudachi detection on Japanese text"
+    assert any(d.entity_type.startswith("PROPER_NOUN") for d in masked), (
+        f"expected PROPER_NOUN_* detections from Sudachi, got "
+        f"{[d.entity_type for d in masked]}"
+    )
+
+
+def test_regex_recognizer_flags_pattern() -> None:
+    """A configured regex pattern must fire on matching text and
+    surface as a maskable detection under its configured entity type."""
+    config = RuntimeConfig(
+        filter_enabled=True,
+        analyzers_by_language={"en": ["presidio", "regex"]},
+        regex_patterns=[["EMPLOYEE_ID", r"EMP-\d{5}"]],
+    )
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    request = TextSanitizeRequest(text="employee EMP-12345 logged in")
+
+    result = service.sanitize_text(request)
+
+    # The regex hit must appear in detections with the configured tag.
+    employee = next(
+        (d for d in result.detections if d.entity_type == "EMPLOYEE_ID"),
+        None,
+    )
+    assert employee is not None, (
+        f"expected EMPLOYEE_ID detection, got {[d.entity_type for d in result.detections]}"
+    )
+    assert employee.text == "EMP-12345"
+    assert employee.action == "masked"
+    # And the masked text must carry the entity-type tag rather than
+    # the raw identifier, matching the ``tag`` mask strategy contract.
+    assert "EMP-12345" not in result.sanitized_text
+    assert "<EMPLOYEE_ID>" in result.sanitized_text

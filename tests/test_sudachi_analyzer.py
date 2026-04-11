@@ -123,10 +123,10 @@ def test_masking_service_integration() -> None:
 
 def test_opt_in_default_off() -> None:
     """With the default config (``morphological_analyzer="none"``) the
-    Sudachi analyzer must not run. We assert on the service attribute
-    rather than Presidio's output — Presidio's English NER is free to
-    flag or not flag 東京 on its own, which is out of scope for this
-    opt-in guard."""
+    Sudachi analyzer must not run. We assert on the service's internal
+    analyzer map rather than Presidio's output — Presidio's English NER
+    is free to flag or not flag 東京 on its own, which is out of scope
+    for this opt-in guard."""
     config = RuntimeConfig(filter_enabled=True)  # default: "none"
     assert config.morphological_analyzer == "none"
 
@@ -135,8 +135,9 @@ def test_opt_in_default_off() -> None:
 
     service.sanitize_text(request)
 
-    # The lazy Sudachi tokenizer must still be ``None`` — a non-None
-    # value here would mean the opt-in default leaked.
-    assert service._sudachi is None, (
+    # The lazy Sudachi analyzer must not have been constructed — its
+    # presence in the internal analyzer cache would mean the opt-in
+    # default leaked.
+    assert "sudachi" not in service._analyzers, (
         "Sudachi analyzer was constructed despite morphological_analyzer='none'"
     )

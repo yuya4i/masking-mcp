@@ -110,7 +110,11 @@ Goal: `MaskingService` stops talking to Presidio/Sudachi directly and
 instead composes a list of `Analyzer` implementations, so adding a new
 backend (GiNZA, Fugashi, custom regex) is a one-file change.
 
-- [ ] **refactor/analyzer-protocol**
+- [x] **refactor/analyzer-protocol** — merged in `8dd1261`. Introduces
+  `src/app/services/analyzers/{base,presidio,sudachi}.py` with an
+  `Analyzer` Protocol + `AnalyzerRequest` dataclass. `MaskingService`
+  now holds `self._analyzers: dict[str, Analyzer]` and constructs on
+  demand. 15/15 tests still green, byte-for-byte behavioral identity.
   - Introduce `Analyzer` `Protocol` in `src/app/services/analyzers/base.py`
     with `analyze(text: str, config: RuntimeConfig) -> list[Detection]`.
   - Extract the existing Presidio calls into

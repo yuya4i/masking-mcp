@@ -10,7 +10,13 @@ from presidio_analyzer import RecognizerResult
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
 
-from app.models.schemas import AuditRecord, DetectionResult, SanitizeResponse, TextSanitizeRequest
+from app.models.schemas import (
+    AuditRecord,
+    DetectionResult,
+    RuntimeConfig,
+    SanitizeResponse,
+    TextSanitizeRequest,
+)
 from app.services.analyzers import (
     Analyzer,
     AnalyzerRequest,
@@ -39,27 +45,63 @@ class MaskingService:
         #: ``morphological_analyzer="sudachi"`` never pay the Sudachi dict
         #: load cost at service boot.
         self._analyzers: dict[str, Analyzer] = {}
+        #: Construction fingerprint per analyzer so the service can rebuild
+        #: a cached instance when its ``RuntimeConfig`` inputs change between
+        #: requests. Keyed by analyzer name, value is an opaque hashable that
+        #: the matching branch of ``_get_analyzer`` knows how to compare
+        #: against the current config (``None`` for analyzers that take no
+        #: config at all, e.g. :class:`PresidioAnalyzer`).
+        self._analyzer_fingerprints: dict[str, object] = {}
 
-    def _get_analyzer(self, name: str) -> Analyzer:
+    def _get_analyzer(self, name: str, config: RuntimeConfig | None = None) -> Analyzer:
         """Return the cached analyzer for ``name``, constructing it on demand.
 
         The constructor map is intentionally kept inline — adding a new
         analyzer means adding one elif branch here plus a new module in
         ``app.services.analyzers``. When the list grows beyond three or
         four backends, consider promoting this to a registry decorator.
+
+        For analyzers whose construction depends on ``RuntimeConfig``
+        (currently only Sudachi), the service records a *fingerprint* of
+        the kwargs it built the instance with and, if the current config
+        disagrees, transparently rebuilds the analyzer. This keeps the
+        dict keyed by the short ``name`` string (so callers can still
+        write ``"sudachi" in self._analyzers`` the way the existing tests
+        do) while still honouring live-config edits between requests.
         """
+        fingerprint: object | None = None
+
+        if name == "sudachi":
+            # Sudachi's constructor kwargs are exposed in RuntimeConfig,
+            # so the fingerprint needs to round-trip through a hashable
+            # tuple for the equality check below. Nested lists become
+            # tuples of tuples — cheap, deterministic.
+            if config is None:
+                raise ValueError(
+                    "MaskingService._get_analyzer('sudachi') requires a RuntimeConfig"
+                )
+            fingerprint = (
+                config.sudachi_split_mode,
+                tuple(tuple(p) for p in config.proper_noun_pos_patterns),
+            )
+
         cached = self._analyzers.get(name)
-        if cached is not None:
+        if cached is not None and self._analyzer_fingerprints.get(name) == fingerprint:
             return cached
 
         if name == "presidio":
             analyzer: Analyzer = PresidioAnalyzer()
         elif name == "sudachi":
-            analyzer = SudachiProperNounAnalyzer()
+            assert config is not None  # guarded above; helps the type checker
+            analyzer = SudachiProperNounAnalyzer(
+                split_mode=config.sudachi_split_mode,
+                pos_patterns=[list(p) for p in config.proper_noun_pos_patterns],
+            )
         else:
             raise ValueError(f"unknown analyzer: {name!r}")
 
         self._analyzers[name] = analyzer
+        self._analyzer_fingerprints[name] = fingerprint
         return analyzer
 
     def sanitize_text(self, request: TextSanitizeRequest) -> SanitizeResponse:
@@ -109,7 +151,9 @@ class MaskingService:
         ).analyze(analyzer_request)
 
         if config.morphological_analyzer == "sudachi":
-            sudachi_results = self._get_analyzer("sudachi").analyze(analyzer_request)
+            sudachi_results = self._get_analyzer("sudachi", config).analyze(
+                analyzer_request
+            )
             if sudachi_results:
                 recognizer_results = _resolve_overlaps(
                     list(recognizer_results) + list(sudachi_results)

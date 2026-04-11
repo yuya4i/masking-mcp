@@ -94,7 +94,9 @@ existing Presidio English path.
     curl round-trip shows `田中太郎` masked in `sanitized_text`.
   - Depends on: nothing.
 
-- [ ] **feat/pos-filter-config**
+- [x] **feat/pos-filter-config** — merged in `<pending>` alongside
+  `feat/sudachi-split-mode-config` on the shared
+  `feat/sudachi-config-pack` branch, 18/18 tests green.
   - Expose the set of POS prefixes that count as "proper noun" as
     `RuntimeConfig.proper_noun_pos_patterns: list[list[str]]`.
   - Default value: `[["名詞", "固有名詞"]]`.
@@ -163,12 +165,14 @@ against Japanese (or vice versa).
 - [ ] **docs/architecture-diagram** — ASCII / Mermaid diagram of
   analyzer chain, language routing, MITM proxy flow.
 
-- [ ] **feat/sudachi-split-mode-config** — `SudachiProperNounAnalyzer`
-  is currently hard-coded to `SplitMode.C` (longest). Expose
-  `sudachi_split_mode: Literal["A", "B", "C"] = "C"` in `RuntimeConfig`
-  so operators who prefer finer-grained tokenization (e.g. to mask
-  morpheme-level components of compound names) can opt in. Depends on:
-  nothing.
+- [x] **feat/sudachi-split-mode-config** — merged in `<pending>`
+  alongside `feat/pos-filter-config` on the shared
+  `feat/sudachi-config-pack` branch, 18/18 tests green.
+  Exposes `sudachi_split_mode: Literal["A", "B", "C"] = "C"` in
+  `RuntimeConfig` so operators who prefer finer-grained tokenization
+  (e.g. to mask morpheme-level components of compound names) can opt
+  in. `MaskingService` rebuilds the cached Sudachi analyzer whenever
+  the configured split mode changes between requests.
 
 - [ ] **chore/sudachi-overlap-sweep-line** — the overlap resolver
   introduced with `feat/sudachi-analyzer` is an O(n²) nested scan.

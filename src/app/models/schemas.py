@@ -54,6 +54,19 @@ class RuntimeConfig(BaseModel):
     #: English-only behaviour untouched, so this field is backward-
     #: compatible with every existing ``runtime_config.json`` on disk.
     morphological_analyzer: Literal["none", "sudachi"] = "none"
+    #: Sudachi split granularity. C keeps multi-morpheme proper nouns
+    #: fused (東京タワー as one token); A splits into minimum units; B is
+    #: in between. Only consulted when ``morphological_analyzer == "sudachi"``.
+    sudachi_split_mode: Literal["A", "B", "C"] = "C"
+    #: POS prefix patterns that count as "proper noun" for the Sudachi
+    #: analyzer. Each inner list is a prefix of the POS 6-tuple returned
+    #: by ``morpheme.part_of_speech()``. A morpheme matches if its POS
+    #: starts with any of the patterns. Default covers all 固有名詞;
+    #: add entries like ``["名詞", "一般", "人名"]`` for IPAdic
+    #: dialects, or remove geographic entries by overriding the list.
+    proper_noun_pos_patterns: list[list[str]] = Field(
+        default_factory=lambda: [["名詞", "固有名詞"]]
+    )
     default_provider_id: str = "openai"
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 

@@ -70,7 +70,13 @@ _FINE_POS_TO_ENTITY: dict[str, str] = {
 }
 
 
-def _split_mode_from_str(mode: SudachiSplitMode) -> SplitMode:
+#: Default POS prefix for the analyzer when a caller does not pass
+#: ``pos_patterns`` — matches every ``名詞,固有名詞`` entry, which is the
+#: pre-refactor behaviour and the schema default on ``RuntimeConfig``.
+_DEFAULT_POS_PATTERNS: list[list[str]] = [["名詞", "固有名詞"]]
+
+
+def _split_mode_from_str(mode: str) -> SplitMode:
     """Translate the string flag from ``RuntimeConfig`` to a ``SplitMode``."""
     if mode == "A":
         return SplitMode.A
@@ -79,6 +85,23 @@ def _split_mode_from_str(mode: SudachiSplitMode) -> SplitMode:
     if mode == "C":
         return SplitMode.C
     raise ValueError(f"unknown Sudachi split mode: {mode!r} (expected 'A', 'B', or 'C')")
+
+
+def _pos_matches(pos: tuple[str, ...], patterns: list[list[str]]) -> bool:
+    """Return True when ``pos`` starts with any of the configured patterns.
+
+    Each entry in ``patterns`` is a prefix of the POS 6-tuple Sudachi
+    returns from ``morpheme.part_of_speech()``. A morpheme matches if
+    its POS tuple starts with *any* pattern — the check is a plain
+    element-wise comparison rather than regex so the config payload
+    stays trivially JSON-serialisable in ``runtime_config.json``.
+    """
+    for pattern in patterns:
+        if len(pos) < len(pattern):
+            continue
+        if all(pos[i] == pattern[i] for i in range(len(pattern))):
+            return True
+    return False
 
 
 class SudachiProperNounAnalyzer:
@@ -112,8 +135,23 @@ class SudachiProperNounAnalyzer:
 
     name = "sudachi"
 
-    def __init__(self, split_mode: SudachiSplitMode = "C") -> None:
+    def __init__(
+        self,
+        split_mode: str = "C",
+        pos_patterns: list[list[str]] | None = None,
+    ) -> None:
         self._mode: SplitMode = _split_mode_from_str(split_mode)
+        #: The POS prefix filter consulted on every ``_tokenize`` call.
+        #: ``None`` falls back to ``_DEFAULT_POS_PATTERNS`` so the
+        #: default construction (no kwargs) matches the pre-refactor
+        #: ``名詞,固有名詞`` filter byte-for-byte. We deep-copy each
+        #: inner list so a caller mutating the argument after
+        #: construction cannot silently change the analyzer's filter.
+        self._pos_patterns: list[list[str]] = (
+            [list(pattern) for pattern in pos_patterns]
+            if pos_patterns is not None
+            else [list(pattern) for pattern in _DEFAULT_POS_PATTERNS]
+        )
         self._tokenizer: Tokenizer = Dictionary().create()
 
     @overload
@@ -163,11 +201,13 @@ class SudachiProperNounAnalyzer:
         for morpheme in self._tokenizer.tokenize(text, self._mode):
             pos = morpheme.part_of_speech()
             # The POS tuple is always length 6 for modern Sudachi
-            # dictionaries; the first two slots hold the coarse-grained
-            # category we care about. Keep only 固有名詞 ("proper noun")
-            # and explicitly drop 一般 ("common noun") plus everything
-            # else (particles, verbs, symbols, ...).
-            if len(pos) < 2 or pos[0] != "名詞" or pos[1] != "固有名詞":
+            # dictionaries; ``_pos_matches`` keeps only morphemes whose
+            # prefix matches one of the configured patterns, which
+            # defaults to ``名詞,固有名詞`` — i.e. every proper noun and
+            # nothing else (no particles, verbs, symbols, or common
+            # nouns). Operators can broaden or tighten the filter via
+            # ``RuntimeConfig.proper_noun_pos_patterns``.
+            if not _pos_matches(pos, self._pos_patterns):
                 continue
 
             fine = pos[2] if len(pos) > 2 else ""

@@ -161,3 +161,24 @@ def test_regex_recognizer_flags_pattern() -> None:
     # the raw identifier, matching the ``tag`` mask strategy contract.
     assert "EMP-12345" not in result.sanitized_text
     assert "<EMPLOYEE_ID>" in result.sanitized_text
+
+
+def test_min_score_filters_low_confidence_detections() -> None:
+    """With min_score raised, detections whose Presidio confidence is
+    below the threshold must be dropped before masking. This is the
+    canonical fix for the Reach→PERSON false-positive pattern."""
+    config = RuntimeConfig(filter_enabled=True, min_score=0.95)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    # 'Reach' is Presidio's classic false-positive; real PII like an
+    # email address scores well above 0.95.
+    request = TextSanitizeRequest(
+        text="Reach out to user@example.com for the Q4 review"
+    )
+
+    result = service.sanitize_text(request)
+
+    # Email should still be masked (Presidio EMAIL_ADDRESS recognizer
+    # always scores ~1.0).
+    assert "<EMAIL_ADDRESS>" in result.sanitized_text
+    # But no PERSON false-positive from 'Reach' — the threshold culls it.
+    assert "<PERSON>" not in result.sanitized_text

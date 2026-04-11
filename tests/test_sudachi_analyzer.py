@@ -15,7 +15,7 @@ from pathlib import Path
 from app.models.schemas import RuntimeConfig, TextSanitizeRequest
 from app.services.masking_service import MaskingService
 from app.services.repositories import AuditRepository, ConfigRepository
-from app.services.sudachi_analyzer import SudachiProperNounAnalyzer
+from app.services.analyzers import SudachiProperNounAnalyzer
 
 
 class DummyConfigRepository(ConfigRepository):

@@ -12,7 +12,7 @@ from presidio_anonymizer.entities import OperatorConfig
 
 from app.models.schemas import AuditRecord, DetectionResult, SanitizeResponse, TextSanitizeRequest
 from app.services.repositories import AuditRepository, ConfigRepository
-from app.services.sudachi_analyzer import SudachiProperNounAnalyzer
+from app.services.analyzers import SudachiProperNounAnalyzer
 
 
 #: Number of characters of surrounding text kept in each DetectionResult's

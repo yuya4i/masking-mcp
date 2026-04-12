@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 from app.models.schemas import TextSanitizeRequest
 from app.services.masking_service import MaskingService
@@ -105,8 +106,23 @@ async def _forward_payload(
     incoming_headers: dict[str, str],
     provider_id: str,
     operation: str | None,
-) -> dict[str, Any]:
+) -> dict[str, Any] | StreamingResponse:
     try:
+        if payload.get("stream"):
+            stream = proxy_service.forward_stream(
+                payload=payload,
+                incoming_headers=incoming_headers,
+                provider_id=provider_id,
+                operation=operation,
+            )
+            return StreamingResponse(
+                stream,
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                },
+            )
         return await proxy_service.forward(
             payload=payload,
             incoming_headers=incoming_headers,

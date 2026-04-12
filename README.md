@@ -396,6 +396,77 @@ curl -X POST http://127.0.0.1:8081/sanitize/text \
 
 MCPツールとして `set_provider(provider_id)` を追加しているため、MCPクライアントから `openai` `anthropic` `manus` などへ既定送信先を変更できます。
 
+## Claude 連携 (自動 PII マスク)
+
+ゲートウェイを Claude Code / Claude Desktop と組み合わせて、**Enter を押すだけで自動的に PII をマスクしてから Anthropic に送信する** 構成を作れます。
+
+### 方法 1: Claude Code — `ANTHROPIC_BASE_URL` (ストリーミング対応)
+
+Claude Code 内部の Anthropic SDK は `ANTHROPIC_BASE_URL` 環境変数でエンドポイントを上書きできます。ゲートウェイの `/proxy/anthropic` を指定すると、全 API コールがゲートウェイ経由になり、ユーザの入力テキスト内の PII がマスクされてから Anthropic に転送されます。
+
+```bash
+# ゲートウェイを起動
+make up
+
+# Claude Code をゲートウェイ経由で起動
+ANTHROPIC_BASE_URL=http://127.0.0.1:8081/proxy/anthropic claude
+
+# 恒常化するなら .bashrc / .zshrc に alias
+alias claude-safe='ANTHROPIC_BASE_URL=http://127.0.0.1:8081/proxy/anthropic claude'
+```
+
+**データフロー**:
+```
+あなたの入力 (Enter)
+  → Claude Code SDK → http://127.0.0.1:8081/proxy/anthropic/v1/messages
+  → ゲートウェイが messages[] 内の PII をマスク
+  → マスク済みペイロードを https://api.anthropic.com/v1/messages に転送
+  → ストリーミング応答がそのままパススルーで返る
+```
+
+`stream: true` リクエスト (Claude Code のデフォルト) はゲートウェイが SSE チャンクをそのまま中継するため、通常と同じ打鍵感でトークンが表示されます。`x-api-key` はクライアントが付けたものをそのまま転送 (ゲートウェイにはキー不要)。
+
+### 方法 2: Claude Desktop — MCP サーバ登録
+
+Claude Desktop は MCP (Model Context Protocol) でツールを提供するサーバを登録できます。このプロジェクトの MCP サーバは以下のツールを公開しています:
+
+| ツール | 説明 |
+|---|---|
+| `sanitize_text(text, mask_strategy)` | テキストの PII を検出してマスク |
+| `detect_language(text)` | ja / en / mixed 判定 |
+| `set_analyzer_config(...)` | アナライザ設定を変更 |
+| `set_provider(provider_id)` | 転送先プロバイダを切替 |
+| `toggle_filter(enabled)` | フィルタ ON/OFF |
+| `get_runtime_config()` | 現在の設定を取得 |
+
+#### 設定手順
+
+`claude_desktop_config.json` (Mac: `~/Library/Application Support/Claude/claude_desktop_config.json`) に以下を追加:
+
+```json
+{
+  "mcpServers": {
+    "mask-mcp": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-v", "/path/to/mask-mcp/data:/app/data",
+        "local-mask-mcp:latest",
+        "python", "-m", "mcp_server.server"
+      ]
+    }
+  }
+}
+```
+
+`/path/to/mask-mcp/data` は実際の `data/` ディレクトリの絶対パスに置き換えてください。WSL の場合は `/home/<user>/workspace/mask-mcp/data` のようになります。
+
+設定後 Claude Desktop を再起動すると、ツール一覧に `sanitize_text` 等が現れます。会話中に「このテキストの個人情報をマスクして」のように指示すると、Claude が自動的に `sanitize_text` ツールを呼び出します。
+
+#### 補足: MCP は「ツール呼び出し」方式
+
+方法 1 (Base URL) が **全リクエストを自動的にマスク** するのに対し、MCP は **Claude がツールを呼ぶタイミングでだけマスク** される違いがあります。「必ずマスクしたい」なら方法 1、「必要なときだけマスクしたい」なら方法 2 が向いています。
+
 ## テスト
 
 テストは Docker のビルドステージで走らせます。host に何もインストールする必要はありません。

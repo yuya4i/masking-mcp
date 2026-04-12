@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -82,6 +83,39 @@ class ProxyService:
             body = response.json()
 
         return self._normalize_response(target.provider, body)
+
+    async def forward_stream(
+        self,
+        payload: dict[str, Any],
+        incoming_headers: dict[str, str],
+        provider_id: str | None = None,
+        operation: str | None = None,
+    ) -> AsyncIterator[bytes]:
+        """Streaming variant of ``forward``.
+
+        Opens an HTTP stream to the upstream provider and yields raw
+        bytes (typically SSE chunks) as they arrive. The caller wraps
+        the return value in ``StreamingResponse``.
+
+        PII masking still runs on the *request* payload (in the route
+        layer, before calling this method). The *response* stream is
+        passed through unmodified — there is nothing to mask in the
+        model's output stream.
+        """
+        target = self.resolve_provider(provider_id=provider_id, operation=operation)
+        request_payload = self._normalize_request(
+            target.provider, target.operation, payload
+        )
+        headers = self._build_headers(target.provider, incoming_headers)
+        url = self._build_url(target.provider.base_url, target.operation)
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST", url, headers=headers, json=request_payload
+            ) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes():
+                    yield chunk
 
     def _default_operation(self, provider: ProviderConfig) -> str:
         if provider.provider_type == "openai":

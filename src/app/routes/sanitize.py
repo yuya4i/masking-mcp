@@ -29,6 +29,15 @@ async def sanitize_text(
     payload: TextSanitizeRequest,
     authorization: str | None = Header(default=None),
 ) -> SanitizeResponse:
+    """テキストの PII を検出してマスクする。
+
+    Presidio (英語) + SudachiPy (日本語固有名詞) + RegexAnalyzer (カスタムパターン) を
+    `RuntimeConfig` に従って実行し、検出結果と置換済みテキストを返す。
+
+    - `entity_types` / `allow_entity_types` / `mask_strategy` はリクエスト単位で上書き可能。
+    - `morphological_analyzer="sudachi"` で日本語固有名詞マスクを有効化。
+    - `analyzers_by_language` 設定時は言語自動検出で使用アナライザを切替。
+    """
     _authorize(authorization)
     return service.sanitize_text(payload)
 
@@ -38,6 +47,11 @@ async def sanitize_file(
     upload: UploadFile = File(...),
     authorization: str | None = Header(default=None),
 ) -> dict:
+    """PDF / 画像ファイルからテキストを抽出し、PII をマスクして返す。
+
+    対応フォーマット: `.pdf`, `.png`, `.jpg`, `.jpeg`, `.bmp`, `.webp`。
+    PDF はテキスト抽出、画像は pytesseract OCR → sanitize/text と同じパイプライン。
+    """
     _authorize(authorization)
 
     settings.temp_dir.mkdir(parents=True, exist_ok=True)

@@ -20,6 +20,7 @@ def _authorize(token: str | None) -> None:
 
 @router.get("/config", response_model=RuntimeConfig)
 async def get_config(authorization: str | None = Header(default=None)) -> RuntimeConfig:
+    """現在の RuntimeConfig (フィルタ設定・プロバイダ一覧・アナライザ設定) を取得する。"""
     _authorize(authorization)
     return config_repo.load()
 
@@ -29,6 +30,12 @@ async def update_config(
     payload: RuntimeConfig,
     authorization: str | None = Header(default=None),
 ) -> RuntimeConfig:
+    """RuntimeConfig を丸ごと上書きする。
+
+    `morphological_analyzer`, `analyzers_by_language`, `regex_patterns`,
+    `sudachi_split_mode`, `proper_noun_pos_patterns`, `min_score` など
+    すべてのフィールドを一括で設定できる。
+    """
     _authorize(authorization)
     return config_repo.save(payload)
 
@@ -38,6 +45,7 @@ async def toggle_filter(
     payload: ToggleRequest,
     authorization: str | None = Header(default=None),
 ) -> RuntimeConfig:
+    """フィルタの ON/OFF を切り替える (`filter_enabled` のみ更新)。"""
     _authorize(authorization)
     config = config_repo.load()
     config.filter_enabled = payload.enabled

@@ -33,6 +33,10 @@ def _collect_passthrough_headers(request: Request) -> dict[str, str]:
 
 @router.post("/openai/v1/chat/completions")
 async def proxy_openai_chat_completions(request: Request) -> dict[str, Any]:
+    """OpenAI Chat Completions API への MITM プロキシ。PII マスク → 転送 → 応答返却。
+
+    クライアントは `Authorization: Bearer sk-...` をそのまま送ること (ゲートウェイはキーを持たない)。
+    """
     payload = await request.json()
     sanitized_payload = _sanitize_openai_like_payload(payload)
     return await _forward_payload(
@@ -45,6 +49,7 @@ async def proxy_openai_chat_completions(request: Request) -> dict[str, Any]:
 
 @router.post("/openai/v1/responses")
 async def proxy_openai_responses(request: Request) -> dict[str, Any]:
+    """OpenAI Responses API への MITM プロキシ。"""
     payload = await request.json()
     sanitized_payload = _sanitize_openai_like_payload(payload)
     return await _forward_payload(
@@ -57,6 +62,7 @@ async def proxy_openai_responses(request: Request) -> dict[str, Any]:
 
 @router.post("/anthropic/v1/messages")
 async def proxy_anthropic_messages(request: Request) -> dict[str, Any]:
+    """Anthropic Messages API への MITM プロキシ。`x-api-key` ヘッダをパススルー。"""
     payload = await request.json()
     sanitized_payload = _sanitize_openai_like_payload(payload)
     return await _forward_payload(
@@ -69,6 +75,7 @@ async def proxy_anthropic_messages(request: Request) -> dict[str, Any]:
 
 @router.post("/manus/v1/tasks")
 async def proxy_manus_tasks(request: Request) -> dict[str, Any]:
+    """Manus Tasks API への MITM プロキシ。"""
     payload = await request.json()
     sanitized_payload = _sanitize_openai_like_payload(payload)
     return await _forward_payload(
@@ -81,6 +88,7 @@ async def proxy_manus_tasks(request: Request) -> dict[str, Any]:
 
 @router.post("/generic/{provider_id}")
 async def proxy_generic(provider_id: str, request: Request) -> dict[str, Any]:
+    """汎用プロバイダへの MITM プロキシ。`provider_id` と `operation` で転送先を指定。"""
     payload = await request.json()
     sanitized_payload = _sanitize_openai_like_payload(payload)
     operation = payload.pop("operation", None)

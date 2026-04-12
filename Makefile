@@ -77,6 +77,15 @@ rebuild:  ## Rebuild :latest from scratch — use when you hit stale-tag weirdne
 ps:  ## Show container status
 	@$(COMPOSE) ps
 
+.PHONY: mcp
+mcp:  ## Start the MCP stdio server (for Claude Desktop; Ctrl-C to stop)
+	@mkdir -p $(DATA_DIR)
+	@docker run --rm -i \
+	    --user "$$(id -u):$$(id -g)" \
+	    -v "$$(pwd)/$(DATA_DIR):/app/data" \
+	    local-mask-mcp:latest \
+	    python -m mcp_server.server
+
 # ------------------------------------------------------------
 #  Introspection
 # ------------------------------------------------------------

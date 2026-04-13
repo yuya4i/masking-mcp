@@ -23,6 +23,7 @@ from app.services.analyzers import (
     PresidioAnalyzer,
     RegexAnalyzer,
     SudachiProperNounAnalyzer,
+    get_preset_patterns,
 )
 from app.services.language_detection import detect_language
 from app.services.repositories import AuditRepository, ConfigRepository
@@ -100,14 +101,21 @@ class MaskingService:
                 fingerprint = base_fingerprint
         elif name == "regex":
             # Regex patterns are fully described by the (entity_type,
-            # pattern) pairs in RuntimeConfig. Round-trip through a
-            # tuple so the equality check below can detect a live-edit
-            # to ``regex_patterns`` and rebuild the compiled analyzer.
+            # pattern) pairs in RuntimeConfig, plus any built-in preset
+            # patterns. Round-trip through a tuple so the equality check
+            # below can detect a live-edit to ``regex_patterns``,
+            # ``enable_preset_patterns``, or
+            # ``disabled_pattern_categories`` and rebuild the compiled
+            # analyzer.
             if config is None:
                 raise ValueError(
                     "MaskingService._get_analyzer('regex') requires a RuntimeConfig"
                 )
-            fingerprint = tuple(tuple(p) for p in config.regex_patterns)
+            fingerprint = (
+                config.enable_preset_patterns,
+                tuple(sorted(config.disabled_pattern_categories)),
+                tuple(tuple(p) for p in config.regex_patterns),
+            )
 
         cached = self._analyzers.get(name)
         if cached is not None and self._analyzer_fingerprints.get(name) == fingerprint:
@@ -124,15 +132,25 @@ class MaskingService:
             )
         elif name == "regex":
             assert config is not None  # guarded above; helps the type checker
+            # Merge built-in preset patterns (if enabled) with user-
+            # supplied regex_patterns. Presets come first so user
+            # patterns can shadow / extend built-in entity types.
+            merged: list[tuple[str, str]] = []
+            if config.enable_preset_patterns:
+                merged.extend(
+                    get_preset_patterns(config.disabled_pattern_categories)
+                )
             # Coerce each inner list to a 2-tuple for RegexAnalyzer's
             # signature. Patterns shorter than 2 elements are ignored
             # defensively — an operator who hand-edits runtime_config.json
             # should get a cleaner fall-through than a RegexAnalyzer
             # TypeError at construction time.
-            compiled: list[tuple[str, str]] = [
-                (entry[0], entry[1]) for entry in config.regex_patterns if len(entry) >= 2
-            ]
-            analyzer = RegexAnalyzer(compiled)
+            merged.extend(
+                (entry[0], entry[1])
+                for entry in config.regex_patterns
+                if len(entry) >= 2
+            )
+            analyzer = RegexAnalyzer(merged)
         else:
             raise ValueError(f"unknown analyzer: {name!r}")
 
@@ -207,6 +225,20 @@ class MaskingService:
                     recognizer_results = _resolve_overlaps(
                         list(recognizer_results) + list(sudachi_results)
                     )
+
+            # When preset patterns are enabled, always run the regex
+            # analyzer in legacy mode — even though the operator never
+            # opted into ``analyzers_by_language`` or
+            # ``regex_patterns``. This ensures the built-in PII
+            # checklist fires by default.
+            if config.enable_preset_patterns or config.regex_patterns:
+                regex_results = self._get_analyzer("regex", config).analyze(
+                    analyzer_request
+                )
+                if regex_results:
+                    recognizer_results = _resolve_overlaps(
+                        list(recognizer_results) + list(regex_results)
+                    )
         else:
             recognizer_results = self._run_language_aware_chain(
                 analyzer_request, config
@@ -279,14 +311,31 @@ class MaskingService:
 
         recognizer_results: list[RecognizerResult] = []
         contributed_names: set[str] = set()
-        for analyzer_name in chain:
+
+        # When preset patterns are enabled, ensure "regex" is always
+        # in the chain even if the operator did not list it explicitly.
+        effective_chain = list(chain)
+        if (
+            config.enable_preset_patterns
+            and "regex" not in effective_chain
+        ):
+            effective_chain.append("regex")
+
+        for analyzer_name in effective_chain:
             # ``regex`` is the one analyzer whose chain membership is
             # conditional on the config actually containing any
             # patterns — an empty ``regex_patterns`` list with ``regex``
             # listed in the chain is treated as a no-op, not an error,
             # so operators can leave the chain config stable while they
             # enable / disable the pattern set independently.
-            if analyzer_name == "regex" and not config.regex_patterns:
+            # When preset patterns are enabled the regex analyzer
+            # always has patterns, so the skip only fires when both
+            # presets and user patterns are empty.
+            if (
+                analyzer_name == "regex"
+                and not config.regex_patterns
+                and not config.enable_preset_patterns
+            ):
                 continue
             analyzer = self._get_analyzer(analyzer_name, config)
             results = analyzer.analyze(analyzer_request)

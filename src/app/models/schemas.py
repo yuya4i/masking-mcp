@@ -101,6 +101,15 @@ class RuntimeConfig(BaseModel):
     #: always 1.0. Tune this to silence Presidio false positives without
     #: touching the analyzer configuration itself.
     min_score: float = 0.0
+    #: Enable the built-in PII detection pattern set. When True (default),
+    #: a comprehensive set of Japanese PII patterns (addresses, ages,
+    #: company names, etc.) is loaded into the RegexAnalyzer automatically.
+    #: Individual categories can be disabled via
+    #: ``disabled_pattern_categories``.
+    enable_preset_patterns: bool = True
+    #: Categories to disable from the preset. Must be keys from
+    #: ``BUILTIN_PATTERNS`` in ``presets.py`` (e.g. ``["URL", "DATE"]``).
+    disabled_pattern_categories: list[str] = Field(default_factory=list)
     #: Pragmatic hack for the handful of surfaces (``千葉`` / ``神戸`` /
     #: ``岡山`` / ``福岡``) that Sudachi's default dictionary returns as
     #: ``PROPER_NOUN_LOCATION`` even though they are at least as common

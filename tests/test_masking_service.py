@@ -262,3 +262,78 @@ def test_resolve_overlaps_sweep_line_on_50_detection_input() -> None:
     assert len(kept) == 20, (
         f"expected 20 survivors (10 dominators + 10 standalones), got {len(kept)}"
     )
+
+
+# =========================================================================
+# Preset pattern detection tests
+# =========================================================================
+
+
+def test_preset_detects_japanese_address() -> None:
+    config = RuntimeConfig(filter_enabled=True, enable_preset_patterns=True)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(TextSanitizeRequest(
+        text="住所: 兵庫県明石市大久保町123"
+    ))
+    assert "<ADDRESS>" in result.sanitized_text or any(
+        d.entity_type == "ADDRESS" for d in result.detections
+    )
+
+
+def test_preset_detects_age() -> None:
+    config = RuntimeConfig(filter_enabled=True, enable_preset_patterns=True)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(TextSanitizeRequest(text="年齢は35歳です"))
+    assert any(d.entity_type == "AGE" for d in result.detections)
+
+
+def test_preset_detects_gender() -> None:
+    config = RuntimeConfig(filter_enabled=True, enable_preset_patterns=True)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(TextSanitizeRequest(text="性別: 男性"))
+    assert any(d.entity_type == "GENDER" for d in result.detections)
+
+
+def test_preset_detects_company_name() -> None:
+    config = RuntimeConfig(filter_enabled=True, enable_preset_patterns=True)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(TextSanitizeRequest(
+        text="株式会社マスクテスト に所属しています"
+    ))
+    assert any(d.entity_type == "COMPANY" for d in result.detections)
+
+
+def test_preset_detects_monetary_amount() -> None:
+    config = RuntimeConfig(filter_enabled=True, enable_preset_patterns=True)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(TextSanitizeRequest(text="価格は¥15,000です"))
+    assert any(d.entity_type == "MONETARY_AMOUNT" for d in result.detections)
+
+
+def test_preset_detects_db_connection() -> None:
+    config = RuntimeConfig(filter_enabled=True, enable_preset_patterns=True)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(TextSanitizeRequest(
+        text="接続先: postgresql://admin:pass@db.example.com/mydb"
+    ))
+    assert any(d.entity_type == "DB_CONNECTION" for d in result.detections)
+
+
+def test_disabled_category_skips_detection() -> None:
+    config = RuntimeConfig(
+        filter_enabled=True,
+        enable_preset_patterns=True,
+        disabled_pattern_categories=["AGE"],
+    )
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(TextSanitizeRequest(text="年齢は35歳です"))
+    assert not any(d.entity_type == "AGE" for d in result.detections)
+
+
+def test_preset_off_disables_all_builtin() -> None:
+    config = RuntimeConfig(filter_enabled=True, enable_preset_patterns=False)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(TextSanitizeRequest(text="兵庫県明石市 35歳 男性"))
+    assert not any(
+        d.entity_type in ("ADDRESS", "AGE", "GENDER") for d in result.detections
+    )

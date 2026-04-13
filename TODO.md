@@ -236,6 +236,27 @@ against Japanese (or vice versa).
 
 ---
 
+## Milestone 6 — Comprehensive PII detection presets
+
+Goal: ship a built-in pattern set for Japanese PII detection so that
+addresses, ages, gender, company names, monetary amounts, database
+names, project identifiers, and other sensitive categories are masked
+by default — not just what Presidio or Sudachi catch.
+
+- [x] **feat/detection-checklist** — merged in `<pending>`.
+  Added `src/app/services/analyzers/presets.py` with 16 categorized
+  regex pattern sets covering ADDRESS, AGE, GENDER, MONETARY_AMOUNT,
+  DATE, COMPANY, IP_ADDRESS, URL, MY_NUMBER, BANK_ACCOUNT,
+  DRIVERS_LICENSE, PASSPORT, DB_CONNECTION, API_KEY, INTERNAL_ID,
+  and PHONE_NUMBER_JP. Patterns load automatically via
+  `RuntimeConfig.enable_preset_patterns` (default True). Individual
+  categories can be disabled via `disabled_pattern_categories`.
+  MaskingService merges presets with user-supplied `regex_patterns`
+  and ensures the regex analyzer runs in both legacy and language-
+  aware dispatch modes. 40/40 tests green (8 new preset tests).
+
+---
+
 ## Out of scope (explicitly)
 
 - Training a custom NER model. We compose off-the-shelf analyzers and

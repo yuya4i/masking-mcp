@@ -55,6 +55,37 @@
 
 設定は JSON、監査ログは JSON Lines で保持します。外部 AI への転送は **pure MITM パススルー** で、プロバイダごとの認証ヘッダはクライアントがそのまま送る方式です (`PASSTHROUGH_HEADER_MAPPING`)。
 
+## 検出チェックリスト
+
+デフォルトで以下のカテゴリが有効です (`enable_preset_patterns: true`)。
+カテゴリ単位で無効化する場合は `disabled_pattern_categories` に追加してください。
+
+| カテゴリ | entity_type | 検出対象 | 検出元 |
+|---|---|---|---|
+| 人名 | PERSON / PROPER_NOUN_PERSON | 田中太郎、山田 | Presidio NER / Sudachi 固有名詞 |
+| メールアドレス | EMAIL_ADDRESS | user@example.com | Presidio |
+| 電話番号 | PHONE_NUMBER | 090-1234-5678, 03-1234-5678 | Presidio / プリセット正規表現 |
+| 住所 | ADDRESS | 兵庫県明石市大久保町 | プリセット正規表現 |
+| 年齢 | AGE | 35歳 | プリセット正規表現 |
+| 性別 | GENDER | 男性 / 女性 | プリセット正規表現 |
+| 会社名 | COMPANY | 株式会社マスクテスト | プリセット正規表現 |
+| 金額 | MONETARY_AMOUNT | ¥15,000 / 100万円 | プリセット正規表現 |
+| 日付 | DATE | 2024/01/15, 令和6年1月 | プリセット正規表現 |
+| IPアドレス | IP_ADDRESS | 192.168.1.1 | プリセット正規表現 |
+| URL | URL | https://example.com | プリセット正規表現 |
+| マイナンバー | MY_NUMBER | 1234 5678 9012 | プリセット正規表現 |
+| 口座番号 | BANK_ACCOUNT | 普通 1234567 | プリセット正規表現 |
+| 免許証番号 | DRIVERS_LICENSE | 12-34-567890-12 | プリセット正規表現 |
+| パスポート | PASSPORT | AB1234567 | プリセット正規表現 |
+| DB接続情報 | DB_CONNECTION | postgresql://... / DB_NAME=mydb | プリセット正規表現 |
+| APIキー | API_KEY / SECRET | sk-xxx, password=xxx | プリセット正規表現 |
+| 内部ID | INTERNAL_ID | PRJ-001, EMP-12345 | プリセット正規表現 |
+| クレジットカード | CREDIT_CARD | 4111-1111-1111-1111 | Presidio |
+| 地名 | LOCATION / PROPER_NOUN_LOCATION | 東京、大阪 | Presidio / Sudachi 固有名詞 |
+| 組織名 | PROPER_NOUN_ORG | グーグル | Sudachi 固有名詞 |
+
+プリセットは `src/app/services/analyzers/presets.py` で定義されています。`enable_preset_patterns: false` に設定すると全てのプリセットパターンが無効化されます。特定カテゴリだけを無効化するには `disabled_pattern_categories` に対象のキーを追加してください (例: `["URL", "DATE"]`)。
+
 ## ディレクトリ構成
 
 ```text

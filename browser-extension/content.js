@@ -38,28 +38,52 @@
   // milliseconds, but the first click in a fresh tab needs head-room.
   const GATEWAY_TIMEOUT_MS = 15000;
 
-  // Pre-warm: hit /health in the background on content script load.
-  // This makes the browser complete the PNA preflight + open the
-  // keep-alive TCP connection before the user's first message, so
-  // the first real sanitize call is already on a warm pipeline.
-  // Failures are silent - we rely on the actual sanitize attempt to
-  // surface errors meaningfully.
-  (async () => {
+  // Cached gateway reachability. Hybrid dispatch in injected.js
+  // consults this (via a postMessage round-trip) to decide whether to
+  // call the gateway or fall back to the standalone engine. The
+  // pre-warm below flips ``gatewayReachable`` true on a successful
+  // /health response; injected.js can also ask for a refresh.
+  let gatewayReachable = null; // null = unknown yet, true/false once probed
+  const GATEWAY_PROBE_TIMEOUT_MS = 500;
+
+  async function probeGateway() {
     try {
-      const t0 = Date.now();
-      const resp = await fetch(GATEWAY_HEALTH_URL, {
-        method: "GET",
-        mode: "cors",
-        credentials: "omit",
-      });
-      const elapsed = Date.now() - t0;
-      if (resp.ok) {
-        console.debug("[mask-mcp] gateway warmup ok in", elapsed + "ms");
-      } else {
-        console.warn("[mask-mcp] gateway warmup http", resp.status);
+      const controller = new AbortController();
+      const timer = setTimeout(
+        () => controller.abort(),
+        GATEWAY_PROBE_TIMEOUT_MS
+      );
+      try {
+        const resp = await fetch(GATEWAY_HEALTH_URL, {
+          method: "GET",
+          mode: "cors",
+          credentials: "omit",
+          signal: controller.signal,
+        });
+        gatewayReachable = resp.ok;
+        return resp.ok;
+      } finally {
+        clearTimeout(timer);
       }
-    } catch (e) {
-      console.warn("[mask-mcp] gateway warmup failed:", e?.message || e);
+    } catch (_) {
+      gatewayReachable = false;
+      return false;
+    }
+  }
+
+  // Pre-warm: hit /health in the background on content script load.
+  // Also completes the PNA preflight + TCP warmup for the common
+  // gateway-mode path. Sets gatewayReachable for Hybrid dispatch.
+  (async () => {
+    const t0 = Date.now();
+    const ok = await probeGateway();
+    const elapsed = Date.now() - t0;
+    if (ok) {
+      console.debug("[mask-mcp] gateway warmup ok in", elapsed + "ms");
+    } else {
+      console.debug(
+        "[mask-mcp] gateway unreachable at warmup — standalone engine will handle masking"
+      );
     }
   })();
 
@@ -78,6 +102,21 @@
     (document.head || document.documentElement).appendChild(el);
     el.addEventListener("load", () => el.remove());
   }
+  // Engine modules are loaded BEFORE review-modal / sidebar / injected.js
+  // so window.__localMaskMCP.engine is ready by the time injected.js's
+  // first fetch intercept fires. Order matters: the leaf modules (no
+  // cross-engine deps) must load before engine.js and the final
+  // bundle.js launcher that flips engine.ready = true.
+  // Each file is a MV3-safe script (no ES6 import / eval).
+  injectScript("engine/patterns.js");
+  injectScript("engine/classification.js");
+  injectScript("engine/severity.js");
+  injectScript("engine/categories.js");
+  injectScript("engine/aggregate.js");
+  injectScript("engine/force-mask.js");
+  injectScript("engine/blocklist.js");
+  injectScript("engine/engine.js");
+  injectScript("engine/bundle.js");
   injectScript("review-modal.js");
   injectScript("sidebar.js");
   injectScript("injected.js");
@@ -136,6 +175,10 @@
       handleSanitizeAggregated(data);
     } else if (data.type === "is-enabled") {
       handleIsEnabled(data);
+    } else if (data.type === "backend-probe") {
+      handleBackendProbe(data);
+    } else if (data.type === "hybrid-pref") {
+      handleHybridPref(data);
     } else if (data.type === "detection-count") {
       // Fire-and-forget badge update.
       try {
@@ -228,6 +271,65 @@
       }
     }
     return responseBody;
+  }
+
+  // Hybrid mode: report current gateway reachability to the injected
+  // script. Refresh on demand if ``data.refresh === true``, otherwise
+  // return the cached value (populated by the warmup probe or the last
+  // refresh call). Result is also used to display a badge update when
+  // we fall back to standalone mode.
+  async function handleBackendProbe(data) {
+    const { id } = data;
+    if (data.refresh === true || gatewayReachable === null) {
+      await probeGateway();
+    }
+    const reachable = gatewayReachable === true;
+    try {
+      chrome.runtime.sendMessage({
+        type: "BACKEND_MODE",
+        mode: reachable ? "gateway" : "standalone",
+      });
+    } catch (_) {
+      // service worker asleep — not fatal.
+    }
+    window.postMessage(
+      {
+        source: TAG_OUT,
+        id,
+        type: "backend-probe-result",
+        reachable,
+      },
+      "*"
+    );
+  }
+
+  // Returns the user's Hybrid-mode preference from chrome.storage.local.
+  // Recognised values:
+  //   "auto"       — probe gateway, fall back to standalone (default)
+  //   "standalone" — never call gateway, always use local engine
+  //   "gateway"    — always use gateway (legacy behaviour); fail loudly
+  //                  if unreachable. Expert-mode only.
+  async function handleHybridPref(data) {
+    const { id } = data;
+    let pref = "auto";
+    try {
+      const stored = await chrome.storage.local.get(["mask_mcp_pref_hybrid"]);
+      const v = stored.mask_mcp_pref_hybrid;
+      if (v === "standalone" || v === "gateway" || v === "auto") {
+        pref = v;
+      }
+    } catch (_) {
+      pref = "auto";
+    }
+    window.postMessage(
+      {
+        source: TAG_OUT,
+        id,
+        type: "hybrid-pref-result",
+        pref,
+      },
+      "*"
+    );
   }
 
   async function handleIsEnabled(data) {

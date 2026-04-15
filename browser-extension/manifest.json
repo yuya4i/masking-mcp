@@ -34,7 +34,20 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["injected.js", "review-modal.js", "sidebar.js"],
+      "resources": [
+        "injected.js",
+        "review-modal.js",
+        "sidebar.js",
+        "engine/patterns.js",
+        "engine/classification.js",
+        "engine/severity.js",
+        "engine/categories.js",
+        "engine/aggregate.js",
+        "engine/force-mask.js",
+        "engine/blocklist.js",
+        "engine/engine.js",
+        "engine/bundle.js"
+      ],
       "matches": [
         "https://claude.ai/*",
         "https://*.claude.com/*",

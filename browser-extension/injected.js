@@ -75,7 +75,66 @@
     });
   }
 
+  // Hybrid mode state (Phase 1 of serverless engine).
+  //
+  // Decision rules, evaluated once per tab and cached:
+  //
+  //   1. pref === "standalone"  → always use local engine.
+  //   2. pref === "gateway"     → always call gateway; no fallback.
+  //   3. pref === "auto" (default) → probe gateway at warmup; if the
+  //      probe says reachable, use gateway; otherwise use local engine.
+  //
+  // ``NS.settings.activeBackend`` is exposed for telemetry/debugging
+  // (``window.__localMaskMCP.settings.activeBackend``).
+  let hybridDecision = null; // "gateway" | "standalone"
+
+  async function resolveBackend() {
+    if (hybridDecision) return hybridDecision;
+    const prefResp = await request("hybrid-pref", {});
+    const pref =
+      prefResp && prefResp.type === "hybrid-pref-result"
+        ? prefResp.pref
+        : "auto";
+    if (pref === "standalone") {
+      hybridDecision = "standalone";
+    } else if (pref === "gateway") {
+      hybridDecision = "gateway";
+    } else {
+      const probe = await request("backend-probe", {});
+      const reachable =
+        probe && probe.type === "backend-probe-result" && probe.reachable;
+      hybridDecision = reachable ? "gateway" : "standalone";
+    }
+    NS.settings = { ...NS.settings, activeBackend: hybridDecision };
+    return hybridDecision;
+  }
+
+  // Look up the shared pure-JS engine attached by bundle.js. Returns
+  // null when the engine failed to load (user should see an error in
+  // the console and we'll proceed with gateway-only semantics).
+  function getEngine() {
+    const e = NS.engine;
+    if (e && e.ready && typeof e.maskAggregated === "function") return e;
+    return null;
+  }
+
   async function sanitizeOnce(text, service, sourceUrl) {
+    const backend = await resolveBackend();
+    if (backend === "standalone") {
+      const engine = getEngine();
+      if (!engine) {
+        // Engine missing AND gateway not preferred: degrade by returning
+        // the raw text so the fetch hook's unmasked-confirm prompt fires.
+        WARN("standalone mode requested but engine unavailable");
+        return null;
+      }
+      try {
+        return engine.maskSanitize(text);
+      } catch (e) {
+        WARN("standalone maskSanitize failed:", e?.message || e);
+        return null;
+      }
+    }
     const resp = await request("sanitize", {
       payload: { text, service, source_url: sourceUrl },
     });
@@ -84,9 +143,23 @@
   }
 
   async function sanitizeAggregated(text, service, sourceUrl) {
-    // Sidebar mode (Milestone 8 Wave B) goes through the new
-    // ``/sanitize/aggregated`` endpoint. content.js distinguishes the
-    // two endpoints by the ``type`` field of the bridge message.
+    // Sidebar mode goes through the aggregated endpoint. Hybrid flow:
+    //   * standalone  → call the local engine synchronously.
+    //   * gateway     → ask the content script to proxy to the gateway.
+    const backend = await resolveBackend();
+    if (backend === "standalone") {
+      const engine = getEngine();
+      if (!engine) {
+        WARN("standalone mode requested but engine unavailable");
+        return null;
+      }
+      try {
+        return engine.maskAggregated(text);
+      } catch (e) {
+        WARN("standalone maskAggregated failed:", e?.message || e);
+        return null;
+      }
+    }
     const resp = await request("sanitize-aggregated", {
       payload: { text, service, source_url: sourceUrl },
     });

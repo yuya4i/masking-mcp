@@ -422,6 +422,57 @@ Planning spec: `plans/feat-ui-masking-control-layer-2026-04-15.md`.
     (`force_masked_categories: ["PERSON","ORGANIZATION","FINANCIAL"]`
     when `confidential` keyword is present).
 
+- [x] **feat/severity-and-common-noun-blocklist** — Milestone 7/8
+  Wave C (backend + frontend, `v0.3.0` extension). 102/102 tests
+  green (87 existing + 15 new). Three linked changes:
+  - `src/app/services/severity.py` (new) — `LABEL_TO_SEVERITY`
+    map classifying every known analyzer label into one of four
+    risk tiers: `critical` (identity-theft / credential vectors —
+    MY_NUMBER, PASSPORT, DRIVERS_LICENSE, CREDIT_CARD,
+    BANK_ACCOUNT, API_KEY, SECRET, DB_CONNECTION), `high`
+    (directly identifying — PERSON / PROPER_NOUN_PERSON /
+    EMAIL_ADDRESS / PHONE_NUMBER / ADDRESS / PATIENT_ID),
+    `medium` (structured business / monetary / URL /
+    organizational data), `low` (demographic attributes +
+    noisy katakana heuristics). Unknown labels default to
+    `low` so adding a new analyzer is purely additive.
+    `SEVERITY_ORDER` + `severity_for()` + `max_severity()`
+    helpers. `DetectionResult.severity` +
+    `AggregatedEntity.severity` populated in
+    `MaskingService._build_detection_results` /
+    `aggregate_detections`. New `RuntimeConfig.default_uncheck_below`
+    config surface (default `"low"` preserves mask-everything).
+  - `RuntimeConfig.common_noun_blocklist` — configurable drop
+    list with 26 default generic Japanese business loanwords
+    (`プロジェクト`, `メンバー`, `チーム`, `マネージャー`,
+    `システム`, `データ`, `ファイル` …). Applied BEFORE
+    `min_score` / `enabled_pii_classes` / `allow_entity_types`
+    so a blocked surface cannot survive via downstream
+    re-classification. Operators can add a surface like `東京`
+    to force-drop even real proper nouns (defensive knob).
+  - `browser-extension/sidebar.js` — severity colour coding
+    (left border + pill), category-header pills at worst-child
+    severity, 800 ms long-press (`pointer*` events for touch,
+    50 ms tick animating `stroke-dashoffset` on a `<svg>
+    <circle>` ring) for `critical` rows. "すべて解除" and
+    per-category toggles confirm via `window.confirm` when
+    clearing would touch critical rows; on accept, only
+    non-critical rows are cleared.
+  - `browser-extension/review-modal.js` — mirrored severity
+    palette + long-press guard. Rows sort severity-first so
+    critical detections float to the top.
+  - `browser-extension/manifest.json` bumped to `0.3.0`.
+  - Docs: `README.md` 重要度 + 一般名詞ブロックリスト sections,
+    `browser-extension/README.md` 重要度カラー section,
+    `browser-extension/CHANGELOG.md` v0.3.0 entry.
+  - Tests: `tests/test_severity.py` (10 tests — static map spot
+    checks per tier, unknown-label fallback, SEVERITY_ORDER
+    coverage, max_severity helper, end-to-end DetectionResult
+    / AggregatedEntity wiring, API_KEY preset → critical).
+    `tests/test_masking_service.py` (4 new tests —
+    `プロジェクト` / `メンバー` default-blocklist drops, custom
+    `東京` override, empty-blocklist regression).
+
 - [ ] **feat/ollama-analyzer** (Phase 3) — `OllamaAnalyzer`
   implementing the `Analyzer` Protocol. Ollama runs on host, gateway
   reaches it via `host.docker.internal` or a network bridge. New

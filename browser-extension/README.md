@@ -161,6 +161,48 @@ Colour-coded badges per entity category:
 | blue | LOCATION, PROPER_NOUN_LOCATION, PROPER_NOUN_ORG, ADDRESS, COMPANY |
 | grey | anything else (future analyzer entity types) |
 
+## 重要度カラー (severity)
+
+Milestone 7/8 で追加。各行は `severity` 値に従って **左ボーダー色** と **severity ピル** (`[critical|high|medium|low]`) が塗り分けられます。カテゴリヘッダーは配下行の最悪 severity を表示します。
+
+| Severity | ボーダー / ピル色 | 対象 (抜粋) | 操作 |
+|---|---|---|---|
+| critical | 赤 `#dc2626` / 背景 `#fee2e2` | API_KEY, SECRET, MY_NUMBER, PASSPORT, DRIVERS_LICENSE, CREDIT_CARD, BANK_ACCOUNT, DB_CONNECTION | **800ms 長押し** で解除。通常クリックでは外せない |
+| high | オレンジ `#f97316` / 背景 `#ffedd5` | PERSON, PROPER_NOUN_PERSON, EMAIL_ADDRESS, PHONE_NUMBER, ADDRESS, PATIENT_ID | 通常チェックボックス |
+| medium | アンバー `#eab308` / 背景 `#fef3c7` | LOCATION, COMPANY, ORGANIZATION, EMPLOYEE_ID, MEMBER_ID, CUSTOMER_ID, CONTRACT_NUMBER, MONETARY_AMOUNT, URL, IP_ADDRESS 他 | 通常チェックボックス |
+| low | グレー `#6b7280` / 背景 `#f3f4f6` | AGE, GENDER, DATE, BLOOD_TYPE, POSTAL_CODE, SKU, KATAKANA_NAME, 未マップラベル | 通常チェックボックス |
+
+### Critical 行の長押し操作
+
+```
+┌─────────────────────────────────────────┐
+│ ⚪ API_KEY sk-proj-ABC… [critical] 🔒   │
+│ └─ 円を 800ms 押し続けるとリングが      │
+│    0→100%に満ちた瞬間にチェックが外れる │
+│    指を離すとリセット (キャンセル扱い)  │
+│                                         │
+│ Pulse: 外した直後にボーダーが赤に光る   │
+└─────────────────────────────────────────┘
+```
+
+- `pointerdown` → SVG の `<circle stroke-dashoffset>` をアニメーション。50ms 毎に進捗更新
+- `pointerup` / `pointerleave` / `pointercancel` が 800ms 経過前に発火すると **トグルされない**
+- 800ms 到達で `change` イベント発火、プレビューペインが再描画
+- Space / Enter をホールドしても同じ挙動 (キーボード操作対応)
+- タッチ環境でも `pointer*` で動作
+
+`force_masked_categories` に含まれる critical 行は長押し UI が無効化され、🔒 アイコンの disabled 表示になります (= 何をしても外せない)。
+
+### バルク操作と Critical ガード
+
+- **すべて選択** — critical / force-mask に関わらず全部チェック
+- **すべて解除** — critical 行が存在する場合、ネイティブ `window.confirm` で「Critical な N 件は長押しで個別に解除してください。それ以外だけ解除しますか？」と確認し、Yes なら **critical 以外** のみクリア。キャンセルなら何もしない
+- **カテゴリヘッダーのトグル** — 同様のガードが働く
+
+### レビューモーダル (従来モード) の挙動
+
+`uiMode === "modal"` でもサイドバーと同じ severity カラーと長押しゲートが有効になります。行は severity 降順 (critical → low) でソートされ、リスクの高い検出が先頭に浮上します。
+
 Keyboard:
 
 - `Enter` — confirm with the currently-ticked selection

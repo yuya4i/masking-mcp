@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Local Mask MCP — PII Guard",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Masks personal information in AI chat inputs before they leave your browser. Requires local-mask-mcp gateway running at 127.0.0.1:8081.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [

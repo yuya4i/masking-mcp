@@ -257,6 +257,78 @@ by default — not just what Presidio or Sudachi catch.
 
 ---
 
+## Milestone 7 — Browser extension MITM (universal AI service coverage)
+
+Goal: intercept outbound fetch/XHR from Chrome-family browsers on
+sites like Claude.ai Web / chat.openai.com / gemini.google.com /
+manus.im so the user's input is masked **before** it leaves the
+browser. Detailed spec: see `plans/feat-universal-llm-masking-proxy-2026-04-15.md`.
+
+Architecture decision (from plan Q1-Q8):
+- Option B (browser extension + local gateway + rule-based) for MVP.
+- Option A (Ollama local LLM analyzer) added in Phase 3.
+- No system TLS interception, no per-service DOM hooking.
+
+- [x] **feat/browser-extension-phase1** — shipped on
+  `feat/browser-extension-phase1` (SHA `ceaad19`), 44/44 tests green.
+  - `browser-extension/` directory at repo root: Chrome MV3 extension
+    (Chromium-family only: Chrome / Edge / Brave).
+  - Split into `content.js` (isolated-world bridge) + `injected.js`
+    (page MAIN-world fetch / XHR monkey-patch). The split was
+    load-bearing: MV3 content scripts can't patch the page's real
+    `window.fetch` from the isolated world, so `injected.js` runs
+    in `MAIN` and talks back to `content.js` via `postMessage` for
+    the `chrome.*` operations (gateway call, storage read, badge).
+  - `background.js` service worker — per-tab detection counts +
+    badge text; resets on `tabs.onUpdated` URL change.
+  - `popup.html` + `popup.js` + `popup.css` — enabled toggle, live
+    gateway `/health` probe, per-tab detection count, deep-link to
+    the gateway Swagger UI.
+  - Per-service adapter registry with `match` / `extractInputs` /
+    `replaceInputs` for Claude.ai, ChatGPT, Gemini, Manus. Claude.ai
+    is the primary target; the others are best-effort and flagged in
+    the extension README.
+  - Gateway side: `src/app/routes/extension.py` exposes
+    `POST /v1/extension/sanitize` (unauthenticated; loopback trust
+    model). `src/app/main.py` gains `CORSMiddleware` with an
+    `allow_origin_regex` of `chrome-extension://.*`.
+  - `MaskingService.sanitize_text` grew two keyword-only audit
+    annotations (`request_type` / `upstream_target`) with defaults
+    that preserve byte-for-byte identity for every existing caller.
+  - New audit tag `"extension"` in `AuditRecord.request_type`.
+  - `tests/test_extension_route.py` covers the happy path, no-auth
+    contract, audit-record tagging, and CORS preflight.
+  - Icons: 16 / 48 / 128 px RGBA PNGs generated via Pillow inside
+    the existing `local-mask-mcp:latest` image
+    (`browser-extension/scripts/generate-icons.py`) — no host Pillow
+    or font-file dependency required.
+  - README.md gets a new "ブラウザ拡張 (全生成AIサービス対応)"
+    section right after "Claude 連携".
+
+  Follow-ups moved to `feat/browser-extension-phase2`:
+  - Per-service adapter tuning against live traffic (ChatGPT's
+    `/backend-api/f/conversation` variant and Gemini's `f.req` form
+    are the two highest-risk heuristics).
+  - FormData / multipart handling for services that start shipping
+    attachments through the same endpoints.
+  - Streaming-response path (Phase 1 scope was Q3 = 送信のみ).
+
+- [ ] **feat/browser-extension-phase2** — popup UI for category
+  toggles, per-service enable/disable, audit viewer (read-only).
+  Depends on: phase1.
+
+- [ ] **feat/ollama-analyzer** (Phase 3) — `OllamaAnalyzer`
+  implementing the `Analyzer` Protocol. Ollama runs on host, gateway
+  reaches it via `host.docker.internal` or a network bridge. New
+  RuntimeConfig field `enable_llm_analyzer: bool = false`.
+  Depends on: phase1 (gateway side endpoint), Ollama installed.
+
+- [ ] **chore/chrome-web-store-prep** (Phase 4) — icons, store
+  description, privacy policy, minimum host_permissions scope for
+  public review. Depends on: phase1 + phase2.
+
+---
+
 ## Out of scope (explicitly)
 
 - Training a custom NER model. We compose off-the-shelf analyzers and

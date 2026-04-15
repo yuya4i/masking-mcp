@@ -330,12 +330,15 @@
       display: none;
     }
     /* --- New 2-line row layout ---------------------------------------
-       Line 1:  🔑 value → <PLACEHOLDER>
-       Line 2:  N件 · [SEVERITY] · 🔒長押しで解除 (critical only)
-       The whole row (``.row``) is the interactive surface for critical
-       items so long-press fires wherever the user presses — no tiny
-       SVG target to hunt for. An absolute-positioned fill (``.lp-fill``)
-       animates left→right across the full row width during the hold.
+       Line 1:  icon + value -> <PLACEHOLDER>
+       Line 2:  N-ken + severity pill + long-press hint (critical only)
+       The whole row element (.row) is the interactive surface for
+       critical items so the long-press gesture fires wherever the
+       user presses -- no tiny SVG target to hunt for. An absolute-
+       positioned fill (.lp-fill) animates left-to-right across the
+       full row width during the hold. Note: backticks MUST NOT
+       appear inside this CSS block because the surrounding string
+       is a JS template literal and any backtick terminates it.
     */
     .row {
       display: block;
@@ -385,8 +388,10 @@
     .category.is-locked .row:hover {
       background: #fee2e2;
     }
-    /* Long-press progress fill — sits behind the row text, animates
-       its ``width`` from 0 → 100% over 800ms while the user holds. */
+    /* Long-press progress fill: sits behind the row text, animates
+       its width from 0 to 100 percent over 800ms while the user
+       holds. No backticks in this comment -- the enclosing string
+       is a JS template literal. */
     .row .lp-fill {
       position: absolute;
       left: 0;

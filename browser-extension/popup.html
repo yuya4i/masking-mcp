@@ -1,0 +1,44 @@
+<!doctype html>
+<!--
+  Popup surface for the Local Mask MCP extension.
+  Kept deliberately minimal: one toggle, three read-only indicators,
+  and a link into the local Swagger UI. No frameworks, no build step.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Local Mask MCP</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Local Mask MCP</h1>
+      <span id="version">v0.1.0</span>
+    </header>
+
+    <section class="row toggle-row">
+      <label for="enabled-toggle" class="toggle-label">
+        <span>Masking enabled</span>
+        <input type="checkbox" id="enabled-toggle" />
+      </label>
+    </section>
+
+    <section class="row">
+      <span class="label">Gateway</span>
+      <span id="gateway-status" class="value status-unknown">checking…</span>
+    </section>
+
+    <section class="row">
+      <span class="label">Masked on this tab</span>
+      <span id="detections-count" class="value">0</span>
+    </section>
+
+    <footer>
+      <a id="open-swagger" href="http://127.0.0.1:8081/v1/api" target="_blank" rel="noopener">
+        Open gateway Swagger UI
+      </a>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

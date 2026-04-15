@@ -29,8 +29,21 @@
         "https://manus.im/*"
       ],
       "js": ["content.js"],
-      "run_at": "document_start",
-      "world": "MAIN"
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["injected.js"],
+      "matches": [
+        "https://claude.ai/*",
+        "https://*.claude.com/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://gemini.google.com/*",
+        "https://*.manus.im/*",
+        "https://manus.im/*"
+      ]
     }
   ],
   "action": {

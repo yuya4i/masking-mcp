@@ -94,6 +94,35 @@ class RuntimeConfig(BaseModel):
     #: own default so changing it is an opt-in tuning knob rather than
     #: a breaking change.
     language_detection_ja_threshold: float = 0.2
+    #: Linguistic-tier filter. Each entity label is classified (via
+    #: :mod:`app.services.classification`) as one of ``"proper_noun"`` /
+    #: ``"contact"`` / ``"identifier"`` / ``"credential"`` / ``"attribute"`` /
+    #: ``"other"``. Only detections whose classification is in this list
+    #: are masked; everything else is treated as if it had never been
+    #: detected (does NOT appear in ``detections`` either). This lets an
+    #: operator say "I only care about 固有名詞, not about employee IDs
+    #: or structured codes" by setting this to ``["proper_noun"]``.
+    #: Default enables every class so existing behaviour is unchanged.
+    enabled_pii_classes: list[str] = Field(
+        default_factory=lambda: [
+            "proper_noun",
+            "contact",
+            "identifier",
+            "credential",
+            "attribute",
+            "other",
+        ]
+    )
+    #: When ``True`` and ``morphological_analyzer == "sudachi"``, each
+    #: detection whose linguistic class is ``proper_noun`` is validated
+    #: against Sudachi's POS output. If Sudachi tokenizes the surface as
+    #: ``名詞,一般`` (common noun — brand, product, generic term) rather
+    #: than ``名詞,固有名詞``, the detection is demoted to class
+    #: ``"other"`` so the ``proper_noun`` class does not silently include
+    #: false positives like brand-name katakana runs. Default ``False``
+    #: keeps the existing behaviour (every ``PROPER_NOUN_*`` /
+    #: ``KATAKANA_NAME`` detection is taken at face value).
+    sudachi_validate_proper_nouns: bool = False
     #: Minimum confidence score (0.0–1.0). Detections whose ``score`` is
     #: strictly below this threshold are discarded before masking. 0.0
     #: disables the filter. Presidio scores vary per recognizer;
@@ -324,6 +353,12 @@ class AggregatedEntity(BaseModel):
     #: person mentioned twice"). The sidebar renders this string next
     #: to the row so the user knows exactly what token the AI will see.
     placeholder: str = ""
+    #: Linguistic tier (proper_noun / contact / identifier / credential /
+    #: attribute / other) resolved from ``label`` via
+    #: :func:`app.services.classification.classification_for`. Used by
+    #: the UI to group rows alongside the coarser ``category`` grouping,
+    #: and by ``RuntimeConfig.enabled_pii_classes`` as the filter key.
+    classification: str = "other"
 
 
 class AggregatedExtensionResponse(BaseModel):

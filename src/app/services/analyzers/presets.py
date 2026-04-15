@@ -140,6 +140,19 @@ BUILTIN_PATTERNS: dict[str, list[tuple[str, str]]] = {
     "EMAIL_ADDRESS": [
         ("EMAIL_ADDRESS", r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,63}\b"),
     ],
+    # --- KATAKANA_NAME (heuristic Japanese personal name) ---
+    # Heuristic for Japanese personal names written in katakana
+    # (タカハシユウヤ, ヤマダハナコ). ``sudachidict_core`` misses many
+    # katakana name spellings, so this regex catches long katakana runs
+    # as a safety net. KNOWN FALSE POSITIVES: brand names, product
+    # names, and borrowed terms in katakana. The interactive review
+    # modal (browser extension) lets the user untick them per request.
+    # Default: ENABLED (aggressive). Disable via
+    # ``disabled_pattern_categories: ["KATAKANA_NAME"]`` for legacy
+    # deployments that prefer the pre-heuristic behaviour.
+    "KATAKANA_NAME": [
+        ("KATAKANA_NAME", r"[ァ-ヶー]{4,}"),
+    ],
 }
 
 
@@ -181,4 +194,5 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "INTERNAL_ID": "プロジェクトID / 従業員ID / チケット番号",
     "PHONE_NUMBER_JP": "日本語電話番号 (090-, 03-, etc.)",
     "EMAIL_ADDRESS": "メールアドレス (Presidio 非依存 / 新規 gTLD 対応)",
+    "KATAKANA_NAME": "カタカナ名 (4文字以上のカナ連続 — ブランド名等の誤検知あり)",
 }

@@ -31,11 +31,16 @@ function updateBadge(tabId, count) {
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
-  // Ensure the enabled key exists so every subsequent read is a plain
-  // ``storage.get('enabled')`` without a fallback branch.
-  const stored = await chrome.storage.local.get("enabled");
-  if (typeof stored.enabled !== "boolean") {
-    await chrome.storage.local.set({ enabled: true });
+  // Ensure both keys exist so every subsequent read is a plain
+  // ``storage.get(key)`` without a fallback branch. ``interactive``
+  // defaults to ``true`` — interactive review is the headline UX
+  // introduced in ``feat/interactive-review-ui``.
+  const stored = await chrome.storage.local.get(["enabled", "interactive"]);
+  const patch = {};
+  if (typeof stored.enabled !== "boolean") patch.enabled = true;
+  if (typeof stored.interactive !== "boolean") patch.interactive = true;
+  if (Object.keys(patch).length > 0) {
+    await chrome.storage.local.set(patch);
   }
 });
 

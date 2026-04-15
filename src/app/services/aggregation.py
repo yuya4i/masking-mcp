@@ -94,12 +94,24 @@ def aggregate_detections(
         label = best.entity_type
         category = category_for(label)
 
-        # Positions list in original-text order. Each entry is the
-        # (start, end) character span the surface occupied.
-        positions = sorted(
-            [(hit.start, hit.end) for hit in hits],
-            key=lambda pos: pos[0],
-        )
+        # Dedupe by (start, end): two analyzers (e.g. Presidio +
+        # regex-preset) can flag the exact same span with the same
+        # entity_type, which the overlap resolver keeps intact on
+        # purpose (``_resolve_overlaps`` does not drop identical spans
+        # — see its docstring). For aggregation those are the SAME
+        # occurrence, not two, so we collapse them here.  The first
+        # hit wins when two duplicates disagree on ``action`` —
+        # ``masked`` below is computed against the raw hit list so
+        # allow-list state is still captured correctly.
+        seen_spans: set[tuple[int, int]] = set()
+        unique_positions: list[tuple[int, int]] = []
+        for hit in hits:
+            span = (hit.start, hit.end)
+            if span in seen_spans:
+                continue
+            seen_spans.add(span)
+            unique_positions.append(span)
+        unique_positions.sort(key=lambda pos: pos[0])
 
         # The surface is considered masked for display purposes when
         # at least one occurrence had ``action == "masked"``. Pure
@@ -113,8 +125,8 @@ def aggregate_detections(
                 value=value,
                 label=label,
                 category=category,
-                count=len(hits),
-                positions=positions,
+                count=len(unique_positions),
+                positions=unique_positions,
                 masked=masked,
             )
         )

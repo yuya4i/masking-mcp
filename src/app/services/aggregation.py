@@ -74,6 +74,23 @@ def aggregate_detections(
             by_value[det.text] = []
         by_value[det.text].append(det)
 
+    # Pre-compute the number assigned to each (label, value) pair so
+    # the ``placeholder`` embedded in each AggregatedEntity matches
+    # the one ``MaskingService._tag_mask`` bakes into
+    # ``sanitized_text``. Ordering is left-to-right by first-occurrence
+    # start, per label — same invariant as _tag_mask's pass-1 so the
+    # UI rows and the server-rendered string stay in lockstep.
+    label_counters: dict[str, int] = {}
+    numbering: dict[tuple[str, str], int] = {}
+    for det in sorted(
+        (d for hits in by_value.values() for d in hits),
+        key=lambda d: (d.start, d.end),
+    ):
+        key = (det.entity_type, det.text)
+        if key not in numbering:
+            label_counters[det.entity_type] = label_counters.get(det.entity_type, 0) + 1
+            numbering[key] = label_counters[det.entity_type]
+
     aggregated: list[AggregatedEntity] = []
     for value in order:
         hits = by_value[value]
@@ -120,6 +137,9 @@ def aggregate_detections(
         # allowed" state without a forced mask.
         masked = any(hit.action == "masked" for hit in hits)
 
+        number = numbering.get((label, value), 1)
+        placeholder = f"<{label}_{number}>"
+
         aggregated.append(
             AggregatedEntity(
                 value=value,
@@ -128,6 +148,7 @@ def aggregate_detections(
                 count=len(unique_positions),
                 positions=unique_positions,
                 masked=masked,
+                placeholder=placeholder,
             )
         )
     return aggregated

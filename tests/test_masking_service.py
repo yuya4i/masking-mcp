@@ -162,7 +162,10 @@ def test_regex_recognizer_flags_pattern() -> None:
     # And the masked text must carry the entity-type tag rather than
     # the raw identifier, matching the ``tag`` mask strategy contract.
     assert "EMP-12345" not in result.sanitized_text
-    assert "<EMPLOYEE_ID>" in result.sanitized_text
+    # Tag strategy now uses numbered placeholders; the exact suffix is
+    # sequential per label so ``<EMPLOYEE_ID_1>`` is the expected form
+    # for a single detection.
+    assert "<EMPLOYEE_ID_1>" in result.sanitized_text
 
 
 def test_min_score_filters_low_confidence_detections() -> None:
@@ -180,10 +183,14 @@ def test_min_score_filters_low_confidence_detections() -> None:
     result = service.sanitize_text(request)
 
     # Email should still be masked (Presidio EMAIL_ADDRESS recognizer
-    # always scores ~1.0).
-    assert "<EMAIL_ADDRESS>" in result.sanitized_text
-    # But no PERSON false-positive from 'Reach' — the threshold culls it.
-    assert "<PERSON>" not in result.sanitized_text
+    # always scores ~1.0). Numbered placeholder form after the tag
+    # strategy refactor.
+    assert "<EMAIL_ADDRESS_1>" in result.sanitized_text
+    # But no PERSON false-positive from 'Reach' — the threshold culls
+    # it. Using the ``<PERSON_`` prefix catches every numbered variant
+    # (``<PERSON_1>``, ``<PERSON_2>``, …) so a single false positive
+    # at any index still fails the test.
+    assert "<PERSON_" not in result.sanitized_text
 
 
 def test_resolve_overlaps_sweep_line_on_50_detection_input() -> None:
@@ -353,7 +360,7 @@ def test_preset_detects_email_with_uncommon_tld() -> None:
         TextSanitizeRequest(text="連絡先 hogehoge@fugafuga.fizz まで")
     )
     assert any(d.entity_type == "EMAIL_ADDRESS" for d in result.detections)
-    assert "<EMAIL_ADDRESS>" in result.sanitized_text
+    assert "<EMAIL_ADDRESS_1>" in result.sanitized_text
 
 
 def test_preset_detects_katakana_name() -> None:
@@ -369,3 +376,48 @@ def test_preset_detects_katakana_name() -> None:
         TextSanitizeRequest(text="タカハシユウヤと申します")
     )
     assert any(d.entity_type == "KATAKANA_NAME" for d in result.detections)
+
+
+def test_tag_mask_assigns_distinct_numbers_to_different_surfaces() -> None:
+    """Two different persons get <PERSON_1> and <PERSON_2> so the LLM
+    (and later, a reverse-masker) can tell them apart."""
+    config = RuntimeConfig(filter_enabled=True, enable_preset_patterns=True)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(
+        TextSanitizeRequest(
+            # Two distinct emails, same label — easiest surface pair
+            # that does not depend on Sudachi's dictionary.
+            text="foo@example.com と bar@example.com に送信"
+        )
+    )
+    assert "<EMAIL_ADDRESS_1>" in result.sanitized_text
+    assert "<EMAIL_ADDRESS_2>" in result.sanitized_text
+
+
+def test_tag_mask_repeats_same_number_for_same_surface() -> None:
+    """Same surface detected twice shares a number so repeated mentions
+    remain a single referent from the LLM's perspective."""
+    config = RuntimeConfig(filter_enabled=True, enable_preset_patterns=True)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(
+        TextSanitizeRequest(
+            text="foo@example.com と foo@example.com に CC"
+        )
+    )
+    # Both occurrences became <EMAIL_ADDRESS_1>, not _1 + _2.
+    assert result.sanitized_text.count("<EMAIL_ADDRESS_1>") == 2
+    assert "<EMAIL_ADDRESS_2>" not in result.sanitized_text
+
+
+def test_tag_mask_independent_counters_per_label() -> None:
+    """``<PERSON_1>`` and ``<EMAIL_ADDRESS_1>`` coexist — counters are
+    scoped to the entity type."""
+    config = RuntimeConfig(filter_enabled=True, enable_preset_patterns=True)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(
+        TextSanitizeRequest(text="contact foo@example.com for Q4 review")
+    )
+    # Email is guaranteed; we only assert the email side to avoid
+    # flaking on whether Presidio treats an English phrase as a PERSON.
+    assert "<EMAIL_ADDRESS_1>" in result.sanitized_text
+    assert "<EMAIL_ADDRESS_2>" not in result.sanitized_text

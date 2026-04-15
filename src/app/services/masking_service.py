@@ -7,8 +7,10 @@ from collections import Counter
 from typing import Iterable
 
 from presidio_analyzer import RecognizerResult
-from presidio_anonymizer import AnonymizerEngine
-from presidio_anonymizer.entities import OperatorConfig
+# Note: we used to rely on Presidio's AnonymizerEngine for the "tag"
+# strategy, but its operator model is keyed by entity_type which cannot
+# express per-detection numbering. All three strategies now do manual
+# substitution in this module.
 
 from app.models.schemas import (
     AuditRecord,
@@ -39,7 +41,9 @@ class MaskingService:
     def __init__(self, config_repo: ConfigRepository, audit_repo: AuditRepository) -> None:
         self.config_repo = config_repo
         self.audit_repo = audit_repo
-        self.anonymizer = AnonymizerEngine()
+        # AnonymizerEngine was dropped with the per-detection-numbered tag
+        # strategy; substitutions are now done inline by _tag_mask /
+        # _partial_mask / _hash_mask.
         #: Lazily populated map of active analyzers keyed by ``Analyzer.name``.
         #: A dict (rather than a list) because a future ``allow_entity_types``
         #: extension may want to disable a specific analyzer by string, which
@@ -381,12 +385,7 @@ class MaskingService:
         mask_strategy: str,
     ) -> str:
         if mask_strategy == "tag":
-            operators = {
-                item.entity_type: OperatorConfig("replace", {"new_value": f"<{item.entity_type}>"})
-                for item in detections
-            }
-            result = self.anonymizer.anonymize(text=text, analyzer_results=detections, operators=operators)
-            return result.text
+            return self._tag_mask(text, detections)
 
         if mask_strategy == "partial":
             return self._partial_mask(text, detections)
@@ -395,6 +394,62 @@ class MaskingService:
             return self._hash_mask(text, detections)
 
         return text
+
+    def _tag_mask(self, text: str, detections: list[RecognizerResult]) -> str:
+        """Tag strategy with numbered placeholders.
+
+        Each detection is replaced with ``<ENTITY_TYPE_N>`` where ``N`` is
+        a 1-based counter scoped to the entity type. Numbering follows
+        left-to-right order of first occurrence and is **stable for a
+        given surface**: if the same substring is detected twice under
+        the same entity type, both occurrences share the same number.
+
+        Example::
+
+            "田中太郎と田中太郎と山田花子が会議"
+            → "<PROPER_NOUN_PERSON_1>と<PROPER_NOUN_PERSON_1>と<PROPER_NOUN_PERSON_2>が会議"
+
+        The shared-number invariant lets downstream LLMs treat repeated
+        mentions as the same referent, and is the building block for a
+        future reverse-masking pass that will substitute placeholders
+        back to their original values in the model's response.
+        """
+        # Pass 1: assign numbers. Sort by (start, end) so numbering is
+        # deterministic regardless of detection insertion order.
+        counters: dict[str, int] = {}
+        assignments: dict[tuple[str, str], int] = {}
+        for item in sorted(detections, key=lambda d: (d.start, d.end)):
+            surface = text[item.start:item.end]
+            key = (item.entity_type, surface)
+            if key not in assignments:
+                counters[item.entity_type] = counters.get(item.entity_type, 0) + 1
+                assignments[key] = counters[item.entity_type]
+
+        # Pass 2: apply substitutions in reverse offset order so earlier
+        # offsets remain valid after later replacements. Dedupe by
+        # (start, end) first — two analyzers (e.g. Presidio +
+        # preset-regex) commonly flag the identical span, and substituting
+        # the same range twice would graft the second placeholder into
+        # the text of the first (producing ``<EMAIL_ADDRESS_1>1>`` or
+        # similar garbage). The overlap resolver intentionally preserves
+        # duplicates for audit purposes, so the dedup has to happen here.
+        # Last-wins dedup: user-defined RegexAnalyzer patterns are
+        # appended AFTER preset patterns in MaskingService, so a
+        # custom ``EMPLOYEE_ID`` pattern must override the preset
+        # ``INTERNAL_ID`` when both fire on the same span. Using
+        # plain ``dict[...] = item`` (not ``setdefault``) keeps the
+        # last entry for each (start, end) pair — which is the
+        # caller's desired override.
+        unique_spans: dict[tuple[int, int], RecognizerResult] = {}
+        for item in detections:
+            unique_spans[(item.start, item.end)] = item
+        result = text
+        for item in sorted(unique_spans.values(), key=lambda d: d.start, reverse=True):
+            surface = text[item.start:item.end]
+            number = assignments[(item.entity_type, surface)]
+            placeholder = f"<{item.entity_type}_{number}>"
+            result = result[:item.start] + placeholder + result[item.end:]
+        return result
 
     def _partial_mask(self, text: str, detections: list[RecognizerResult]) -> str:
         chars = list(text)

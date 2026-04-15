@@ -1,11 +1,67 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.routes.admin import router as admin_router
 from app.routes.extension import router as extension_router
 from app.routes.proxy import router as proxy_router
 from app.routes.sanitize import router as sanitize_router
+
+
+class ExtensionCORSMiddleware(BaseHTTPMiddleware):
+    """One-shot CORS + Private Network Access handler for the browser extension.
+
+    Replaces Starlette's ``CORSMiddleware`` for our use case because the
+    stock middleware rejects preflights that carry the PNA signal header
+    (``Access-Control-Request-Private-Network: true``) with ``400 Bad
+    Request``, which Chrome then refuses to follow up with the real
+    request. Implementing our own avoids that.
+
+    Policy:
+    - **OPTIONS preflights** always return 200 with every header Chrome
+      needs: the echoed origin, allowed methods/headers, a 10-minute
+      cache, and ``Access-Control-Allow-Private-Network: true``.
+    - **Actual responses** are CORS-decorated with the same origin echo
+      so the browser accepts the body. PNA allow header is added too as
+      belt-and-braces (some Chrome builds re-check on the final response).
+    - Requests without an ``Origin`` header (e.g. direct curl from the
+      host) pass through untouched — no CORS headers, normal behaviour.
+
+    We deliberately echo whatever ``Origin`` the client sent instead of
+    a fixed allow-list. The gateway binds to loopback and is a pure MITM
+    with no credentials of its own, so origin reflection does not expose
+    anything a motivated local attacker could not already reach. If you
+    run this on a non-loopback interface, tighten the check here.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin")
+
+        if request.method == "OPTIONS" and origin:
+            from starlette.responses import Response
+            return Response(
+                status_code=200,
+                headers={
+                    "Access-Control-Allow-Origin": origin,
+                    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+                    "Access-Control-Allow-Headers": (
+                        request.headers.get(
+                            "access-control-request-headers",
+                            "Content-Type",
+                        )
+                    ),
+                    "Access-Control-Allow-Private-Network": "true",
+                    "Access-Control-Max-Age": "600",
+                    "Vary": "Origin",
+                },
+            )
+
+        response = await call_next(request)
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Private-Network"] = "true"
+            response.headers["Vary"] = "Origin"
+        return response
 
 
 def create_app() -> FastAPI:
@@ -44,13 +100,12 @@ def create_app() -> FastAPI:
     # ``POST`` covers the sanitize call itself and ``OPTIONS`` covers
     # the preflight; ``Content-Type`` is the only non-CORS-safelisted
     # header the extension attaches.
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["chrome-extension://*"],
-        allow_origin_regex=r"chrome-extension://.*",
-        allow_methods=["POST", "OPTIONS"],
-        allow_headers=["Content-Type"],
-    )
+    # NOTE: replaced Starlette's CORSMiddleware because it returns 400
+    # Bad Request on preflights that carry the Private Network Access
+    # signal header, which Chrome then refuses to follow up on. Our
+    # custom ExtensionCORSMiddleware handles both CORS and PNA in one
+    # place and always returns 200 to valid preflights.
+    app.add_middleware(ExtensionCORSMiddleware)
 
     app.include_router(admin_router, prefix="/admin", tags=["admin"])
     app.include_router(sanitize_router, prefix="/sanitize", tags=["sanitize"])

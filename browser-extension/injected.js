@@ -314,12 +314,45 @@
     }
   }
 
+  // Shared numbering helper — mirrors MaskingService._tag_mask's
+  // pass-1 on the server. Same (label, surface) → same number; the
+  // server and client therefore agree on exactly which placeholder
+  // each occurrence resolves to, so the gateway's sanitized_text and
+  // the client-side preview never disagree.
+  //
+  // Returns a function ``numberFor(label, surface) -> int`` that the
+  // substitution loops below call without re-scanning the input.
+  function buildNumberer(originalText, spans) {
+    // spans: Array<{start, end, label}> OR Array<[start, end, label]>
+    const counters = new Map();
+    const numbering = new Map();
+    const normalized = spans
+      .map((x) => {
+        if (Array.isArray(x)) return { start: x[0], end: x[1], label: x[2] };
+        return { start: x.start, end: x.end, label: x.label || x.entity_type };
+      })
+      .filter(
+        (x) =>
+          Number.isInteger(x.start) && Number.isInteger(x.end) && x.end > x.start
+      )
+      .sort((a, b) => a.start - b.start || a.end - b.end);
+    for (const { start, end, label } of normalized) {
+      const surface = originalText.slice(start, end);
+      const key = `${label}\x00${surface}`;
+      if (!numbering.has(key)) {
+        const n = (counters.get(label) || 0) + 1;
+        counters.set(label, n);
+        numbering.set(key, n);
+      }
+    }
+    return (label, surface) =>
+      numbering.get(`${label}\x00${surface}`) || 1;
+  }
+
   // Apply the subset of gateway detections that the user kept
-  // checked in the review modal. We always use the ``tag`` strategy
-  // (``<ENTITY_TYPE>``) because that's what the gateway does by
-  // default and replicating partial/hash client-side is out of
-  // scope for Phase 1. Replacements walk end → start so earlier
-  // offsets stay valid during the rewrite.
+  // checked in the review modal. We use the numbered-tag strategy
+  // (``<ENTITY_TYPE_N>``) so repeated mentions of the same surface
+  // share a placeholder, matching the server-side invariant.
   function applyTagSubstitutions(originalText, detections, keptIds) {
     if (!keptIds || keptIds.size === 0) return originalText;
     const kept = detections
@@ -330,23 +363,27 @@
           Number.isInteger(d.start) &&
           Number.isInteger(d.end) &&
           d.end > d.start
-      )
-      .sort((a, b) => b.start - a.start);
+      );
+    const numberFor = buildNumberer(originalText, kept);
+    const descending = [...kept].sort((a, b) => b.start - a.start);
     let out = originalText;
-    for (const d of kept) {
-      out = out.slice(0, d.start) + `<${d.entity_type}>` + out.slice(d.end);
+    for (const d of descending) {
+      const surface = originalText.slice(d.start, d.end);
+      const n = numberFor(d.entity_type, surface);
+      out = out.slice(0, d.start) + `<${d.entity_type}_${n}>` + out.slice(d.end);
     }
     return out;
   }
 
   // Sidebar variant: input is the flattened [start, end, label] list
-  // returned from sidebar.show(). Same back-to-front substitution
-  // contract; identical to ``sidebar.applyMasks`` — we keep a local
-  // copy here so injected.js never imports from the sidebar global
-  // (the sidebar may legitimately be missing if the user picked
-  // ``uiMode: "modal"`` and only review-modal.js was loaded).
+  // returned from sidebar.show(). Same contract as
+  // applyTagSubstitutions; kept as a separate function so injected.js
+  // never imports from the sidebar global (the sidebar may legitimately
+  // be missing if the user picked ``uiMode: "modal"`` and only
+  // review-modal.js was loaded).
   function applyTriples(originalText, triples) {
     if (!triples || triples.length === 0) return originalText;
+    const numberFor = buildNumberer(originalText, triples);
     const sorted = [...triples].sort((a, b) => b[0] - a[0]);
     let out = originalText;
     for (const [s, e, label] of sorted) {
@@ -359,7 +396,10 @@
       ) {
         continue;
       }
-      out = out.slice(0, s) + `<${String(label || "MASKED")}>` + out.slice(e);
+      const lbl = String(label || "MASKED");
+      const surface = originalText.slice(s, e);
+      const n = numberFor(lbl, surface);
+      out = out.slice(0, s) + `<${lbl}_${n}>` + out.slice(e);
     }
     return out;
   }

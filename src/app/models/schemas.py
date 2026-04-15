@@ -317,6 +317,13 @@ class AggregatedEntity(BaseModel):
     #: the user wants to let a surface through, and the
     #: ``force_mask_keywords`` trigger forces it back on.
     masked: bool = True
+    #: Numbered placeholder the gateway uses in ``sanitized_text`` for
+    #: this surface. Two detections with the same (label, value) share
+    #: the same placeholder so repeated mentions collapse into one
+    #: referent (``<PROPER_NOUN_PERSON_1>`` used twice means "same
+    #: person mentioned twice"). The sidebar renders this string next
+    #: to the row so the user knows exactly what token the AI will see.
+    placeholder: str = ""
 
 
 class AggregatedExtensionResponse(BaseModel):

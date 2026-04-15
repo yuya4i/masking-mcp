@@ -221,13 +221,20 @@
   // Build one detection row entirely via DOM APIs. Nothing here
   // ever sets ``innerHTML`` on untrusted strings — detection text
   // only reaches the DOM through ``textContent``.
-  function buildRow(detection, index) {
+  //
+  // ``number`` is the placeholder suffix so the row preview shows
+  // ``→ <PROPER_NOUN_PERSON_1>`` instead of the ambiguous bare
+  // ``<PROPER_NOUN_PERSON>``. Same (entity, surface) must share a
+  // number across rows so the user sees repeated mentions collapse
+  // into one referent.
+  function buildRow(detection, index, number) {
     const entity = String(detection.entity_type || "UNKNOWN");
     const text = String(detection.text || "");
     const before = String(detection.context_before || "");
     const after = String(detection.context_after || "");
     const color = badgeColor(entity);
     const id = `mcp-det-${index}`;
+    const n = Number.isInteger(number) && number > 0 ? number : 1;
 
     const row = document.createElement("label");
     row.className = "row";
@@ -253,7 +260,7 @@
 
     const preview = document.createElement("span");
     preview.className = "mask-preview";
-    preview.textContent = `\u2192 <${entity}>`;
+    preview.textContent = `\u2192 <${entity}_${n}>`;
 
     const context = document.createElement("span");
     context.className = "context";
@@ -331,7 +338,32 @@
 
       const list = document.createElement("div");
       list.className = "list";
-      detections.forEach((det, idx) => list.appendChild(buildRow(det, idx)));
+
+      // Precompute (entity_type, surface) → number so every row's
+      // placeholder preview matches what the gateway will actually
+      // bake into ``sanitized_text``. Same invariant as
+      // MaskingService._tag_mask on the server: left-to-right,
+      // shared number for repeated surfaces.
+      const sortedForNumbering = detections
+        .map((d, idx) => ({ d, idx }))
+        .filter(({ d }) => Number.isInteger(d.start) && Number.isInteger(d.end))
+        .sort((a, b) => a.d.start - b.d.start || a.d.end - b.d.end);
+      const counters = new Map();
+      const rowNumber = new Array(detections.length).fill(1);
+      const assigned = new Map();
+      for (const { d, idx } of sortedForNumbering) {
+        const key = `${d.entity_type}\x00${d.text}`;
+        if (!assigned.has(key)) {
+          const n = (counters.get(d.entity_type) || 0) + 1;
+          counters.set(d.entity_type, n);
+          assigned.set(key, n);
+        }
+        rowNumber[idx] = assigned.get(key);
+      }
+
+      detections.forEach((det, idx) =>
+        list.appendChild(buildRow(det, idx, rowNumber[idx]))
+      );
 
       const footer = document.createElement("footer");
 

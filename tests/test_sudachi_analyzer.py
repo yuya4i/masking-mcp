@@ -86,9 +86,12 @@ def test_masking_service_integration() -> None:
 
     assert "田中太郎" not in result.sanitized_text
     assert "東京" not in result.sanitized_text
+    # Numbered placeholders ``<LABEL_N>`` are the result of the tag
+    # strategy refactor; prefix match tolerates whatever subcategory
+    # / index Sudachi picks.
     assert (
-        "<PROPER_NOUN_PERSON>" in result.sanitized_text
-        or "<PROPER_NOUN>" in result.sanitized_text
+        "<PROPER_NOUN_PERSON_" in result.sanitized_text
+        or "<PROPER_NOUN_" in result.sanitized_text
     )
 
     masked = [d for d in result.detections if d.action == "masked"]

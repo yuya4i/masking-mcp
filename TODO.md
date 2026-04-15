@@ -381,7 +381,7 @@ Planning spec: `plans/feat-ui-masking-control-layer-2026-04-15.md`.
 ### Wave B — frontend (next branch)
 
 - [x] **feat/ui-masking-sidebar** — merged from
-  `feat/ui-masking-sidebar` (SHA `<pending>`), 73/73 tests green
+  `feat/ui-masking-sidebar` (SHA `ae97479`), 73/73 tests green
   (zero Python changes — frontend only). Ships the Shadow-DOM
   sidebar that consumes `POST /v1/extension/sanitize/aggregated`:
   - `browser-extension/sidebar.js` (new, ~920 LOC) — right-side

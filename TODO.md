@@ -314,7 +314,7 @@ Architecture decision (from plan Q1-Q8):
   - Streaming-response path (Phase 1 scope was Q3 = 送信のみ).
 
 - [x] **feat/interactive-review-ui** — merged on
-  `feat/interactive-review-ui` (SHA `<pending>`), 46/46 tests green.
+  `feat/interactive-review-ui` (SHA `d602789`), 46/46 tests green.
   Closes two detection gaps + ships the interactive review modal
   that was the headline Phase 2 UX request:
   - `presets.py` gains `EMAIL_ADDRESS` (permissive pattern for new

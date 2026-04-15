@@ -28,7 +28,40 @@
   const GATEWAY_URL = "http://127.0.0.1:8081/v1/extension/sanitize";
   const GATEWAY_AGGREGATED_URL =
     "http://127.0.0.1:8081/v1/extension/sanitize/aggregated";
-  const GATEWAY_TIMEOUT_MS = 3000;
+  const GATEWAY_HEALTH_URL = "http://127.0.0.1:8081/health";
+  // Bumped from 3000 -> 15000 because the FIRST call from Chrome on
+  // Windows to a WSL2-hosted gateway routinely takes several seconds:
+  // Chrome's CORS-RFC1918 preflight on public-to-private fetches gets
+  // re-negotiated on every fresh tab, and Windows's ephemeral port
+  // mapping into the WSL2 VM has cold-start overhead that does NOT
+  // show up when curling from inside WSL. Once warm the call is
+  // milliseconds, but the first click in a fresh tab needs head-room.
+  const GATEWAY_TIMEOUT_MS = 15000;
+
+  // Pre-warm: hit /health in the background on content script load.
+  // This makes the browser complete the PNA preflight + open the
+  // keep-alive TCP connection before the user's first message, so
+  // the first real sanitize call is already on a warm pipeline.
+  // Failures are silent - we rely on the actual sanitize attempt to
+  // surface errors meaningfully.
+  (async () => {
+    try {
+      const t0 = Date.now();
+      const resp = await fetch(GATEWAY_HEALTH_URL, {
+        method: "GET",
+        mode: "cors",
+        credentials: "omit",
+      });
+      const elapsed = Date.now() - t0;
+      if (resp.ok) {
+        console.debug("[mask-mcp] gateway warmup ok in", elapsed + "ms");
+      } else {
+        console.warn("[mask-mcp] gateway warmup http", resp.status);
+      }
+    } catch (e) {
+      console.warn("[mask-mcp] gateway warmup failed:", e?.message || e);
+    }
+  })();
 
   // 1) Inject the page-world scripts in order:
   //    ``review-modal.js`` and ``sidebar.js`` must run before
@@ -144,6 +177,7 @@
   // failure so the caller can fall back to ``confirmSendUnmasked``.
   async function callGateway(url, payload) {
     let responseBody = null;
+    const t0 = Date.now();
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), GATEWAY_TIMEOUT_MS);
@@ -158,6 +192,15 @@
         });
         if (resp.ok) {
           responseBody = await resp.json();
+          const elapsed = Date.now() - t0;
+          if (elapsed > 1500) {
+            console.info(
+              "[mask-mcp] gateway slow:",
+              elapsed + "ms",
+              "url:",
+              url
+            );
+          }
         } else {
           console.warn("[mask-mcp] gateway returned", resp.status, "for", url);
         }
@@ -165,12 +208,24 @@
         clearTimeout(timer);
       }
     } catch (err) {
-      console.warn(
-        "[mask-mcp] gateway call failed:",
-        err?.message || err,
-        "url:",
-        url
-      );
+      const elapsed = Date.now() - t0;
+      if (err && err.name === "AbortError") {
+        console.warn(
+          "[mask-mcp] gateway timed out after",
+          elapsed + "ms (limit",
+          GATEWAY_TIMEOUT_MS + "ms).",
+          "Check: (1) gateway running? curl http://127.0.0.1:8081/health",
+          "(2) if on WSL, docker-compose.yml bind should be 0.0.0.0:8081."
+        );
+      } else {
+        console.warn(
+          "[mask-mcp] gateway call failed after",
+          elapsed + "ms:",
+          err?.message || err,
+          "url:",
+          url
+        );
+      }
     }
     return responseBody;
   }

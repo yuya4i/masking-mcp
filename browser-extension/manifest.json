@@ -1,17 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Local Mask MCP — PII Guard",
-  "version": "0.3.0",
-  "description": "Masks personal information in AI chat inputs before they leave your browser. Requires local-mask-mcp gateway running at 127.0.0.1:8081.",
+  "version": "0.4.0",
+  "description": "Masks personal information in AI chat inputs before they leave your browser. Works standalone; optionally uses a local gateway for higher accuracy.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://claude.ai/*",
     "https://*.claude.com/*",
     "https://chatgpt.com/*",
-    "https://chat.openai.com/*",
+    "https://*.openai.com/*",
     "https://gemini.google.com/*",
     "https://*.manus.im/*",
-    "https://manus.im/*",
     "http://127.0.0.1:8081/*"
   ],
   "background": {
@@ -23,10 +22,9 @@
         "https://claude.ai/*",
         "https://*.claude.com/*",
         "https://chatgpt.com/*",
-        "https://chat.openai.com/*",
+        "https://*.openai.com/*",
         "https://gemini.google.com/*",
-        "https://*.manus.im/*",
-        "https://manus.im/*"
+        "https://*.manus.im/*"
       ],
       "js": ["content.js"],
       "run_at": "document_start"
@@ -34,15 +32,27 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["injected.js", "review-modal.js", "sidebar.js"],
+      "resources": [
+        "injected.js",
+        "review-modal.js",
+        "sidebar.js",
+        "engine/patterns.js",
+        "engine/classification.js",
+        "engine/severity.js",
+        "engine/categories.js",
+        "engine/aggregate.js",
+        "engine/force-mask.js",
+        "engine/blocklist.js",
+        "engine/engine.js",
+        "engine/bundle.js"
+      ],
       "matches": [
         "https://claude.ai/*",
         "https://*.claude.com/*",
         "https://chatgpt.com/*",
-        "https://chat.openai.com/*",
+        "https://*.openai.com/*",
         "https://gemini.google.com/*",
-        "https://*.manus.im/*",
-        "https://manus.im/*"
+        "https://*.manus.im/*"
       ]
     }
   ],

@@ -69,13 +69,28 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ============================================================
 FROM builder AS test
 
-# tesseract is not exercised by the current unit tests, but
-# baking it in now keeps the test stage honest the moment an
-# OCR test is added. Cheap insurance against mystery failures.
+# tesseract is not exercised by the current unit tests, but baking it in
+# now keeps the test stage honest the moment an OCR test is added.
+#
+# Node.js 20 is required by ``tests/test_js_vectors.py``: the pytest
+# wrapper spawns ``node scripts/validate_vectors.js`` to exercise the
+# pure-JS masking engine against the shared JSON vectors. Without Node
+# the wrapper would skip; by baking Node 20 in we keep the JS engine
+# under CI alongside the Python suite.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         tesseract-ocr \
         tesseract-ocr-eng \
+        curl \
+        ca-certificates \
+        gnupg \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+         | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" \
+         > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Re-sync WITH dev deps. Two flags are load-bearing:
@@ -90,8 +105,13 @@ RUN apt-get update \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --inexact --no-editable
 
-# Only the test stage needs tests/ on disk.
+# Only the test stage needs tests/ + the JS engine sources on disk.
+# The JS vectors subprocess resolves paths relative to the repo root
+# (CWD = /build in this stage), so both browser-extension and scripts
+# must be layered in here.
 COPY tests ./tests
+COPY browser-extension ./browser-extension
+COPY scripts ./scripts
 
 # Fail the build on any red test.
 RUN uv run pytest tests/ -v

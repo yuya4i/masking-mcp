@@ -237,6 +237,40 @@ powershell -File scripts\install-autostart.ps1
 
 ---
 
+<a id="standalone-mode"></a>
+## Standalone モード (Docker gateway なしで動く)
+
+`feat/serverless-engine-phase1` 以降、拡張機能に **pure-JavaScript の PII 検出エンジン** が同梱されています。Docker gateway を立ち上げなくても、regex ベースのプリセット (EMAIL / PHONE_NUMBER / POSTAL_CODE / MY_NUMBER / API_KEY / BLOOD_TYPE / ANNUAL_INCOME など 30+ カテゴリ) はブラウザ内でそのまま動きます。
+
+精度目安 (vs Docker gateway full stack):
+
+| カテゴリ | Standalone (Phase 1) | Gateway (Phase 2 + Presidio) |
+|---|---|---|
+| 構造化 PII (email / phone / 郵便番号 / マイナンバー / API key / …) | ≒同等 | 同等 |
+| 日本語固有名詞 (田中太郎、株式会社〇〇) | 部分 (COMPANY + KATAKANA_NAME のみ) | 高 (Sudachi 形態素) |
+| 英語 PERSON / LOCATION / ORGANIZATION | 未対応 | 高 (Presidio NER) |
+
+標準では **Hybrid モード** で動作し、gateway が `127.0.0.1:8081` で応答すれば gateway を使い、応答しなければ自動的に standalone エンジンへフォールバックします。
+
+### 切り替え方
+
+拡張の popup から (Phase 4 で UI 追加予定) — または `chrome.storage.local` を直接編集:
+
+```js
+// Chrome DevTools (拡張 background page):
+chrome.storage.local.set({ mask_mcp_pref_hybrid: "standalone" }); // 常に local エンジン
+chrome.storage.local.set({ mask_mcp_pref_hybrid: "gateway" });    // 常に gateway (不達は失敗)
+chrome.storage.local.set({ mask_mcp_pref_hybrid: "auto" });       // 既定: 疎通確認で自動切替
+```
+
+現在どちらで動いているかは `window.__localMaskMCP.settings.activeBackend` を DevTools で参照してください (`"gateway"` / `"standalone"`)。
+
+### Chrome Web Store 公開版との違い
+
+Web Store 公開版は `mask_mcp_pref_hybrid = "standalone"` をデフォルトにした配布ビルドになります (ユーザーが Docker を入れずに動くことが前提)。dev unpacked 版は `"auto"` で引き続き Hybrid 動作します。
+
+---
+
 ## セットアップ
 
 本プロジェクトは **Docker 前提** で管理しています。ホストに Python や uv をインストールする必要はありません。必要なのは `docker` と `docker compose` だけです。

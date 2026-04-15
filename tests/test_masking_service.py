@@ -337,3 +337,35 @@ def test_preset_off_disables_all_builtin() -> None:
     assert not any(
         d.entity_type in ("ADDRESS", "AGE", "GENDER") for d in result.detections
     )
+
+
+def test_preset_detects_email_with_uncommon_tld() -> None:
+    """Presidio's bundled EMAIL_ADDRESS recognizer uses a TLD
+    whitelist that misses newer gTLDs (``.fizz`` / ``.xyz`` /
+    ``.lgbt``). The permissive preset pattern must pick them up
+    structurally so the extension's modal can offer them for
+    masking. Regression guard for the bug report where
+    ``hogehoge@fugafuga.fizz`` slipped through untouched.
+    """
+    config = RuntimeConfig(filter_enabled=True, enable_preset_patterns=True)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(
+        TextSanitizeRequest(text="連絡先 hogehoge@fugafuga.fizz まで")
+    )
+    assert any(d.entity_type == "EMAIL_ADDRESS" for d in result.detections)
+    assert "<EMAIL_ADDRESS>" in result.sanitized_text
+
+
+def test_preset_detects_katakana_name() -> None:
+    """Long katakana runs (≥ 4 chars) are flagged as KATAKANA_NAME
+    because ``sudachidict_core`` misses many katakana name spellings.
+    The interactive review modal lets operators untick false positives
+    (brand names, product names) per request; the default behaviour
+    here is to flag them.
+    """
+    config = RuntimeConfig(filter_enabled=True, enable_preset_patterns=True)
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(
+        TextSanitizeRequest(text="タカハシユウヤと申します")
+    )
+    assert any(d.entity_type == "KATAKANA_NAME" for d in result.detections)

@@ -352,7 +352,7 @@ Planning spec: `plans/feat-ui-masking-control-layer-2026-04-15.md`.
 ### Wave A — backend (this branch)
 
 - [x] **feat/aggregation-and-business-patterns** — merged from
-  `feat/aggregation-and-business-patterns` (SHA `<pending>`), 73/73
+  `feat/aggregation-and-business-patterns` (SHA `10651e7`), 73/73
   tests green. Four additions landed together:
   - `src/app/services/category_map.py` — label→category table (7 big
     categories: PERSON / LOCATION / ORGANIZATION / CONTACT /

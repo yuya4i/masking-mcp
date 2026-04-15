@@ -243,7 +243,7 @@ addresses, ages, gender, company names, monetary amounts, database
 names, project identifiers, and other sensitive categories are masked
 by default — not just what Presidio or Sudachi catch.
 
-- [x] **feat/detection-checklist** — merged in `<pending>`.
+- [x] **feat/detection-checklist** — merged in `e4e3dc9`.
   Added `src/app/services/analyzers/presets.py` with 16 categorized
   regex pattern sets covering ADDRESS, AGE, GENDER, MONETARY_AMOUNT,
   DATE, COMPANY, IP_ADDRESS, URL, MY_NUMBER, BANK_ACCOUNT,

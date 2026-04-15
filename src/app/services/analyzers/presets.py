@@ -12,6 +12,16 @@ Each pattern is a ``(entity_type, regex_string)`` pair — the same shape
 the :class:`RegexAnalyzer` constructor expects.  Categories can be
 disabled individually via ``RuntimeConfig.disabled_pattern_categories``.
 
+The preset set is **expected to grow**. Every bug report that surfaces
+a new leak category (Milestone 8 Wave A added 15 business-document
+categories in one round, and the user has explicitly asked for
+``順次拡張`` — incremental expansion) results in another entry or two
+in :data:`BUILTIN_PATTERNS`. Operators who want a tighter baseline can
+disable categories via ``RuntimeConfig.disabled_pattern_categories``;
+the default configuration deliberately errs on the side of flagging
+more rather than less so the interactive review modal can let the
+user untick false positives per request.
+
 Design decisions
 ~~~~~~~~~~~~~~~~
 
@@ -22,6 +32,11 @@ Design decisions
 * **Preset patterns merge *before* user patterns.** If a user supplies
   ``regex_patterns`` in ``RuntimeConfig``, those are appended after the
   presets so they can shadow or extend built-in entity types.
+* **Pragmatic scope.** A pattern that produces catastrophic false
+  positives is narrowed or dropped; otherwise we keep it because the
+  interactive review modal already exposes a per-detection "untick"
+  control.  See the ``BLOOD_TYPE`` entry for an example of a pattern
+  that is intentionally anchored to reduce noise.
 """
 
 from __future__ import annotations
@@ -153,6 +168,102 @@ BUILTIN_PATTERNS: dict[str, list[tuple[str, str]]] = {
     "KATAKANA_NAME": [
         ("KATAKANA_NAME", r"[ァ-ヶー]{4,}"),
     ],
+    # =====================================================================
+    # Milestone 8 Wave A — business-document PII preset expansion.
+    # Fifteen categories covering everyday work documents: employee IDs,
+    # contract/invoice/PO numbers, 郵便番号, 血液型, 年収 etc. Patterns
+    # are conservative and anchored where possible to keep false
+    # positives low; operators with stricter needs can disable a
+    # category via ``disabled_pattern_categories``.
+    # =====================================================================
+    # --- 郵便番号 ---
+    # Japanese postal code.  ``〒`` prefix is optional so the pattern
+    # catches both ``〒651-0087`` (formal) and ``651-0087`` (bare).
+    # Known FP: any ``NNN-NNNN`` sequence (e.g. a part number).  We
+    # accept this — the review modal lets the user untick if needed.
+    "POSTAL_CODE": [
+        ("POSTAL_CODE", r"〒?\d{3}-\d{4}"),
+    ],
+    # --- 部署コード / 部門コード ---
+    "DEPARTMENT": [
+        ("DEPARTMENT", r"\b(?:DEPT|DIV|DIVISION)[_\-]\d{2,6}\b"),
+        ("DEPARTMENT", r"(?:部署コード|部門コード)\s*[:：=]\s*[\w\-]+"),
+    ],
+    # --- 契約番号 ---
+    "CONTRACT_NUMBER": [
+        ("CONTRACT_NUMBER", r"\b(?:CONTRACT|CNTR|AGR)[_\-][\w\-]{3,20}\b"),
+        ("CONTRACT_NUMBER", r"契約(?:番号|No\.?)\s*[:：=]\s*[\w\-]+"),
+    ],
+    # --- 発注番号 / PO ---
+    "PURCHASE_ORDER": [
+        ("PURCHASE_ORDER", r"\b(?:PO|P\.O\.|ORDER)[_\-]\d{4,10}\b"),
+        ("PURCHASE_ORDER", r"発注(?:番号|No\.?)\s*[:：=]\s*[\w\-]+"),
+    ],
+    # --- 顧客ID ---
+    "CUSTOMER_ID": [
+        ("CUSTOMER_ID", r"\b(?:CUST|CUSTOMER|CLT)[_\-]\d{4,10}\b"),
+        ("CUSTOMER_ID", r"顧客(?:番号|ID|コード)\s*[:：=]\s*[\w\-]+"),
+    ],
+    # --- 請求書番号 ---
+    "INVOICE_NUMBER": [
+        ("INVOICE_NUMBER", r"\b(?:INV|INVOICE)[_\-]\d{4,10}\b"),
+        ("INVOICE_NUMBER", r"請求(?:書)?(?:番号|No\.?)\s*[:：=]\s*[\w\-]+"),
+    ],
+    # --- 従業員ID (既存 INTERNAL_ID を補強) ---
+    "EMPLOYEE_ID": [
+        (
+            "EMPLOYEE_ID",
+            r"(?:社員|従業員|スタッフ)(?:番号|ID|コード)\s*[:：=]\s*[\w\-]+",
+        ),
+        ("EMPLOYEE_ID", r"\b(?:STAFF|WORKER)[_\-]\d{3,10}\b"),
+    ],
+    # --- 会員ID ---
+    "MEMBER_ID": [
+        ("MEMBER_ID", r"会員(?:番号|ID|コード)\s*[:：=]\s*[\w\-]+"),
+        ("MEMBER_ID", r"\bMEMBER[_\-]\d{4,10}\b"),
+    ],
+    # --- 患者ID / 医療記録番号 ---
+    "PATIENT_ID": [
+        ("PATIENT_ID", r"\b(?:PATIENT|MRN)[_\-]\d{4,10}\b"),
+        ("PATIENT_ID", r"(?:患者|診療)(?:番号|ID)\s*[:：=]\s*[\w\-]+"),
+    ],
+    # --- 製品コード / SKU ---
+    "SKU": [
+        ("SKU", r"\bSKU[_\-][\w\-]{3,20}\b"),
+        ("SKU", r"(?:製品|商品)(?:コード|番号)\s*[:：=]\s*[\w\-]+"),
+    ],
+    # --- 血液型 ---
+    # ``AB`` comes first in the alternation so the regex engine prefers
+    # the two-letter match over ``A`` / ``B`` alone. ``O型`` and ``O``
+    # ambiguity is accepted — a false positive on ``OK型`` is not
+    # currently mitigated.
+    "BLOOD_TYPE": [
+        ("BLOOD_TYPE", r"(?:AB|A|B|O)型"),
+    ],
+    # --- 年収 / 月収 ---
+    # ``\s*`` is a bounded zero-or-more — the surrounding literal
+    # keyword ``年収`` / ``月収`` bounds the total span length. The
+    # trailing ``万?円?`` covers both ``年収1200万円`` and ``年収1200000``.
+    "ANNUAL_INCOME": [
+        ("ANNUAL_INCOME", r"年収\s*[\d,]+\s*万?円?"),
+        ("ANNUAL_INCOME", r"月収\s*[\d,]+\s*万?円?"),
+    ],
+    # --- 特許番号 ---
+    # Accepts both the Japanese-office prefixes (特許/特願/特公/特開) and
+    # the ISO country-prefixed format (JP/US/EP/WO).
+    "PATENT_NUMBER": [
+        ("PATENT_NUMBER", r"(?:特許|特願|特公|特開)\s*\d{4}-?\d{6,}"),
+        ("PATENT_NUMBER", r"\b(?:JP|US|EP|WO)\s*\d{7,}\b"),
+    ],
+    # --- 資産番号 ---
+    "ASSET_NUMBER": [
+        ("ASSET_NUMBER", r"\b(?:ASSET|FA)[_\-]\d{4,10}\b"),
+        ("ASSET_NUMBER", r"資産(?:番号|コード)\s*[:：=]\s*[\w\-]+"),
+    ],
+    # --- ライセンス / 免許番号 (DRIVERS_LICENSE 以外) ---
+    "LICENSE_NUMBER": [
+        ("LICENSE_NUMBER", r"\b(?:LIC|LICENSE)[_\-][\w\-]{4,20}\b"),
+    ],
 }
 
 
@@ -195,4 +306,20 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "PHONE_NUMBER_JP": "日本語電話番号 (090-, 03-, etc.)",
     "EMAIL_ADDRESS": "メールアドレス (Presidio 非依存 / 新規 gTLD 対応)",
     "KATAKANA_NAME": "カタカナ名 (4文字以上のカナ連続 — ブランド名等の誤検知あり)",
+    # --- Milestone 8 Wave A: business-document categories ---
+    "POSTAL_CODE": "郵便番号 (NNN-NNNN, 〒任意)",
+    "DEPARTMENT": "部署コード / 部門コード",
+    "CONTRACT_NUMBER": "契約番号",
+    "PURCHASE_ORDER": "発注番号 / PO 番号",
+    "CUSTOMER_ID": "顧客ID / 顧客コード",
+    "INVOICE_NUMBER": "請求書番号",
+    "EMPLOYEE_ID": "社員ID / 従業員ID",
+    "MEMBER_ID": "会員ID",
+    "PATIENT_ID": "患者ID / 医療記録番号 (MRN)",
+    "SKU": "製品コード / SKU",
+    "BLOOD_TYPE": "血液型 (A/B/O/AB型)",
+    "ANNUAL_INCOME": "年収 / 月収 (万円 等)",
+    "PATENT_NUMBER": "特許番号 (特許/特願/特公/特開, JP/US/EP/WO)",
+    "ASSET_NUMBER": "資産番号 / 資産コード",
+    "LICENSE_NUMBER": "ライセンス番号 (免許証以外)",
 }

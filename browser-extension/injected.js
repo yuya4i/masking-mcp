@@ -364,17 +364,37 @@
     },
   };
 
+  // manus.im uses several paths: /api/*, /v1/*, /app/*/chat, plus
+  // generic RPC endpoints. We match manus.im + any of those, plus
+  // the common payload shapes below (input / prompt / messages /
+  // content / query / text). If manus.im changes its URL scheme the
+  // debug log in the fetch hook will surface it.
   const manusAdapter = {
     name: "manus",
-    match: (url) => /manus\.im/.test(url) && /\/api\//.test(url),
+    match: (url) =>
+      /manus\.im/.test(url) &&
+      /(\/api\/|\/v1\/|\/chat\/|\/message|\/task|\/session|\/rpc|\/submit|\/send|\/completion)/i.test(
+        url
+      ),
     extractInputs(body) {
       const out = [];
-      if (typeof body?.input === "string" && body.input.trim()) out.push(body.input);
-      if (typeof body?.prompt === "string" && body.prompt.trim()) out.push(body.prompt);
+      const pushIfString = (v) => {
+        if (typeof v === "string" && v.trim()) out.push(v);
+      };
+      pushIfString(body?.input);
+      pushIfString(body?.prompt);
+      pushIfString(body?.query);
+      pushIfString(body?.text);
+      pushIfString(body?.message);
+      pushIfString(body?.content);
       if (Array.isArray(body?.messages)) {
         for (const m of body.messages) {
           if (m?.role === "user" && typeof m.content === "string") {
             out.push(m.content);
+          } else if (Array.isArray(m?.content)) {
+            for (const p of m.content) {
+              if (typeof p?.text === "string" && p.text.trim()) out.push(p.text);
+            }
           }
         }
       }
@@ -384,16 +404,27 @@
       let i = 0;
       const next = (orig) => (i < masked.length ? masked[i++] : orig);
       const clone = JSON.parse(JSON.stringify(body));
-      if (typeof clone?.input === "string" && clone.input.trim()) {
-        clone.input = next(clone.input);
-      }
-      if (typeof clone?.prompt === "string" && clone.prompt.trim()) {
-        clone.prompt = next(clone.prompt);
-      }
+      const swap = (key) => {
+        if (typeof clone?.[key] === "string" && clone[key].trim()) {
+          clone[key] = next(clone[key]);
+        }
+      };
+      swap("input");
+      swap("prompt");
+      swap("query");
+      swap("text");
+      swap("message");
+      swap("content");
       if (Array.isArray(clone?.messages)) {
         for (const m of clone.messages) {
           if (m?.role === "user" && typeof m.content === "string") {
             m.content = next(m.content);
+          } else if (Array.isArray(m?.content)) {
+            for (const p of m.content) {
+              if (typeof p?.text === "string" && p.text.trim()) {
+                p.text = next(p.text);
+              }
+            }
           }
         }
       }
@@ -641,6 +672,17 @@
       }
       const adapter = pickAdapter(url);
       if (!adapter) {
+        // Debug: surface every POST we saw but couldn't route to an
+        // adapter. Lets operators spot new API paths (e.g. when a
+        // provider changes their URL scheme) without patching code.
+        // Filter to same-host POSTs so we don't spam on third-party
+        // analytics/telemetry pings.
+        try {
+          const target = new URL(url, location.href).host;
+          if (target && target === location.host) {
+            LOG("intercepted POST with no adapter match:", url);
+          }
+        } catch (_) {}
         return originalFetch(input, init);
       }
       if (!(await isEnabled())) {

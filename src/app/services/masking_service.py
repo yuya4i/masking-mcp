@@ -30,6 +30,7 @@ from app.services.analyzers import (
 from app.services.classification import classification_for
 from app.services.language_detection import detect_language
 from app.services.repositories import AuditRepository, ConfigRepository
+from app.services.severity import severity_for
 
 
 #: Number of characters of surrounding text kept in each DetectionResult's
@@ -527,6 +528,7 @@ class MaskingService:
                     context_before=before,
                     context_after=after,
                     action="allowed" if item.entity_type in allow_types else "masked",
+                    severity=severity_for(item.entity_type),
                 )
             )
         return results

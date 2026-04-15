@@ -41,6 +41,7 @@ from typing import Iterable
 from app.models.schemas import AggregatedEntity, DetectionResult
 from app.services.category_map import category_for
 from app.services.classification import classification_for
+from app.services.severity import severity_for
 
 
 def aggregate_detections(
@@ -141,6 +142,7 @@ def aggregate_detections(
         number = numbering.get((label, value), 1)
         placeholder = f"<{label}_{number}>"
         classification = classification_for(label)
+        severity = severity_for(label)
 
         aggregated.append(
             AggregatedEntity(
@@ -152,6 +154,7 @@ def aggregate_detections(
                 masked=masked,
                 placeholder=placeholder,
                 classification=classification,
+                severity=severity,
             )
         )
     return aggregated

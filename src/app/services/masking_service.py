@@ -30,6 +30,7 @@ from app.services.analyzers import (
 from app.services.classification import classification_for
 from app.services.language_detection import detect_language
 from app.services.repositories import AuditRepository, ConfigRepository
+from app.services.severity import severity_for
 
 
 #: Number of characters of surrounding text kept in each DetectionResult's
@@ -268,6 +269,22 @@ class MaskingService:
             recognizer_results = self._run_language_aware_chain(
                 analyzer_request, config
             )
+
+        # Common-noun blocklist. Drop detections whose surface is an
+        # exact match for a known generic term. Operators iterate this
+        # list as they find new false positives; the shared default
+        # covers the most common katakana loanwords Sudachi's
+        # ``sudachidict_core`` mislabels as 固有名詞 (プロジェクト /
+        # メンバー etc.). Applied BEFORE any other post-analyzer filter
+        # so a blocked surface cannot survive via some downstream
+        # re-classification path. Empty / ``None`` list = no-op.
+        blocklist = set(config.common_noun_blocklist or [])
+        if blocklist:
+            recognizer_results = [
+                r
+                for r in recognizer_results
+                if request.text[r.start:r.end] not in blocklist
+            ]
 
         # Drop low-confidence detections before anything else touches the
         # merged list. Applied exactly once, on the already-merged result
@@ -527,6 +544,7 @@ class MaskingService:
                     context_before=before,
                     context_after=after,
                     action="allowed" if item.entity_type in allow_types else "masked",
+                    severity=severity_for(item.entity_type),
                 )
             )
         return results

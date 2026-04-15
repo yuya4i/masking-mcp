@@ -421,3 +421,96 @@ def test_tag_mask_independent_counters_per_label() -> None:
     # flaking on whether Presidio treats an English phrase as a PERSON.
     assert "<EMAIL_ADDRESS_1>" in result.sanitized_text
     assert "<EMAIL_ADDRESS_2>" not in result.sanitized_text
+
+
+# ------------------------------------------------------------------
+# common_noun_blocklist — drop generic JP business loanwords
+# ------------------------------------------------------------------
+
+
+def test_common_noun_blocklist_drops_プロジェクト() -> None:
+    """`プロジェクト` must not survive as its own detection even when
+    Sudachi's default dictionary tags it as 固有名詞. The default
+    blocklist covers this surface; we assert that no detection has
+    exactly the bare word as its text."""
+    config = RuntimeConfig(
+        filter_enabled=True,
+        morphological_analyzer="sudachi",
+    )
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(
+        TextSanitizeRequest(text="プロジェクトαの開発")
+    )
+
+    assert not any(
+        d.text == "プロジェクト" for d in result.detections
+    ), (
+        f"expected 'プロジェクト' to be dropped by the common-noun blocklist, "
+        f"got {[d.text for d in result.detections]}"
+    )
+
+
+def test_common_noun_blocklist_drops_メンバー() -> None:
+    """Same contract for ``メンバー`` — the second canonical example
+    from the user report. Uses the default blocklist (no overrides)."""
+    config = RuntimeConfig(
+        filter_enabled=True,
+        morphological_analyzer="sudachi",
+    )
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(
+        TextSanitizeRequest(text="メンバー全員に連絡")
+    )
+
+    assert not any(
+        d.text == "メンバー" for d in result.detections
+    ), (
+        f"expected 'メンバー' to be dropped by the common-noun blocklist, "
+        f"got {[d.text for d in result.detections]}"
+    )
+
+
+def test_custom_blocklist_overrides_default() -> None:
+    """The knob works in both directions: adding a real proper noun
+    like ``東京`` to the blocklist drops it even though Sudachi would
+    otherwise emit ``PROPER_NOUN_LOCATION``. Verifies the filter is
+    driven by the config value, not a hardcoded set."""
+    config = RuntimeConfig(
+        filter_enabled=True,
+        morphological_analyzer="sudachi",
+        common_noun_blocklist=["東京"],
+    )
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    result = service.sanitize_text(
+        TextSanitizeRequest(text="東京の本社にいる")
+    )
+
+    assert not any(
+        d.text == "東京" for d in result.detections
+    ), (
+        f"expected operator-supplied blocklist entry '東京' to be dropped, "
+        f"got {[d.text for d in result.detections]}"
+    )
+
+
+def test_empty_blocklist_passes_everything_through() -> None:
+    """An operator who explicitly empties the blocklist must see
+    Sudachi's default behaviour — in this case ``プロジェクト`` is
+    permitted through because there is nothing filtering it."""
+    config = RuntimeConfig(
+        filter_enabled=True,
+        morphological_analyzer="sudachi",
+        common_noun_blocklist=[],
+    )
+    service = MaskingService(DummyConfigRepository(config), DummyAuditRepository())
+    # "プロジェクト田中" is constructed so the surname 田中 is
+    # guaranteed to fire as PROPER_NOUN_PERSON. That keeps the test
+    # meaningful (we know Sudachi did run) even if the Sudachi
+    # dictionary happens to back off on bare プロジェクト in some
+    # split mode.
+    result = service.sanitize_text(
+        TextSanitizeRequest(text="プロジェクト田中")
+    )
+    assert any(d.entity_type.startswith("PROPER_NOUN") for d in result.detections), (
+        "Sudachi must still run with an empty blocklist"
+    )

@@ -174,6 +174,32 @@ class RuntimeConfig(BaseModel):
     force_mask_categories: list[str] = Field(
         default_factory=lambda: ["PERSON", "ORGANIZATION", "FINANCIAL"]
     )
+    #: Common-noun blocklist. Detections whose surface exactly matches
+    #: any entry here are dropped entirely before masking. Default list
+    #: covers generic Japanese business loanwords that Sudachi's
+    #: ``sudachidict_core`` occasionally tags as 固有名詞 (ex:
+    #: ``プロジェクト`` / ``メンバー``). Also protects the
+    #: KATAKANA_NAME heuristic from firing on bare generic terms.
+    #: Match is case-sensitive and exact; operators who want prefix
+    #: matching can add each variant explicitly.
+    common_noun_blocklist: list[str] = Field(
+        default_factory=lambda: [
+            "プロジェクト", "メンバー", "チーム", "マネージャー",
+            "リーダー", "ユーザー", "クライアント", "サーバー",
+            "システム", "データ", "ファイル", "フォルダ", "フォルダー",
+            "レポート", "ミーティング", "タスク", "チケット",
+            "スケジュール", "ドキュメント", "アカウント",
+            "パスワード", "メッセージ", "スタッフ", "カスタマー",
+            "オフィス", "ミーティングルーム",
+        ]
+    )
+    #: Severity threshold below which the review UI defaults rows to
+    #: unchecked (auto-allowed through). Typically ``"low"`` leaves all
+    #: rows checked by default; setting to ``"medium"`` auto-un-checks
+    #: low-severity rows so ``AGE`` / ``GENDER`` / ``BLOOD_TYPE`` start
+    #: as pass-through unless the user explicitly re-checks them.
+    #: Default ``"low"`` preserves "mask everything by default".
+    default_uncheck_below: Literal["critical", "high", "medium", "low"] = "low"
     default_provider_id: str = "openai"
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 
@@ -221,6 +247,11 @@ class DetectionResult(BaseModel):
     context_after: str
     #: What the masking service actually did with this detection.
     action: DetectionAction
+    #: Risk tier resolved via :func:`app.services.severity.severity_for`.
+    #: Used by the UI for color coding and to gate ``critical`` rows
+    #: behind a long-press. Defaults to ``"low"`` when absent so older
+    #: audit-log entries and third-party consumers keep working.
+    severity: str = "low"
 
 
 class ProviderSelectionResult(BaseModel):
@@ -359,6 +390,11 @@ class AggregatedEntity(BaseModel):
     #: the UI to group rows alongside the coarser ``category`` grouping,
     #: and by ``RuntimeConfig.enabled_pii_classes`` as the filter key.
     classification: str = "other"
+    #: Risk tier resolved via :func:`app.services.severity.severity_for`.
+    #: Drives the left colour border + badge in the sidebar and gates
+    #: ``critical`` rows behind the 800 ms long-press guard. Defaults
+    #: to ``"low"`` so older AggregatedEntity payloads keep deserialising.
+    severity: str = "low"
 
 
 class AggregatedExtensionResponse(BaseModel):

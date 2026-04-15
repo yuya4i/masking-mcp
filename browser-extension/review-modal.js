@@ -77,9 +77,31 @@
     return "#5a5a63"; // grey
   }
 
+  // Severity mirror of sidebar.js. The gateway writes the field on
+  // DetectionResult; we normalise defensively in case a future
+  // server ships a tier name the UI does not know yet. Kept in sync
+  // with ``LABEL_TO_SEVERITY`` in ``src/app/services/severity.py``.
+  const KNOWN_SEVERITIES = new Set(["critical", "high", "medium", "low"]);
+  const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
+  function normaliseSeverity(sev) {
+    const s = String(sev || "").toLowerCase();
+    return KNOWN_SEVERITIES.has(s) ? s : "low";
+  }
+
   const STYLE = `
     :host {
       all: initial;
+
+      /* Severity palette — mirrored from sidebar.js so both surfaces
+         render the same colour for the same tier. */
+      --sev-critical: #dc2626;
+      --sev-critical-bg: #fee2e2;
+      --sev-high: #f97316;
+      --sev-high-bg: #ffedd5;
+      --sev-medium: #eab308;
+      --sev-medium-bg: #fef3c7;
+      --sev-low: #6b7280;
+      --sev-low-bg: #f3f4f6;
     }
     .backdrop {
       position: fixed;
@@ -134,11 +156,20 @@
       display: flex;
       align-items: flex-start;
       gap: 10px;
-      padding: 10px 0;
+      padding: 10px 0 10px 10px;
       border-bottom: 1px solid #f0f0f3;
+      border-left: 4px solid var(--sev-low);
+      transition: box-shadow 0.18s ease-out;
     }
     .row:last-child {
       border-bottom: none;
+    }
+    .row.sev-critical { border-left-color: var(--sev-critical); }
+    .row.sev-high     { border-left-color: var(--sev-high); }
+    .row.sev-medium   { border-left-color: var(--sev-medium); }
+    .row.sev-low      { border-left-color: var(--sev-low); }
+    .row.long-press-pulse {
+      box-shadow: inset 4px 0 0 var(--sev-critical-bg);
     }
     .row input[type="checkbox"] {
       margin-top: 3px;
@@ -146,6 +177,69 @@
       height: 16px;
       flex-shrink: 0;
       accent-color: #2166cc;
+    }
+    .sev-pill {
+      display: inline-block;
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin-left: 6px;
+      padding: 1px 6px;
+      border-radius: 8px;
+      text-transform: uppercase;
+      vertical-align: middle;
+      line-height: 1.4;
+    }
+    .sev-pill.sev-critical { background: var(--sev-critical-bg); color: var(--sev-critical); border: 1px solid var(--sev-critical); }
+    .sev-pill.sev-high     { background: var(--sev-high-bg);     color: var(--sev-high);     border: 1px solid var(--sev-high); }
+    .sev-pill.sev-medium   { background: var(--sev-medium-bg);   color: #a16207;             border: 1px solid var(--sev-medium); }
+    .sev-pill.sev-low      { background: var(--sev-low-bg);      color: var(--sev-low);      border: 1px solid var(--sev-low); }
+    .row-lock {
+      font-size: 11px;
+      color: var(--sev-critical);
+      margin-left: 6px;
+    }
+    /* --- Long-press control (shared shape with sidebar.js) ----------- */
+    .longpress {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 auto;
+      margin-top: 1px;
+      position: relative;
+      cursor: pointer;
+      user-select: none;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .longpress .lp-ring {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+    }
+    .longpress .lp-track {
+      fill: none;
+      stroke: var(--sev-critical);
+      stroke-width: 2;
+      opacity: 0.25;
+    }
+    .longpress .lp-progress {
+      fill: none;
+      stroke: var(--sev-critical);
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-dasharray: 56.548;
+      stroke-dashoffset: 56.548;
+      transition: stroke-dashoffset 0.05s linear;
+    }
+    .longpress.is-on .lp-core {
+      fill: var(--sev-critical);
+    }
+    .longpress .lp-core {
+      fill: #ffffff;
+      stroke: var(--sev-critical);
+      stroke-width: 1.2;
     }
     .row .meta {
       flex: 1 1 auto;
@@ -218,6 +312,133 @@
     }
   `;
 
+  // Long-press control builder — structurally identical to the one
+  // in sidebar.js, duplicated here to keep each IIFE self-contained
+  // (both scripts run in the page's MAIN world but are loaded as
+  // separate files; there is no shared import surface).
+  const LONG_PRESS_MS = 800;
+  const LONG_PRESS_TICK_MS = 50;
+  const LP_RING_CIRCUMFERENCE = 56.548;
+  function buildLongPressControl({ initial, onToggle, labelText }) {
+    const wrap = document.createElement("div");
+    wrap.className = "longpress";
+    wrap.setAttribute("role", "switch");
+    wrap.setAttribute("tabindex", "0");
+    wrap.setAttribute("aria-checked", initial ? "true" : "false");
+    wrap.setAttribute("aria-label", `${labelText} を長押しで切り替え`);
+    wrap.title = "長押し (800ms) で解除";
+    if (initial) wrap.classList.add("is-on");
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 20 20");
+    svg.setAttribute("class", "lp-ring");
+
+    const track = document.createElementNS(svgNS, "circle");
+    track.setAttribute("cx", "10");
+    track.setAttribute("cy", "10");
+    track.setAttribute("r", "9");
+    track.setAttribute("class", "lp-track");
+
+    const progress = document.createElementNS(svgNS, "circle");
+    progress.setAttribute("cx", "10");
+    progress.setAttribute("cy", "10");
+    progress.setAttribute("r", "9");
+    progress.setAttribute("class", "lp-progress");
+
+    const core = document.createElementNS(svgNS, "circle");
+    core.setAttribute("cx", "10");
+    core.setAttribute("cy", "10");
+    core.setAttribute("r", "4");
+    core.setAttribute("class", "lp-core");
+
+    svg.appendChild(track);
+    svg.appendChild(progress);
+    svg.appendChild(core);
+    wrap.appendChild(svg);
+
+    let timerId = null;
+    let tickId = null;
+    let startedAt = 0;
+
+    function resetRing() {
+      progress.style.strokeDashoffset = String(LP_RING_CIRCUMFERENCE);
+    }
+    function commit() {
+      const next = !wrap.classList.contains("is-on");
+      wrap.classList.toggle("is-on", next);
+      wrap.setAttribute("aria-checked", next ? "true" : "false");
+      wrap.closest(".row")?.classList.add("long-press-pulse");
+      setTimeout(
+        () => wrap.closest(".row")?.classList.remove("long-press-pulse"),
+        200
+      );
+      onToggle(next);
+    }
+    function clearTimers() {
+      if (timerId !== null) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+      if (tickId !== null) {
+        clearInterval(tickId);
+        tickId = null;
+      }
+    }
+    function onDown(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (timerId !== null) return;
+      startedAt = Date.now();
+      resetRing();
+      try {
+        wrap.setPointerCapture(event.pointerId);
+      } catch (_) {}
+      tickId = setInterval(() => {
+        const elapsed = Math.min(LONG_PRESS_MS, Date.now() - startedAt);
+        const remaining = LP_RING_CIRCUMFERENCE * (1 - elapsed / LONG_PRESS_MS);
+        progress.style.strokeDashoffset = String(Math.max(0, remaining));
+      }, LONG_PRESS_TICK_MS);
+      timerId = setTimeout(() => {
+        clearTimers();
+        progress.style.strokeDashoffset = "0";
+        commit();
+        setTimeout(resetRing, 250);
+      }, LONG_PRESS_MS);
+    }
+    function onUp() {
+      clearTimers();
+      resetRing();
+    }
+    wrap.addEventListener("pointerdown", onDown);
+    wrap.addEventListener("pointerup", onUp);
+    wrap.addEventListener("pointercancel", onUp);
+    wrap.addEventListener("pointerleave", onUp);
+    wrap.addEventListener("keydown", (event) => {
+      if (event.key === " " || event.key === "Enter") {
+        event.preventDefault();
+        if (timerId !== null) return;
+        onDown({ pointerId: -1, preventDefault() {}, stopPropagation() {} });
+      }
+    });
+    wrap.addEventListener("keyup", (event) => {
+      if (event.key === " " || event.key === "Enter") {
+        event.preventDefault();
+        onUp();
+      }
+    });
+
+    return {
+      element: wrap,
+      isOn: () => wrap.classList.contains("is-on"),
+      setOn: (next) => {
+        wrap.classList.toggle("is-on", !!next);
+        wrap.setAttribute("aria-checked", next ? "true" : "false");
+        resetRing();
+      },
+    };
+  }
+
   // Build one detection row entirely via DOM APIs. Nothing here
   // ever sets ``innerHTML`` on untrusted strings — detection text
   // only reaches the DOM through ``textContent``.
@@ -235,16 +456,31 @@
     const color = badgeColor(entity);
     const id = `mcp-det-${index}`;
     const n = Number.isInteger(number) && number > 0 ? number : 1;
+    const severity = normaliseSeverity(detection.severity);
+    const isCritical = severity === "critical";
 
-    const row = document.createElement("label");
-    row.className = "row";
-    row.setAttribute("for", id);
+    // For critical rows we cannot use a ``<label>`` wrapper because
+    // its native click-to-toggle would bypass the 800 ms long-press
+    // guard. Non-critical rows keep the original label+checkbox.
+    const row = document.createElement(isCritical ? "div" : "label");
+    row.className = `row sev-${severity}`;
+    if (!isCritical) row.setAttribute("for", id);
 
+    // Synthetic checked-state tracker. For non-critical rows we
+    // bind it to a real ``<input>``; for critical rows a hidden
+    // input holds the boolean so ``collectSelected`` can find it
+    // via the same query selector regardless of severity.
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.id = id;
     checkbox.dataset.index = String(index);
     checkbox.checked = true;
+    if (isCritical) {
+      // Hide the real checkbox — state is still visible to the
+      // collector query, and the long-press control drives it.
+      checkbox.style.display = "none";
+      checkbox.dataset.severity = "critical";
+    }
 
     const meta = document.createElement("div");
     meta.className = "meta";
@@ -253,6 +489,10 @@
     badge.className = "badge";
     badge.style.background = color;
     badge.textContent = entity;
+
+    const sevPill = document.createElement("span");
+    sevPill.className = `sev-pill sev-${severity}`;
+    sevPill.textContent = severity;
 
     const match = document.createElement("span");
     match.className = "match";
@@ -271,11 +511,36 @@
     context.appendChild(document.createTextNode(after));
 
     meta.appendChild(badge);
+    meta.appendChild(sevPill);
     meta.appendChild(match);
     meta.appendChild(preview);
+    if (isCritical) {
+      const lock = document.createElement("span");
+      lock.className = "row-lock";
+      lock.title = "長押し (800ms) で解除";
+      lock.textContent = "\ud83d\udd12";
+      meta.appendChild(lock);
+    }
     meta.appendChild(context);
 
-    row.appendChild(checkbox);
+    if (isCritical) {
+      const lp = buildLongPressControl({
+        initial: true,
+        labelText: text,
+        onToggle: (next) => {
+          checkbox.checked = !!next;
+          // Dispatch a synthetic change event so any future preview
+          // listener on the shadow root gets notified; harmless in
+          // the current per-detection modal but keeps the contract
+          // consistent with the sidebar.
+          checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+        },
+      });
+      row.appendChild(lp.element);
+      row.appendChild(checkbox);
+    } else {
+      row.appendChild(checkbox);
+    }
     row.appendChild(meta);
     return row;
   }
@@ -361,9 +626,20 @@
         rowNumber[idx] = assigned.get(key);
       }
 
-      detections.forEach((det, idx) =>
-        list.appendChild(buildRow(det, idx, rowNumber[idx]))
-      );
+      // Display order: critical rows first, then high / medium / low.
+      // Within a tier the original gateway order is preserved so the
+      // left-to-right placeholder numbering still reads in
+      // detection-start order. We only reorder for rendering; the
+      // per-row ``checkbox.dataset.index`` still carries the original
+      // index so ``collectSelected`` round-trips correctly.
+      const orderedIndices = detections
+        .map((d, idx) => ({ idx, rank: SEVERITY_RANK[normaliseSeverity(d.severity)] ?? SEVERITY_RANK.low }))
+        .sort((a, b) => a.rank - b.rank || a.idx - b.idx)
+        .map((entry) => entry.idx);
+
+      for (const idx of orderedIndices) {
+        list.appendChild(buildRow(detections[idx], idx, rowNumber[idx]));
+      }
 
       const footer = document.createElement("footer");
 

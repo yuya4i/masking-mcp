@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.0 — Severity colors + long-press critical guard (2026-04-15)
+
+Wave C of Milestone 7/8 — frontend + backend half of the new
+severity tiering. Gateway-side schema field lands alongside.
+
+- `sidebar.js` — every row carries a left coloured border
+  matching `entity.severity` (red `#dc2626` / orange `#f97316`
+  / amber `#eab308` / gray `#6b7280`) plus a
+  `[critical|high|medium|low]` pill after the entity label.
+  Category headers render at the worst severity of their
+  children. Critical rows replace the native checkbox with a
+  custom `<svg>`-based long-press control: press and hold 800 ms
+  (50 ms tick animation on `stroke-dashoffset`) to toggle. Early
+  release / pointer leave / cancel resets the ring without
+  toggling. Works on touch via `pointer*` events. When a
+  critical row is ALSO in `force_masked_categories` the control
+  is replaced with a disabled lock glyph. Bulk "すべて解除"
+  now confirms with a native `window.confirm` and only clears
+  non-critical / non-locked rows on accept.
+- `review-modal.js` — same severity palette + long-press guard
+  for parity. Rows sort severity-first (critical → low) so the
+  riskiest detections float to the top while original detection
+  indices are preserved for `collectSelected`.
+- `manifest.json` — version bumped to `0.3.0`.
+
 ## 0.2.0 — UI masking control layer (2026-04-15)
 
 Wave B of Milestone 8 — frontend half of the new aggregated

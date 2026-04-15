@@ -23,6 +23,30 @@ function setGatewayStatus(state, text) {
   const el = $("gateway-status");
   el.textContent = text;
   el.className = "value status-" + state;
+  // Surface the one-time setup hint whenever the gateway is NOT
+  // reachable, so a first-time user sees exactly what to run to
+  // make it come up automatically from now on.
+  const hint = $("autostart-hint");
+  if (hint) {
+    hint.hidden = state === "ok";
+    if (state !== "ok") {
+      // Detect Windows vs. *nix by user-agent so we can suggest the
+      // right installer. Chrome exposes navigator.userAgentData on
+      // modern versions; fall back to the legacy UA string.
+      const platform =
+        (navigator.userAgentData &&
+          navigator.userAgentData.platform) ||
+        navigator.platform ||
+        "";
+      const isWindows = /win/i.test(platform);
+      const cmdEl = $("autostart-cmd");
+      if (cmdEl) {
+        cmdEl.textContent = isWindows
+          ? "powershell -File scripts\\install-autostart.ps1"
+          : "bash scripts/install-autostart.sh";
+      }
+    }
+  }
 }
 
 async function probeGateway() {

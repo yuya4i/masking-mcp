@@ -223,16 +223,37 @@
       color: var(--text);
       outline: none;
     }
+    /* The .body is now a flex column so the preview can be pinned at
+       the bottom and only the category list scrolls. Vertical layout:
+         [bulk-bar]    flex 0 0 auto  (fixed)
+         [categories]  flex 1 1 auto  (scrolls)
+         [preview]     flex 0 0 auto  (pinned, capped height)
+       The outer footer (confirm / cancel) still sits below .body.
+    */
     .body {
       flex: 1 1 auto;
-      overflow-y: auto;
-      padding: 12px 16px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 12px 16px 0 16px;
       background: var(--bg);
+      overflow: hidden;
     }
     .bulk-bar {
+      flex: 0 0 auto;
       display: flex;
       gap: 8px;
       margin-bottom: 12px;
+    }
+    .categories {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 4px;
+      margin-right: -4px;
+      /* Leave a little air between the last category card and the
+         pinned preview above it. */
+      padding-bottom: 6px;
     }
     .bulk-btn {
       flex: 1 1 0;
@@ -485,7 +506,25 @@
       height: 1px;
     }
     .preview-section {
-      margin-top: 14px;
+      flex: 0 0 auto;
+      margin-top: 8px;
+      padding: 12px 0 12px 0;
+      border-top: 1px solid var(--border);
+      background: var(--bg);
+      position: relative;
+    }
+    .preview-section::before {
+      /* Soft gradient fade at the top edge so content scrolling
+         behind the preview does not clip abruptly. Pure decoration;
+         the border-top above it is the real separator. */
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: -14px;
+      height: 14px;
+      background: linear-gradient(to bottom, rgba(249, 250, 251, 0), var(--bg));
+      pointer-events: none;
     }
     .preview-section h3 {
       margin: 0 0 6px 0;
@@ -504,7 +543,11 @@
       line-height: 1.55;
       white-space: pre-wrap;
       word-break: break-word;
-      max-height: 180px;
+      /* Capped so a long AI prompt does not steal scroll real-estate
+         from the category list above. The preview itself scrolls
+         internally when content exceeds this height. */
+      max-height: 22vh;
+      min-height: 60px;
       overflow-y: auto;
       color: var(--text);
     }
@@ -1122,12 +1165,16 @@
         previewBox.textContent = applyMasks(safeText, triples);
       }
 
-      // Render every category up front. Categories without rows are
-      // simply skipped because categoryMap only contains categories the
-      // aggregator returned.
+      // Render every category into a dedicated scroll region. The
+      // ``.categories`` wrapper gets ``flex: 1 1 auto; overflow-y: auto``
+      // from the stylesheet so only the category list scrolls while
+      // the preview below stays pinned in view.
+      const categoriesWrap = document.createElement("div");
+      categoriesWrap.className = "categories";
       for (const cat of categoryOrder) {
-        body.appendChild(renderCategory(cat));
+        categoriesWrap.appendChild(renderCategory(cat));
       }
+      body.appendChild(categoriesWrap);
       // Now that all rows + toggles exist, sync the parent toggles
       // to match the initial row state (everything masked => fully
       // checked, except where force-mask already locked it).
@@ -1135,7 +1182,7 @@
         syncCategoryToggle(cat);
       }
 
-      // --- Preview pane ----------------------------------------------------
+      // --- Preview pane (pinned at the bottom of .body) --------------------
       const previewSection = document.createElement("div");
       previewSection.className = "preview-section";
       const previewTitle = document.createElement("h3");

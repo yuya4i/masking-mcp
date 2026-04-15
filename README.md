@@ -199,6 +199,44 @@ local-mask-mcp/
 └── README.md
 ```
 
+<a id="autostart"></a>
+## 自動起動セットアップ (ブラウザ拡張向け)
+
+拡張を使うときは gateway が常時立ち上がっている必要があります。Chrome 拡張はサンドボックスの制約で自身から Docker を起動できないため、**OS ログイン時に gateway を自動で立ち上げる仕組み** を用意しています。1 度実行すれば以降は自動。
+
+### Linux / WSL2
+
+```bash
+cd /path/to/masking-mcp
+bash scripts/install-autostart.sh
+```
+
+- **systemd user service** (`~/.config/systemd/user/mask-mcp-gateway.service`) を登録
+- systemd が使えない環境 (WSL で `/etc/wsl.conf` の `systemd=true` 未設定など) では `~/.bashrc` フックに自動フォールバック
+- 次回ログインから `docker compose up -d` が自動実行される
+- container 自体は `restart: unless-stopped` なので Docker daemon 再起動にも追従
+- 確認: `systemctl --user status mask-mcp-gateway`
+- 削除: `bash scripts/install-autostart.sh --uninstall`
+
+### Windows (WSL + Docker Desktop 前提)
+
+PowerShell (管理者権限不要) から:
+
+```powershell
+cd C:\Users\<you>\workspace\mask-mcp
+powershell -File scripts\install-autostart.ps1
+```
+
+- Windows タスクスケジューラに `MaskMcpGatewayAutostart` を登録
+- ログイン時に `wsl -d <distro> -- bash -c "cd <repo> && docker compose up -d"` を実行
+- 削除: `powershell -File scripts\install-autostart.ps1 -Uninstall`
+
+### 拡張の popup が疎通状態を教える
+
+拡張インストール後、gateway に届かない状態で popup を開くと **「Gateway が見つかりません」** が表示され、あなたの OS 向けの install コマンドがコピー可能な形で出ます。1 回実行すれば以降は不要です。
+
+---
+
 ## セットアップ
 
 本プロジェクトは **Docker 前提** で管理しています。ホストに Python や uv をインストールする必要はありません。必要なのは `docker` と `docker compose` だけです。

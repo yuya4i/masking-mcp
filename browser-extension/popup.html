@@ -55,6 +55,17 @@
       <span id="detections-count" class="value">0</span>
     </section>
 
+    <section class="row autostart-row" id="autostart-hint" hidden>
+      <div class="autostart-copy">
+        <strong>Gateway が見つかりません。</strong>
+        1 度スクリプトを実行すると、次回以降の OS 起動で自動で立ち上がります:
+        <code id="autostart-cmd">bash scripts/install-autostart.sh</code>
+        <a id="autostart-docs"
+           href="https://github.com/yuya4i/masking-mcp#autostart"
+           target="_blank" rel="noopener">詳細 →</a>
+      </div>
+    </section>
+
     <footer>
       <a id="open-swagger" href="http://127.0.0.1:8081/v1/api" target="_blank" rel="noopener">
         Open gateway Swagger UI

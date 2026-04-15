@@ -29,8 +29,17 @@
   }
   engine.ready = true;
   engine.version = "phase1-0.1.0";
-  console.debug(
+  console.info(
     "[mask-mcp] engine ready (phase1, standalone), version",
     engine.version
   );
+  try {
+    window.dispatchEvent(
+      new CustomEvent("mask-mcp:engine-ready", {
+        detail: { version: engine.version },
+      })
+    );
+  } catch (_) {
+    // CustomEvent unavailable → injected.js polling path takes over.
+  }
 })();

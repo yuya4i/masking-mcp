@@ -108,18 +108,26 @@
   // cross-engine deps) must load before engine.js and the final
   // bundle.js launcher that flips engine.ready = true.
   // Each file is a MV3-safe script (no ES6 import / eval).
-  injectScript("engine/patterns.js");
-  injectScript("engine/classification.js");
-  injectScript("engine/severity.js");
-  injectScript("engine/categories.js");
-  injectScript("engine/aggregate.js");
-  injectScript("engine/force-mask.js");
-  injectScript("engine/blocklist.js");
-  injectScript("engine/engine.js");
-  injectScript("engine/bundle.js");
+  const ENGINE_FILES = [
+    "engine/patterns.js",
+    "engine/classification.js",
+    "engine/severity.js",
+    "engine/categories.js",
+    "engine/aggregate.js",
+    "engine/force-mask.js",
+    "engine/blocklist.js",
+    "engine/engine.js",
+    "engine/bundle.js",
+  ];
+  for (const f of ENGINE_FILES) injectScript(f);
   injectScript("review-modal.js");
   injectScript("sidebar.js");
   injectScript("injected.js");
+  console.debug(
+    "[mask-mcp] injected",
+    ENGINE_FILES.length + 3,
+    "scripts (engine + ui + hook)"
+  );
 
   // Push the current ``interactive`` + ``uiMode`` preferences into
   // MAIN world as soon as we can. The injected script reads them off

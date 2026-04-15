@@ -109,23 +109,58 @@
     return hybridDecision;
   }
 
-  // Look up the shared pure-JS engine attached by bundle.js. Returns
-  // null when the engine failed to load (user should see an error in
-  // the console and we'll proceed with gateway-only semantics).
-  function getEngine() {
-    const e = NS.engine;
-    if (e && e.ready && typeof e.maskAggregated === "function") return e;
-    return null;
+  // Engine readiness resolves when bundle.js dispatches
+  // "mask-mcp:engine-ready" or when polling detects engine.ready.
+  // Safety timeout prevents callers from hanging if the engine scripts
+  // silently fail to load (e.g., page CSP blocks chrome-extension://).
+  const ENGINE_WAIT_MS = 3000;
+  function isEngineReady(e) {
+    return !!(e && e.ready && typeof e.maskAggregated === "function");
+  }
+  const enginePromise = new Promise((resolve) => {
+    if (isEngineReady(NS.engine)) {
+      resolve(NS.engine);
+      return;
+    }
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("mask-mcp:engine-ready", onReady);
+      resolve(value);
+    };
+    const onReady = () => finish(NS.engine);
+    window.addEventListener("mask-mcp:engine-ready", onReady);
+    const iv = setInterval(() => {
+      if (isEngineReady(NS.engine)) {
+        clearInterval(iv);
+        finish(NS.engine);
+      }
+    }, 50);
+    setTimeout(() => {
+      clearInterval(iv);
+      finish(isEngineReady(NS.engine) ? NS.engine : null);
+    }, ENGINE_WAIT_MS);
+  });
+
+  async function getEngine() {
+    const e = await enginePromise;
+    return isEngineReady(e) ? e : null;
   }
 
   async function sanitizeOnce(text, service, sourceUrl) {
     const backend = await resolveBackend();
     if (backend === "standalone") {
-      const engine = getEngine();
+      const engine = await getEngine();
       if (!engine) {
         // Engine missing AND gateway not preferred: degrade by returning
         // the raw text so the fetch hook's unmasked-confirm prompt fires.
-        WARN("standalone mode requested but engine unavailable");
+        WARN(
+          "standalone mode requested but engine unavailable after",
+          ENGINE_WAIT_MS + "ms.",
+          "Check DevTools Console for [mask-mcp] engine bundle errors",
+          "or CSP violations blocking chrome-extension:// scripts."
+        );
         return null;
       }
       try {
@@ -148,9 +183,14 @@
     //   * gateway     → ask the content script to proxy to the gateway.
     const backend = await resolveBackend();
     if (backend === "standalone") {
-      const engine = getEngine();
+      const engine = await getEngine();
       if (!engine) {
-        WARN("standalone mode requested but engine unavailable");
+        WARN(
+          "standalone mode requested but engine unavailable after",
+          ENGINE_WAIT_MS + "ms.",
+          "Check DevTools Console for [mask-mcp] engine bundle errors",
+          "or CSP violations blocking chrome-extension:// scripts."
+        );
         return null;
       }
       try {

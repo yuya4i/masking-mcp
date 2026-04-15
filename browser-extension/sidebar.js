@@ -38,6 +38,20 @@
 //   ``force_masked_categories`` are rendered with a 🔒 icon and their
 //   checkboxes are ``disabled`` so neither the row nor the parent
 //   category nor the bulk "全解除" button can ever uncheck them.
+// * **Severity colour-coding** — every row carries a left coloured
+//   border (red / orange / amber / gray) matching its ``severity``
+//   field, plus a ``[critical|high|medium|low]`` pill after the label.
+//   Category headers show the pill at the highest severity of their
+//   children (e.g. a ``CREDENTIAL`` header with one ``API_KEY`` inside
+//   renders as ``critical``).
+// * **Critical long-press guard** — ``severity === "critical"`` rows
+//   replace the checkbox with a circular progress ring control. A
+//   user must press and hold for 800 ms (via ``pointer*`` events so
+//   it works on touch) to toggle the row off. Bulk "すべて解除" shows
+//   a native ``window.confirm`` and, if accepted, clears only the
+//   non-critical rows — critical ones still require the long-press
+//   gesture. When a row is ALSO force-masked the long-press UI is
+//   replaced with a disabled lock icon so the row is truly immutable.
 
 (() => {
   "use strict";
@@ -135,6 +149,18 @@
       --radius: 12px;
       --row-bg-hover: #f3f4f6;
       --locked-bg: #fef2f2;
+
+      /* Severity palette — Tailwind 500/100 pairs. Mirrored in
+         review-modal.js so both surfaces flash the same colour for
+         the same risk tier. */
+      --sev-critical: #dc2626;    /* red-600  */
+      --sev-critical-bg: #fee2e2; /* red-100  */
+      --sev-high: #f97316;        /* orange-500 */
+      --sev-high-bg: #ffedd5;     /* orange-100 */
+      --sev-medium: #eab308;      /* amber-500 */
+      --sev-medium-bg: #fef3c7;   /* amber-100 */
+      --sev-low: #6b7280;         /* gray-500 */
+      --sev-low-bg: #f3f4f6;      /* gray-100 */
     }
     .overlay {
       position: absolute;
@@ -309,7 +335,16 @@
       gap: 10px;
       padding: 8px 12px 8px 30px;
       border-bottom: 1px solid var(--border);
+      border-left: 4px solid var(--sev-low);
       font-size: 13px;
+      transition: background-color 0.18s ease-out, box-shadow 0.18s ease-out;
+    }
+    .row.sev-critical { border-left-color: var(--sev-critical); }
+    .row.sev-high     { border-left-color: var(--sev-high); }
+    .row.sev-medium   { border-left-color: var(--sev-medium); }
+    .row.sev-low      { border-left-color: var(--sev-low); }
+    .row.long-press-pulse {
+      box-shadow: inset 4px 0 0 var(--sev-critical-bg);
     }
     .category.is-locked .row {
       border-bottom-color: #fecaca;
@@ -366,10 +401,81 @@
       border: 1px solid var(--border);
       background: #fff;
     }
+    .sev-pill {
+      display: inline-block;
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin-left: 6px;
+      padding: 1px 6px;
+      border-radius: 8px;
+      text-transform: uppercase;
+      vertical-align: middle;
+      line-height: 1.4;
+    }
+    .sev-pill.sev-critical { background: var(--sev-critical-bg); color: var(--sev-critical); border: 1px solid var(--sev-critical); }
+    .sev-pill.sev-high     { background: var(--sev-high-bg);     color: var(--sev-high);     border: 1px solid var(--sev-high); }
+    .sev-pill.sev-medium   { background: var(--sev-medium-bg);   color: #a16207;             border: 1px solid var(--sev-medium); }
+    .sev-pill.sev-low      { background: var(--sev-low-bg);      color: var(--sev-low);      border: 1px solid var(--sev-low); }
     .row-lock {
       font-size: 11px;
       color: var(--danger);
       margin-left: 6px;
+    }
+    /* --- Long-press control for critical rows ------------------------- */
+    .longpress {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 auto;
+      margin-top: 1px;
+      position: relative;
+      cursor: pointer;
+      user-select: none;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .longpress .lp-ring {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+    }
+    .longpress .lp-track {
+      fill: none;
+      stroke: var(--sev-critical);
+      stroke-width: 2;
+      opacity: 0.25;
+    }
+    .longpress .lp-progress {
+      fill: none;
+      stroke: var(--sev-critical);
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-dasharray: 56.548; /* 2 * pi * 9  */
+      stroke-dashoffset: 56.548;
+      transition: stroke-dashoffset 0.05s linear;
+    }
+    .longpress.is-on .lp-core {
+      fill: var(--sev-critical);
+    }
+    .longpress .lp-core {
+      fill: #ffffff;
+      stroke: var(--sev-critical);
+      stroke-width: 1.2;
+    }
+    .longpress.is-locked {
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+    .longpress .lp-lock {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: var(--sev-critical);
     }
     .preview-section {
       margin-top: 14px;
@@ -435,6 +541,31 @@
     }
   `;
 
+  // Normalise severity to one of the four tiers the CSS knows about.
+  // Unknown values fall back to ``low`` so the UI never renders an
+  // un-styled row even when a future server-side tier is added.
+  const KNOWN_SEVERITIES = new Set(["critical", "high", "medium", "low"]);
+  const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
+  function normaliseSeverity(sev) {
+    const s = String(sev || "").toLowerCase();
+    return KNOWN_SEVERITIES.has(s) ? s : "low";
+  }
+  // Pick the highest-risk (lowest rank) severity from an iterable of
+  // row states. Category headers render at this severity so the pill
+  // reflects the worst offender in the group.
+  function worstSeverity(rows) {
+    let best = "low";
+    let bestRank = SEVERITY_RANK.low;
+    for (const row of rows) {
+      const rank = SEVERITY_RANK[row.severity] ?? SEVERITY_RANK.low;
+      if (rank < bestRank) {
+        best = row.severity;
+        bestRank = rank;
+      }
+    }
+    return best;
+  }
+
   // Internal model for one row. Built once in show() and mutated
   // in-place when the user toggles checkboxes.
   function buildRowState(entity) {
@@ -451,6 +582,158 @@
         : [],
       masked: entity.masked !== false, // default true
       locked: false, // set by show() after force_masked_categories is read
+      severity: normaliseSeverity(entity.severity),
+    };
+  }
+
+  // Build a SVG long-press control and wire ``pointer*`` events so
+  // the caller's ``onToggle`` only fires when the user holds the
+  // control for 800 ms. Uses ``stroke-dashoffset`` animation on a
+  // circular SVG track; fully self-contained inside the Shadow DOM.
+  //
+  // ``locked`` replaces the control with a non-interactive lock
+  // glyph — used when a critical row is ALSO force-masked.
+  const LONG_PRESS_MS = 800;
+  const LONG_PRESS_TICK_MS = 50;
+  const LP_RING_CIRCUMFERENCE = 56.548; // 2π·9, matches the CSS dash length
+  function buildLongPressControl({ initial, locked, onToggle, row }) {
+    const wrap = document.createElement("div");
+    wrap.className = "longpress";
+    wrap.setAttribute("role", "switch");
+    wrap.setAttribute("tabindex", "0");
+    wrap.setAttribute("aria-checked", initial ? "true" : "false");
+    wrap.setAttribute("aria-label", `${row.value} を長押しで切り替え`);
+    wrap.title = locked
+      ? "force-mask: ロック中 (解除不可)"
+      : "長押し (800ms) で解除";
+    if (initial) wrap.classList.add("is-on");
+
+    if (locked) {
+      wrap.classList.add("is-locked");
+      const lock = document.createElement("span");
+      lock.className = "lp-lock";
+      lock.textContent = "\ud83d\udd12"; // 🔒
+      wrap.appendChild(lock);
+      return { element: wrap, isOn: () => true, setOn: () => {} };
+    }
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 20 20");
+    svg.setAttribute("class", "lp-ring");
+
+    const track = document.createElementNS(svgNS, "circle");
+    track.setAttribute("cx", "10");
+    track.setAttribute("cy", "10");
+    track.setAttribute("r", "9");
+    track.setAttribute("class", "lp-track");
+
+    const progress = document.createElementNS(svgNS, "circle");
+    progress.setAttribute("cx", "10");
+    progress.setAttribute("cy", "10");
+    progress.setAttribute("r", "9");
+    progress.setAttribute("class", "lp-progress");
+
+    const core = document.createElementNS(svgNS, "circle");
+    core.setAttribute("cx", "10");
+    core.setAttribute("cy", "10");
+    core.setAttribute("r", "4");
+    core.setAttribute("class", "lp-core");
+
+    svg.appendChild(track);
+    svg.appendChild(progress);
+    svg.appendChild(core);
+    wrap.appendChild(svg);
+
+    let timerId = null;
+    let tickId = null;
+    let startedAt = 0;
+
+    function resetRing() {
+      progress.style.strokeDashoffset = String(LP_RING_CIRCUMFERENCE);
+    }
+
+    function commit() {
+      const next = !wrap.classList.contains("is-on");
+      wrap.classList.toggle("is-on", next);
+      wrap.setAttribute("aria-checked", next ? "true" : "false");
+      wrap.classList.add("long-press-pulse");
+      setTimeout(() => wrap.classList.remove("long-press-pulse"), 200);
+      onToggle(next);
+    }
+
+    function clearTimers() {
+      if (timerId !== null) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+      if (tickId !== null) {
+        clearInterval(tickId);
+        tickId = null;
+      }
+    }
+
+    function onDown(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (timerId !== null) return;
+      startedAt = Date.now();
+      resetRing();
+      try {
+        wrap.setPointerCapture(event.pointerId);
+      } catch (_) {
+        /* Some older WebViews throw on setPointerCapture for
+           synthesised pointer events; non-fatal — the fill animation
+           simply cannot follow a finger that slides off. */
+      }
+      tickId = setInterval(() => {
+        const elapsed = Math.min(LONG_PRESS_MS, Date.now() - startedAt);
+        const remaining = LP_RING_CIRCUMFERENCE * (1 - elapsed / LONG_PRESS_MS);
+        progress.style.strokeDashoffset = String(Math.max(0, remaining));
+      }, LONG_PRESS_TICK_MS);
+      timerId = setTimeout(() => {
+        clearTimers();
+        progress.style.strokeDashoffset = "0";
+        commit();
+        // Reset the ring after the pulse animation so the user can
+        // press again to toggle back.
+        setTimeout(resetRing, 250);
+      }, LONG_PRESS_MS);
+    }
+
+    function onUp() {
+      clearTimers();
+      resetRing();
+    }
+
+    wrap.addEventListener("pointerdown", onDown);
+    wrap.addEventListener("pointerup", onUp);
+    wrap.addEventListener("pointercancel", onUp);
+    wrap.addEventListener("pointerleave", onUp);
+    // Keyboard: hold Space / Enter for 800 ms. We reuse the same
+    // pointer machinery so the ring animates identically.
+    wrap.addEventListener("keydown", (event) => {
+      if (event.key === " " || event.key === "Enter") {
+        event.preventDefault();
+        if (timerId !== null) return;
+        onDown({ pointerId: -1, preventDefault() {}, stopPropagation() {} });
+      }
+    });
+    wrap.addEventListener("keyup", (event) => {
+      if (event.key === " " || event.key === "Enter") {
+        event.preventDefault();
+        onUp();
+      }
+    });
+
+    return {
+      element: wrap,
+      isOn: () => wrap.classList.contains("is-on"),
+      setOn: (next) => {
+        wrap.classList.toggle("is-on", !!next);
+        wrap.setAttribute("aria-checked", next ? "true" : "false");
+        resetRing();
+      },
     };
   }
 
@@ -609,6 +892,15 @@
         const nameLabel = document.createElement("span");
         nameLabel.textContent = categoryName;
         name.appendChild(nameLabel);
+        // Category severity = worst severity of any row in the group.
+        // Renders the same pill style as individual rows so the user
+        // can tell at a glance that a PERSON group is actually critical
+        // because it hides an API_KEY.
+        const groupSeverity = worstSeverity(items);
+        const groupPill = document.createElement("span");
+        groupPill.className = `sev-pill sev-${groupSeverity}`;
+        groupPill.textContent = groupSeverity;
+        name.appendChild(groupPill);
         if (forcedCategories.has(categoryName)) {
           const lockIcon = document.createElement("span");
           lockIcon.className = "lock-icon";
@@ -653,11 +945,41 @@
         toggle.addEventListener("change", (event) => {
           if (toggle.disabled) return;
           const checked = !!toggle.checked;
+          // Unchecking a category MUST NOT bypass the long-press
+          // guard on individual critical rows. If the user is trying
+          // to turn the category OFF and any child is critical, run
+          // the same native confirm() path the "すべて解除" button
+          // uses; on accept, we only clear the non-critical children.
+          if (!checked) {
+            const criticalKids = items.filter(
+              (r) => !r.locked && r.severity === "critical"
+            );
+            if (criticalKids.length > 0) {
+              const cleared = confirmCriticalBulkUncheck(criticalKids.length);
+              if (!cleared) {
+                // Restore the toggle to match the un-changed row
+                // state — user declined, nothing was cleared.
+                syncCategoryToggle(categoryName);
+                return;
+              }
+              // Proceed, but leave critical rows masked=true.
+              for (const row of items) {
+                if (row.locked) continue;
+                if (row.severity === "critical") continue;
+                row.masked = false;
+                const ctl = rowControls.get(row.key);
+                if (ctl) ctl.control.setOn(false);
+              }
+              syncCategoryToggle(categoryName);
+              updatePreview();
+              return;
+            }
+          }
           for (const row of items) {
             if (row.locked) continue;
             row.masked = checked;
             const ctl = rowControls.get(row.key);
-            if (ctl) ctl.checkbox.checked = checked;
+            if (ctl) ctl.control.setOn(checked);
           }
           syncCategoryToggle(categoryName);
           updatePreview();
@@ -678,34 +1000,62 @@
 
       function renderRow(row) {
         const id = `mcp-sb-${row.key.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-        const wrap = document.createElement("label");
-        wrap.className = "row";
-        wrap.setAttribute("for", id);
+        // For critical rows we use a custom long-press control, so
+        // the outer node is a plain <div>; the built-in ``<label>``
+        // click-to-toggle behaviour would bypass the 800 ms guard.
+        const isCritical = row.severity === "critical";
+        const wrap = document.createElement(isCritical ? "div" : "label");
+        wrap.className = `row sev-${row.severity}`;
+        if (!isCritical) wrap.setAttribute("for", id);
 
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.className = "row-checkbox";
-        checkbox.id = id;
-        checkbox.checked = row.masked;
-        checkbox.dataset.rowKey = row.key;
-        if (row.locked) {
-          checkbox.disabled = true;
-          checkbox.checked = true;
-        }
+        let control; // { element, isOn(), setOn() } — must expose these three
 
-        checkbox.addEventListener("change", () => {
+        if (isCritical) {
+          const lp = buildLongPressControl({
+            initial: row.masked,
+            locked: row.locked,
+            row,
+            onToggle: (next) => {
+              if (row.locked) return;
+              row.masked = !!next;
+              syncCategoryToggle(row.category);
+              updatePreview();
+            },
+          });
+          control = lp;
+          wrap.appendChild(lp.element);
+        } else {
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.className = "row-checkbox";
+          checkbox.id = id;
+          checkbox.checked = row.masked;
+          checkbox.dataset.rowKey = row.key;
           if (row.locked) {
-            // Defensive: should be unreachable because disabled
-            // checkboxes do not fire change events, but keep the
-            // invariant explicit.
+            checkbox.disabled = true;
             checkbox.checked = true;
-            row.masked = true;
-            return;
           }
-          row.masked = !!checkbox.checked;
-          syncCategoryToggle(row.category);
-          updatePreview();
-        });
+
+          checkbox.addEventListener("change", () => {
+            if (row.locked) {
+              checkbox.checked = true;
+              row.masked = true;
+              return;
+            }
+            row.masked = !!checkbox.checked;
+            syncCategoryToggle(row.category);
+            updatePreview();
+          });
+
+          control = {
+            element: checkbox,
+            isOn: () => !!checkbox.checked,
+            setOn: (next) => {
+              checkbox.checked = !!next;
+            },
+          };
+          wrap.appendChild(checkbox);
+        }
 
         const meta = document.createElement("div");
         meta.className = "row-meta";
@@ -722,10 +1072,23 @@
         labelTag.className = "row-label";
         labelTag.textContent = row.label;
 
+        const sevPill = document.createElement("span");
+        sevPill.className = `sev-pill sev-${row.severity}`;
+        sevPill.textContent = row.severity;
+
         meta.appendChild(value);
         meta.appendChild(count);
         meta.appendChild(labelTag);
-        if (row.locked) {
+        meta.appendChild(sevPill);
+        if (isCritical) {
+          const lockHint = document.createElement("span");
+          lockHint.className = "row-lock";
+          lockHint.title = row.locked
+            ? "force-mask: ロック中 (解除不可)"
+            : "長押し (800ms) で解除";
+          lockHint.textContent = "\ud83d\udd12"; // 🔒
+          meta.appendChild(lockHint);
+        } else if (row.locked) {
           const lockIcon = document.createElement("span");
           lockIcon.className = "row-lock";
           lockIcon.title = "force-mask: ロック中";
@@ -733,9 +1096,16 @@
           meta.appendChild(lockIcon);
         }
 
-        wrap.appendChild(checkbox);
         wrap.appendChild(meta);
-        rowControls.set(row.key, { checkbox, row });
+        // Expose a normalised control interface to the rest of the
+        // sidebar. ``checkbox`` alias keeps existing code paths (bulk
+        // actions, category toggle) working without branching on
+        // severity everywhere.
+        rowControls.set(row.key, {
+          checkbox: control.element,
+          control,
+          row,
+        });
         return wrap;
       }
 
@@ -801,23 +1171,65 @@
       body.appendChild(previewSection);
       updatePreview();
 
+      // Bulk-uncheck gate for the critical tier. Returns ``true`` if
+      // the user confirmed the clearance (non-critical rows should be
+      // cleared), ``false`` if they cancelled. Centralised so both
+      // the per-category toggle and the "すべて解除" button share the
+      // exact same confirmation copy.
+      function confirmCriticalBulkUncheck(criticalCount) {
+        const msg =
+          `Critical な ${criticalCount} 件の項目は長押しで個別に解除してください。` +
+          `それ以外だけ解除しますか？`;
+        try {
+          return window.confirm(msg);
+        } catch (_) {
+          // Extremely locked-down pages (sandboxed iframes, some
+          // PWA contexts) can throw when confirm() is called. In
+          // that case we abort — critical rows stay masked.
+          return false;
+        }
+      }
+
       // --- Bulk action handlers (defined here so they can see rows) -------
       selectAllBtn.addEventListener("click", () => {
         for (const row of rows) {
           if (row.locked) continue;
           row.masked = true;
           const ctl = rowControls.get(row.key);
-          if (ctl) ctl.checkbox.checked = true;
+          if (ctl) ctl.control.setOn(true);
         }
         for (const cat of categoryOrder) syncCategoryToggle(cat);
         updatePreview();
       });
       deselectAllBtn.addEventListener("click", () => {
+        // "すべて解除" must NOT silently bypass the critical
+        // long-press gate. When any non-locked critical row exists,
+        // confirm with the user and, on accept, clear only the
+        // non-critical / non-locked rows. The user still has to
+        // long-press each critical row individually if they want it
+        // unchecked.
+        const criticals = rows.filter(
+          (r) => !r.locked && r.severity === "critical"
+        );
+        if (criticals.length > 0) {
+          const ok = confirmCriticalBulkUncheck(criticals.length);
+          if (!ok) return;
+          for (const row of rows) {
+            if (row.locked) continue;
+            if (row.severity === "critical") continue;
+            row.masked = false;
+            const ctl = rowControls.get(row.key);
+            if (ctl) ctl.control.setOn(false);
+          }
+          for (const cat of categoryOrder) syncCategoryToggle(cat);
+          updatePreview();
+          return;
+        }
         for (const row of rows) {
           if (row.locked) continue;
           row.masked = false;
           const ctl = rowControls.get(row.key);
-          if (ctl) ctl.checkbox.checked = false;
+          if (ctl) ctl.control.setOn(false);
         }
         for (const cat of categoryOrder) syncCategoryToggle(cat);
         updatePreview();

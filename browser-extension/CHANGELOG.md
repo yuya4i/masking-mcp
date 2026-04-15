@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.0 — Interactive review UI (2026-04-15)
+
+- `review-modal.js` (new) — Shadow-DOM-scoped overlay on
+  `document.body` at `z-index: 2147483647`. Every gateway detection
+  becomes a checkbox row with a colour-coded entity badge and a
+  contextual snippet. Enter confirms, Esc cancels, Tab cycles focus.
+  No `innerHTML` on untrusted strings: every node is built via
+  `createElement` / `textContent`.
+- `injected.js` — reads the `interactive` setting from
+  `chrome.storage.local` (via postMessage from `content.js`) and,
+  when on, awaits `reviewModal.show(detections, text)`. On confirm,
+  rebuilds the masked payload client-side from the ticked indices
+  using the `<ENTITY_TYPE>` tag strategy. On cancel, rejects the
+  fetch / aborts the XHR so no payload leaves the browser.
+- `content.js` — injects `review-modal.js` before `injected.js` and
+  re-broadcasts the `interactive` setting on every
+  `chrome.storage.onChanged`.
+- `popup.html` / `popup.js` / `popup.css` — new "送信前に確認する
+  (インタラクティブ・モード)" toggle, default ON. Popup widened
+  from 260px to 300px for the Japanese label.
+- `background.js` — seeds both `enabled` and `interactive` to
+  `true` on first install.
+- `manifest.json` — adds `review-modal.js` to
+  `web_accessible_resources`.
+
 ## 0.1.0 — Phase 1 (2026-04-15)
 
 Initial scaffolding.

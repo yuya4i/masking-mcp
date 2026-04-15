@@ -313,8 +313,30 @@ Architecture decision (from plan Q1-Q8):
     attachments through the same endpoints.
   - Streaming-response path (Phase 1 scope was Q3 = 送信のみ).
 
-- [ ] **feat/browser-extension-phase2** — popup UI for category
-  toggles, per-service enable/disable, audit viewer (read-only).
+- [x] **feat/interactive-review-ui** — merged on
+  `feat/interactive-review-ui` (SHA `<pending>`), 46/46 tests green.
+  Closes two detection gaps + ships the interactive review modal
+  that was the headline Phase 2 UX request:
+  - `presets.py` gains `EMAIL_ADDRESS` (permissive pattern for new
+    gTLDs like `.fizz` / `.xyz` that Presidio's built-in recognizer
+    misses) and `KATAKANA_NAME` (heuristic for ≥ 4-char katakana
+    runs that SudachiPy's default dict doesn't flag).
+  - Browser extension gets `review-modal.js`, a Shadow-DOM-scoped
+    overlay at `z-index: 2147483647` on `document.body` with
+    per-detection checkboxes, colour-coded entity badges, and
+    Enter/Esc keyboard control. Host page DOM/CSS is never
+    touched; on dismissal the overlay is removed completely.
+  - `injected.js` awaits the modal when interactive mode is on
+    and rebuilds the masked payload client-side from the ticked
+    indices (tag strategy only — partial/hash are gateway-only).
+  - Popup gains a second checkbox "送信前に確認する
+    (インタラクティブ・モード)" (default ON). Background worker
+    seeds both `enabled` and `interactive` keys on install.
+
+- [ ] **feat/browser-extension-phase2** — remaining Phase 2 items:
+  popup UI for category toggles, per-service enable/disable, audit
+  viewer (read-only). The interactive-review modal above counts as
+  the first Phase 2 UX slice.
   Depends on: phase1.
 
 - [ ] **feat/ollama-analyzer** (Phase 3) — `OllamaAnalyzer`

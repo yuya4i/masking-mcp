@@ -380,12 +380,47 @@ Planning spec: `plans/feat-ui-masking-control-layer-2026-04-15.md`.
 
 ### Wave B — frontend (next branch)
 
-- [ ] **feat/ui-masking-sidebar** — consume the aggregated endpoint
-  from the browser extension review modal; add category-level toggles
-  with per-row checkboxes, a "locked" icon when the category is in
-  `force_masked_categories`, and all/none selection buttons. See the
-  plan doc for layout options (2-col modal vs permanent sidebar vs
-  independent tab). Depends on: Wave A.
+- [x] **feat/ui-masking-sidebar** — merged from
+  `feat/ui-masking-sidebar` (SHA `<pending>`), 73/73 tests green
+  (zero Python changes — frontend only). Ships the Shadow-DOM
+  sidebar that consumes `POST /v1/extension/sanitize/aggregated`:
+  - `browser-extension/sidebar.js` (new, ~920 LOC) — right-side
+    fixed panel at `z-index: 2147483647` with one row per unique
+    `(category, value)` pair, tri-state category toggles,
+    すべて選択 / すべて解除 bulk actions, and a live preview pane
+    that re-applies tag substitutions client-side on every
+    checkbox change (no keystroke-triggered fetches). Categories
+    listed in `force_masked_categories` show 🔒 and have their
+    checkboxes `disabled` so neither row nor parent toggle nor
+    bulk actions can ever uncheck them. Hand-rolled CSS
+    variables: indigo `#4f46e5` primary, red `#dc2626` danger,
+    gray `#f9fafb` background, rounded-xl `12px`, the spec'd
+    `0 10px 25px rgba(0,0,0,0.12)` shadow. Slide-in via
+    `transform: translateX(...)`. Focus trap wraps Tab through
+    the panel; Enter confirms; Esc cancels.
+  - `browser-extension/injected.js` — dispatch layer reads
+    `window.__localMaskMCP.settings.uiMode` (default `"sidebar"`)
+    and routes to the matching helper. Sidebar path uses the new
+    aggregated endpoint and feeds `decision.maskedPositions` (a
+    flat `[start, end, label]` triple list) into a new
+    `applyTriples()` helper. Modal path is unchanged.
+  - `browser-extension/content.js` — injects `sidebar.js` between
+    `review-modal.js` and `injected.js`; new
+    `handleSanitizeAggregated` bridge sharing a `callGateway()`
+    helper with the legacy handler. Settings broadcast carries
+    `uiMode` alongside `interactive`.
+  - `browser-extension/popup.{html,css,js}` + `background.js` +
+    `manifest.json` — new `UI モード` radio (default サイドバー);
+    `onInstalled` seeds the `uiMode` storage key; `manifest.json`
+    bumped to `0.2.0` and lists `sidebar.js` under
+    `web_accessible_resources`.
+  - Browser extension `README.md` + `CHANGELOG.md` updated with a
+    サイドバーモード section and an ASCII layout sketch. Root
+    `README.md` ブラウザ拡張 section gains a UI-mode comparison
+    table.
+  - Verified end-to-end against the running gateway via curl
+    (`force_masked_categories: ["PERSON","ORGANIZATION","FINANCIAL"]`
+    when `confidential` keyword is present).
 
 - [ ] **feat/ollama-analyzer** (Phase 3) — `OllamaAnalyzer`
   implementing the `Analyzer` Protocol. Ollama runs on host, gateway

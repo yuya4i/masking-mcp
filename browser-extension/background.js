@@ -31,14 +31,23 @@ function updateBadge(tabId, count) {
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
-  // Ensure both keys exist so every subsequent read is a plain
-  // ``storage.get(key)`` without a fallback branch. ``interactive``
-  // defaults to ``true`` — interactive review is the headline UX
-  // introduced in ``feat/interactive-review-ui``.
-  const stored = await chrome.storage.local.get(["enabled", "interactive"]);
+  // Ensure all three keys exist so every subsequent read is a plain
+  // ``storage.get(key)`` without a fallback branch. Defaults:
+  //   * ``enabled``     true — the master switch.
+  //   * ``interactive`` true — review-before-send is the headline UX.
+  //   * ``uiMode``      "sidebar" — Milestone 8 Wave B default;
+  //                     legacy modal experience is opt-in.
+  const stored = await chrome.storage.local.get([
+    "enabled",
+    "interactive",
+    "uiMode",
+  ]);
   const patch = {};
   if (typeof stored.enabled !== "boolean") patch.enabled = true;
   if (typeof stored.interactive !== "boolean") patch.interactive = true;
+  if (stored.uiMode !== "sidebar" && stored.uiMode !== "modal") {
+    patch.uiMode = "sidebar";
+  }
   if (Object.keys(patch).length > 0) {
     await chrome.storage.local.set(patch);
   }

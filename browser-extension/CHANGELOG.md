@@ -1,6 +1,58 @@
 # Changelog
 
-## 0.2.0 — Interactive review UI (2026-04-15)
+## 0.2.0 — UI masking control layer (2026-04-15)
+
+Wave B of Milestone 8 — frontend half of the new aggregated
+detection layer. Wave A (backend aggregation, force-mask trigger,
+15 new business-document presets) shipped on `main` immediately
+before this.
+
+- `sidebar.js` (new) — Shadow-DOM-scoped right-side panel at
+  `z-index: 2147483647` on `document.body`. Hand-rolled CSS
+  variables (indigo `#4f46e5`, danger `#dc2626`, gray `#f9fafb`,
+  rounded-xl `12px`, `0 10px 25px rgba(0,0,0,0.12)` shadow). Slide-in
+  animation via `transform: translateX(...)`. Click-outside on the
+  semi-transparent overlay does NOT auto-cancel — explicit
+  Confirm/Cancel only. Renders one row per unique
+  `(category, value)` pair with a `(N件)` count badge instead of
+  listing every occurrence. Tri-state category checkboxes,
+  per-row checkboxes, bulk すべて選択 / すべて解除, plus a live
+  preview pane that re-applies tag substitutions client-side on
+  every checkbox change. Categories listed in
+  `force_masked_categories` show 🔒 and have their checkboxes
+  `disabled` so neither row nor parent toggle nor bulk actions
+  can ever uncheck them. Focus trap wraps Tab through the panel;
+  Enter confirms; Esc cancels. No `innerHTML` on untrusted
+  strings.
+- `injected.js` — dispatch layer reads
+  `window.__localMaskMCP.settings.uiMode` (default `"sidebar"`)
+  on every intercept and routes to the matching helper:
+  - `"sidebar"` → `POST /v1/extension/sanitize/aggregated` then
+    `sidebar.show(aggResp, originalText)`. Result is a flat
+    `[start, end, label]` triple list fed into the new
+    `applyTriples()` helper (back-to-front substitution).
+  - `"modal"` → unchanged Phase 2 path (`/sanitize` then
+    `reviewModal.show(...)`).
+  - Either UI helper missing or `interactive: false` → auto-mask
+    via the gateway-sanitised text.
+- `content.js` — inject `sidebar.js` between `review-modal.js`
+  and `injected.js` so both helpers exist before the first fetch.
+  Adds `GATEWAY_AGGREGATED_URL` + a new
+  `handleSanitizeAggregated` bridge sharing a `callGateway()`
+  helper with the legacy handler. Settings broadcast now
+  includes `uiMode` and re-fires when either
+  `interactive` or `uiMode` changes in `chrome.storage`.
+- `popup.html` / `popup.css` / `popup.js` — new `UI モード` radio
+  group (`サイドバー` / `モーダル`). Defaults to サイドバー and
+  normalises any non-`modal` value back to サイドバー so a corrupt
+  storage entry can never leave the radio blank.
+- `background.js` — `onInstalled` seeds three keys (`enabled`,
+  `interactive`, `uiMode`) instead of two; `uiMode` defaults
+  `"sidebar"`.
+- `manifest.json` — adds `sidebar.js` to
+  `web_accessible_resources`. Version bumped to `0.2.0`.
+
+## 0.1.1 — Interactive review UI (2026-04-15)
 
 - `review-modal.js` (new) — Shadow-DOM-scoped overlay on
   `document.body` at `z-index: 2147483647`. Every gateway detection

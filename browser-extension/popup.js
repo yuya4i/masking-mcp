@@ -70,6 +70,23 @@ async function saveInteractive(value) {
   await chrome.storage.local.set({ interactive: value });
 }
 
+async function loadUiMode() {
+  // Default is "sidebar" — Milestone 8 Wave B headline UX. Anything
+  // other than "modal" is normalised back to "sidebar" so a stale or
+  // garbled value can't leave the radio group unchecked.
+  const { uiMode } = await chrome.storage.local.get("uiMode");
+  const value = uiMode === "modal" ? "modal" : "sidebar";
+  const target = document.querySelector(
+    `input[name="ui-mode"][value="${value}"]`
+  );
+  if (target) target.checked = true;
+}
+
+async function saveUiMode(value) {
+  const normalized = value === "modal" ? "modal" : "sidebar";
+  await chrome.storage.local.set({ uiMode: normalized });
+}
+
 async function loadDetectionCount() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) {
@@ -92,6 +109,7 @@ async function loadDetectionCount() {
 document.addEventListener("DOMContentLoaded", () => {
   loadEnabled();
   loadInteractive();
+  loadUiMode();
   probeGateway();
   loadDetectionCount();
 
@@ -101,4 +119,15 @@ document.addEventListener("DOMContentLoaded", () => {
   $("interactive-toggle").addEventListener("change", (e) => {
     saveInteractive(e.target.checked);
   });
+  // Radio change events bubble up from individual inputs; bind on
+  // the fieldset so we get a single listener regardless of how many
+  // radios live inside it.
+  const fieldset = $("ui-mode-fieldset");
+  if (fieldset) {
+    fieldset.addEventListener("change", (e) => {
+      const value =
+        e.target && e.target.name === "ui-mode" ? e.target.value : null;
+      if (value) saveUiMode(value);
+    });
+  }
 });

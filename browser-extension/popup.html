@@ -13,7 +13,7 @@
   <body>
     <header>
       <h1>Local Mask MCP</h1>
-      <span id="version">v0.1.0</span>
+      <span id="version">v0.2.0</span>
     </header>
 
     <section class="row toggle-row">
@@ -28,6 +28,21 @@
         <span>送信前に確認する (インタラクティブ・モード)</span>
         <input type="checkbox" id="interactive-toggle" />
       </label>
+    </section>
+
+    <section class="row ui-mode-row">
+      <span class="label">UI モード</span>
+      <fieldset class="ui-mode-radios" id="ui-mode-fieldset">
+        <legend class="visually-hidden">UI モード</legend>
+        <label class="radio-label">
+          <input type="radio" name="ui-mode" value="sidebar" id="ui-mode-sidebar" />
+          <span>サイドバー (推奨、カテゴリ別集約表示)</span>
+        </label>
+        <label class="radio-label">
+          <input type="radio" name="ui-mode" value="modal" id="ui-mode-modal" />
+          <span>モーダル (従来)</span>
+        </label>
+      </fieldset>
     </section>
 
     <section class="row">

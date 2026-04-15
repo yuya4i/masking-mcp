@@ -27,6 +27,7 @@ from app.services.analyzers import (
     SudachiProperNounAnalyzer,
     get_preset_patterns,
 )
+from app.services.classification import classification_for
 from app.services.language_detection import detect_language
 from app.services.repositories import AuditRepository, ConfigRepository
 
@@ -279,6 +280,39 @@ class MaskingService:
                 r for r in recognizer_results if r.score >= config.min_score
             ]
 
+        # Optional Sudachi-POS validation for proper-noun-class labels.
+        # When a ``KATAKANA_NAME`` regex or Presidio ``PERSON`` hit
+        # actually resolves to a Sudachi 名詞,一般 (brand / product /
+        # generic term), we do NOT want the user to believe our
+        # ``proper_noun`` class is clean. Validation removes those from
+        # the ``proper_noun`` class entirely — the label is kept but
+        # reclassified to ``"other"`` so the ``enabled_pii_classes``
+        # filter below can drop them if the user configured things as
+        # ``["proper_noun"]`` only.
+        reclassified: dict[tuple[int, int, str], str] = {}
+        if (
+            config.sudachi_validate_proper_nouns
+            and config.morphological_analyzer == "sudachi"
+        ):
+            reclassified = self._sudachi_validate_proper_nouns(
+                request.text, recognizer_results, config
+            )
+
+        # Linguistic-tier filter. Drop detections whose classification
+        # is NOT in ``enabled_pii_classes``. This is orthogonal to
+        # ``allow_entity_types`` (per-label allow) and
+        # ``disabled_pattern_categories`` (per-preset-category disable
+        # for regex only). Everything cut here stays out of BOTH the
+        # masked text and the detections list — the user explicitly
+        # said "recognize these as separate from PII", so we do not
+        # leak them into the audit trail under a disabled class.
+        enabled = set(config.enabled_pii_classes)
+        recognizer_results = [
+            r
+            for r in recognizer_results
+            if _effective_classification(r, reclassified) in enabled
+        ]
+
         maskable = [r for r in recognizer_results if r.entity_type not in allow_types]
 
         sanitized_text = self._apply_strategy(request.text, maskable, mask_strategy)
@@ -497,6 +531,64 @@ class MaskingService:
             )
         return results
 
+    def _sudachi_validate_proper_nouns(
+        self,
+        text: str,
+        detections: list[RecognizerResult],
+        config: RuntimeConfig,
+    ) -> dict[tuple[int, int, str], str]:
+        """Re-classify ``proper_noun`` detections using Sudachi POS.
+
+        For every detection whose default classification is
+        ``"proper_noun"``, tokenize the surface span with Sudachi and
+        check whether the resulting morpheme sequence actually contains
+        a ``名詞,固有名詞`` head. If it does not — meaning Sudachi sees
+        the surface as a common / generic noun (``一般``, ``ブランド名``,
+        etc.) — return a re-classification to ``"other"`` for that
+        (start, end, label) triple. The original detection record is
+        kept verbatim so the audit trail does not lose information;
+        only the effective classification used by the
+        ``enabled_pii_classes`` filter changes.
+        """
+        try:
+            from sudachipy import Dictionary, SplitMode
+        except Exception:
+            # Sudachi isn't importable (shouldn't happen in the Docker
+            # image, but keep the Python layer resilient). Skip
+            # validation; everything stays at its default class.
+            return {}
+
+        mode_map = {"A": SplitMode.A, "B": SplitMode.B, "C": SplitMode.C}
+        mode = mode_map.get(config.sudachi_split_mode, SplitMode.C)
+        # Build once per request; MaskingService does not keep a
+        # standalone tokenizer handle, and the Sudachi analyzer is
+        # only guaranteed to exist when `_analyzers["sudachi"]` has
+        # been constructed. Using a throwaway tokenizer keeps the
+        # validation path self-contained.
+        tokenizer = Dictionary().create()
+
+        patterns = config.proper_noun_pos_patterns or [["名詞", "固有名詞"]]
+
+        def _is_proper_noun(surface: str) -> bool:
+            for morph in tokenizer.tokenize(surface, mode):
+                pos = morph.part_of_speech()
+                for prefix in patterns:
+                    if all(
+                        len(pos) > i and pos[i] == token
+                        for i, token in enumerate(prefix)
+                    ):
+                        return True
+            return False
+
+        reclassified: dict[tuple[int, int, str], str] = {}
+        for det in detections:
+            if classification_for(det.entity_type) != "proper_noun":
+                continue
+            surface = text[det.start:det.end]
+            if not _is_proper_noun(surface):
+                reclassified[(det.start, det.end, det.entity_type)] = "other"
+        return reclassified
+
     def _write_audit(
         self,
         audit_id: str,
@@ -603,6 +695,26 @@ def _resolve_overlaps(results: list[RecognizerResult]) -> list[RecognizerResult]
             envelope_score = candidate.score
 
     return keepers
+
+
+def _effective_classification(
+    detection: RecognizerResult,
+    reclassified: dict[tuple[int, int, str], str],
+) -> str:
+    """Return the class that the enabled-class filter should check.
+
+    The default class comes from the static
+    :func:`app.services.classification.classification_for` map.
+    When Sudachi POS validation fires and demotes a specific
+    ``(start, end, label)`` triple, the override in ``reclassified``
+    wins. This separation keeps the default map pure (label → class
+    is context-free) while letting per-detection evidence from Sudachi
+    override for edge cases like brand-name katakana.
+    """
+    key = (detection.start, detection.end, detection.entity_type)
+    if key in reclassified:
+        return reclassified[key]
+    return classification_for(detection.entity_type)
 
 
 def _locate_offset(text: str, offset: int) -> tuple[int, int]:

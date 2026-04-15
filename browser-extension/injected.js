@@ -667,19 +667,33 @@
       const method =
         (init && init.method) || (input && input.method) || "GET";
 
+      // Provider-host diagnostic: for the 4 AI provider hostnames we
+      // claim in manifest.json, log every request regardless of method.
+      // This is how we find streaming/WS/SSE endpoints that don't go
+      // through our POST+JSON path. Third-party hosts (amplitude etc.)
+      // are excluded so the console isn't drowned in telemetry.
+      const PROVIDER_RE =
+        /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im)/i;
+      try {
+        const host = new URL(url, location.href).host;
+        if (PROVIDER_RE.test(host)) {
+          LOG(
+            "provider request:",
+            method.toUpperCase(),
+            url,
+            "bodyType=" + typeof (init && init.body)
+          );
+        }
+      } catch (_) {}
+
       if (method.toUpperCase() !== "POST") {
         return originalFetch(input, init);
       }
       const adapter = pickAdapter(url);
       if (!adapter) {
-        // Debug: surface every POST we saw but couldn't route to an
-        // adapter. Lets operators spot new API paths (e.g. when a
-        // provider changes their URL scheme) without patching code.
-        // Filter to same-host POSTs so we don't spam on third-party
-        // analytics/telemetry pings.
         try {
           const target = new URL(url, location.href).host;
-          if (target && target === location.host) {
+          if (PROVIDER_RE.test(target)) {
             LOG("intercepted POST with no adapter match:", url);
           }
         } catch (_) {}
@@ -738,6 +752,18 @@
     try {
       const method = (this._maskMcpMethod || "GET").toUpperCase();
       const url = this._maskMcpUrl || "";
+      // Same provider-host diagnostic as the fetch hook, so XHR-based
+      // submissions show up in the console too.
+      try {
+        const host = new URL(url, location.href).host;
+        if (
+          /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im)/i.test(
+            host
+          )
+        ) {
+          LOG("provider xhr:", method, url, "bodyType=" + typeof body);
+        }
+      } catch (_) {}
       if (method !== "POST" || typeof body !== "string") {
         return originalXhrSend.apply(this, arguments);
       }

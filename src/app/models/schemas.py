@@ -120,6 +120,31 @@ class RuntimeConfig(BaseModel):
     #: machine-learned disambiguator — see the analyzer docstring for
     #: the explicit hardcoded set and its rationale.
     prefer_surname_for_ambiguous: bool = False
+    #: Force-mask trigger keywords (Milestone 8 Wave A). When any of
+    #: these keywords appears in the input AS A NOUN (per Sudachi POS
+    #: on Japanese input, case-insensitive substring match for ASCII
+    #: keywords), every :class:`AggregatedEntity` whose ``category`` is
+    #: in :attr:`force_mask_categories` gets ``masked=True`` regardless
+    #: of the user's allow-list or per-entity toggle. Empty list
+    #: disables the feature.
+    force_mask_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "リーク",
+            "未公開",
+            "機密",
+            "confidential",
+            "leak",
+        ]
+    )
+    #: Big categories to force-mask when a keyword fires. Names are the
+    #: display-level categories from :mod:`app.services.category_map`
+    #: (``PERSON`` / ``ORGANIZATION`` / ``FINANCIAL`` / ``CREDENTIAL``
+    #: etc.). Non-existent category names are silently ignored so a
+    #: typo here cannot break the sanitize path; the trigger just
+    #: becomes a no-op.
+    force_mask_categories: list[str] = Field(
+        default_factory=lambda: ["PERSON", "ORGANIZATION", "FINANCIAL"]
+    )
     default_provider_id: str = "openai"
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 

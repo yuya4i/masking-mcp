@@ -339,6 +339,54 @@ Architecture decision (from plan Q1-Q8):
   the first Phase 2 UX slice.
   Depends on: phase1.
 
+---
+
+## Milestone 8 — UI masking control layer
+
+Goal: the browser extension's review panel shows one row per **unique
+masked surface** (集約) instead of per-occurrence, buckets them by a
+big display **category**, and force-locks sensitive categories when a
+red-flag keyword like `リーク` / `未公開` / `機密` appears in the input.
+Planning spec: `plans/feat-ui-masking-control-layer-2026-04-15.md`.
+
+### Wave A — backend (this branch)
+
+- [x] **feat/aggregation-and-business-patterns** — merged from
+  `feat/aggregation-and-business-patterns` (SHA `<pending>`), 73/73
+  tests green. Four additions landed together:
+  - `src/app/services/category_map.py` — label→category table (7 big
+    categories: PERSON / LOCATION / ORGANIZATION / CONTACT /
+    FINANCIAL / CREDENTIAL / IDENTITY + INTERNAL_ID; unmapped labels
+    fall back to `OTHER`).
+  - `AggregatedEntity` + `AggregatedExtensionResponse` Pydantic models
+    in `src/app/models/schemas.py`, plus
+    `src/app/services/aggregation.py` with `aggregate_detections()`
+    that collapses duplicate surfaces, first-occurrence wins the
+    label, dedupes identical `(start, end)` spans that two analyzers
+    legitimately flag.
+  - `RuntimeConfig.force_mask_keywords` +
+    `RuntimeConfig.force_mask_categories` with the new
+    `src/app/services/force_mask.py` module: Japanese keywords are
+    POS-checked via Sudachi (must be 名詞 head), ASCII keywords use
+    case-insensitive substring match.
+  - New endpoint `POST /v1/extension/sanitize/aggregated` returning
+    the aggregated shape. Original `/v1/extension/sanitize` remains
+    unchanged for backward compat.
+  - `presets.py` + 15 new business-document categories: POSTAL_CODE,
+    DEPARTMENT, CONTRACT_NUMBER, PURCHASE_ORDER, CUSTOMER_ID,
+    INVOICE_NUMBER, EMPLOYEE_ID, MEMBER_ID, PATIENT_ID, SKU,
+    BLOOD_TYPE, ANNUAL_INCOME, PATENT_NUMBER, ASSET_NUMBER,
+    LICENSE_NUMBER.
+
+### Wave B — frontend (next branch)
+
+- [ ] **feat/ui-masking-sidebar** — consume the aggregated endpoint
+  from the browser extension review modal; add category-level toggles
+  with per-row checkboxes, a "locked" icon when the category is in
+  `force_masked_categories`, and all/none selection buttons. See the
+  plan doc for layout options (2-col modal vs permanent sidebar vs
+  independent tab). Depends on: Wave A.
+
 - [ ] **feat/ollama-analyzer** (Phase 3) — `OllamaAnalyzer`
   implementing the `Analyzer` Protocol. Ollama runs on host, gateway
   reaches it via `host.docker.internal` or a network bridge. New

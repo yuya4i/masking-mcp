@@ -86,6 +86,56 @@
 
 プリセットは `src/app/services/analyzers/presets.py` で定義されています。`enable_preset_patterns: false` に設定すると全てのプリセットパターンが無効化されます。特定カテゴリだけを無効化するには `disabled_pattern_categories` に対象のキーを追加してください (例: `["URL", "DATE"]`)。
 
+## ビジネスドキュメント向けプリセット
+
+Milestone 8 Wave A で追加した、日常の業務書類で漏れやすい識別子カテゴリ 15 種 (`src/app/services/analyzers/presets.py` — `BUILTIN_PATTERNS` に追記)。
+
+| カテゴリ | entity_type | 検出対象 |
+|---|---|---|
+| 郵便番号 | POSTAL_CODE | `〒651-0087`, `123-4567` |
+| 部署コード | DEPARTMENT | `DIV-101`, `部署コード: D-001` |
+| 契約番号 | CONTRACT_NUMBER | `CONTRACT-ABC-001`, `契約番号: CT-2024-01` |
+| 発注番号 / PO | PURCHASE_ORDER | `PO-1234567`, `発注番号: PO-9999` |
+| 顧客ID | CUSTOMER_ID | `CUST-0001`, `顧客ID: C-999` |
+| 請求書番号 | INVOICE_NUMBER | `INV-20240415`, `請求番号: INV-12` |
+| 社員ID | EMPLOYEE_ID | `STAFF-00123`, `社員番号: E-0042` |
+| 会員ID | MEMBER_ID | `MEMBER-123456`, `会員ID: M-555` |
+| 患者ID | PATIENT_ID | `PATIENT-12345`, `患者ID: P-77` |
+| 製品コード / SKU | SKU | `SKU-ABC-123`, `商品コード: X-77` |
+| 血液型 | BLOOD_TYPE | `AB型`, `A型` |
+| 年収 / 月収 | ANNUAL_INCOME | `年収1200万円`, `月収 40 万円` |
+| 特許番号 | PATENT_NUMBER | `特許2024-123456`, `JP 1234567` |
+| 資産番号 | ASSET_NUMBER | `ASSET-12345`, `資産番号: FA-999` |
+| ライセンス番号 | LICENSE_NUMBER | `LIC-ABC-2024` |
+
+これらも `enable_preset_patterns=false` で一括無効化、または `disabled_pattern_categories` で個別に無効化できます。プリセットは 漏洩傾向のある新カテゴリが判明するたびに **順次拡張** していく前提で作られています — 正規表現の誤検知は `disabled_pattern_categories` もしくはブラウザ拡張のレビューモーダルで個別に解除してください。
+
+### 集約 (aggregated) エンドポイント
+
+`POST /v1/extension/sanitize/aggregated` — 同じテキストが複数回出現する場合、サイドバー UI 側で `田中太郎 (2件)` のように 1 行で表示できるように集約されたレスポンスを返します。オリジナルの `POST /v1/extension/sanitize` は後方互換のため従来通り per-detection 形式で返します。
+
+レスポンス例:
+
+```json
+{
+  "original_text": "リーク情報: 田中太郎の年収1200万円。",
+  "aggregated": [
+    {
+      "value": "田中太郎",
+      "label": "PROPER_NOUN_PERSON",
+      "category": "PERSON",
+      "count": 1,
+      "positions": [[6, 10]],
+      "masked": true
+    }
+  ],
+  "audit_id": "...",
+  "force_masked_categories": ["PERSON", "ORGANIZATION", "FINANCIAL"]
+}
+```
+
+`force_masked_categories` は `RuntimeConfig.force_mask_keywords` (既定: `["リーク","未公開","機密","confidential","leak"]`) が原文内に名詞として現れた (Sudachi POS 判定) 場合にロックされる大分類名の配列です。
+
 ## ディレクトリ構成
 
 ```text

@@ -120,6 +120,31 @@ class RuntimeConfig(BaseModel):
     #: machine-learned disambiguator — see the analyzer docstring for
     #: the explicit hardcoded set and its rationale.
     prefer_surname_for_ambiguous: bool = False
+    #: Force-mask trigger keywords (Milestone 8 Wave A). When any of
+    #: these keywords appears in the input AS A NOUN (per Sudachi POS
+    #: on Japanese input, case-insensitive substring match for ASCII
+    #: keywords), every :class:`AggregatedEntity` whose ``category`` is
+    #: in :attr:`force_mask_categories` gets ``masked=True`` regardless
+    #: of the user's allow-list or per-entity toggle. Empty list
+    #: disables the feature.
+    force_mask_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "リーク",
+            "未公開",
+            "機密",
+            "confidential",
+            "leak",
+        ]
+    )
+    #: Big categories to force-mask when a keyword fires. Names are the
+    #: display-level categories from :mod:`app.services.category_map`
+    #: (``PERSON`` / ``ORGANIZATION`` / ``FINANCIAL`` / ``CREDENTIAL``
+    #: etc.). Non-existent category names are silently ignored so a
+    #: typo here cannot break the sanitize path; the trigger just
+    #: becomes a no-op.
+    force_mask_categories: list[str] = Field(
+        default_factory=lambda: ["PERSON", "ORGANIZATION", "FINANCIAL"]
+    )
     default_provider_id: str = "openai"
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 
@@ -254,3 +279,67 @@ class ExtensionSanitizeResponse(BaseModel):
     #:   a future fallback mode starts emitting it.
     action: Literal["masked", "no_change", "failed"]
     audit_id: str
+
+
+class AggregatedEntity(BaseModel):
+    """One entry per unique masked surface.
+
+    The UI-facing aggregated endpoint collapses multiple occurrences of
+    the same surface text into a single entry so the sidebar can show
+    ``田中太郎 (2件)`` as one row instead of listing each occurrence.
+
+    ``label`` is the analyzer-level entity type (e.g.
+    ``"PROPER_NOUN_PERSON"``); ``category`` is the big bucket the UI
+    groups by (``"PERSON"``). ``positions`` enumerates all the
+    ``(start, end)`` character spans the surface occupied in the
+    original text — the frontend uses these to build the final
+    replacement. ``masked`` defaults to ``True`` and flips to ``False``
+    when the UI lets the user opt a surface out of masking; it is also
+    forced back to ``True`` by the ``force_mask_keywords`` trigger.
+    """
+
+    #: Surface text of the detection, verbatim from the original input.
+    value: str
+    #: Analyzer-level entity label (``PROPER_NOUN_PERSON`` / ``EMAIL_ADDRESS``
+    #: / ``MONETARY_AMOUNT`` …). When a surface was flagged by multiple
+    #: analyzers under different labels the lowest-``start`` label wins
+    #: (first occurrence precedence — see :func:`aggregate_detections`).
+    label: str
+    #: Display-level big category resolved via :mod:`app.services.category_map`.
+    category: str
+    #: Total number of occurrences of ``value`` that the analyzers
+    #: flagged in the original text. Equal to ``len(positions)``.
+    count: int
+    #: List of ``(start, end)`` character offsets for every occurrence.
+    positions: list[tuple[int, int]]
+    #: Whether the gateway plans to mask this entity when substituting
+    #: text back into the outbound request. The UI toggles it off when
+    #: the user wants to let a surface through, and the
+    #: ``force_mask_keywords`` trigger forces it back on.
+    masked: bool = True
+
+
+class AggregatedExtensionResponse(BaseModel):
+    """Response shape returned by the aggregated extension endpoint.
+
+    Sits alongside :class:`ExtensionSanitizeResponse` (the original
+    per-detection shape is preserved for backward compatibility) and
+    is returned by ``POST /v1/extension/sanitize/aggregated``. The
+    frontend uses ``aggregated`` to render the per-surface control
+    list; ``force_masked_categories`` tells the sidebar which big
+    categories were locked to masked=True by a keyword trigger so it
+    can show a "locked" icon next to them.
+    """
+
+    #: Echo of the input text so the sidebar can render it alongside
+    #: the controls without having to keep its own local copy.
+    original_text: str
+    #: Per-unique-surface aggregation list.
+    aggregated: list[AggregatedEntity]
+    #: Audit record UUID written by ``MaskingService``; kept stable
+    #: across all three extension endpoints so operators can correlate.
+    audit_id: str
+    #: Big-category names forced to ``masked=True`` by the
+    #: ``force_mask_keywords`` trigger. Empty list when no keyword
+    #: fired.
+    force_masked_categories: list[str]

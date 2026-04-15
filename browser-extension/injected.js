@@ -364,16 +364,20 @@
     },
   };
 
-  // manus.im uses several paths: /api/*, /v1/*, /app/*/chat, plus
-  // generic RPC endpoints. We match manus.im + any of those, plus
-  // the common payload shapes below (input / prompt / messages /
-  // content / query / text). If manus.im changes its URL scheme the
-  // debug log in the fetch hook will surface it.
+  // Manus is operated by Butterfly Effect Inc.; its backend APIs are
+  // served from *.butterfly-effect.dev, not only from manus.im. The
+  // user-facing page at manus.im fetches chat/session endpoints from
+  // butterfly-effect.dev, so a ``manus.im``-only matcher never fires.
+  // Match either host, then gate on a common API path keyword to keep
+  // out static assets and telemetry.
   const manusAdapter = {
     name: "manus",
     match: (url) =>
-      /manus\.im/.test(url) &&
-      /(\/api\/|\/v1\/|\/chat\/|\/message|\/task|\/session|\/rpc|\/submit|\/send|\/completion)/i.test(
+      /(manus\.im|butterfly-effect\.dev)/i.test(url) &&
+      !/(sentry|amplitude|analytics|telemetry|segment\.io|datadog|newrelic)/i.test(
+        url
+      ) &&
+      /(\/api\/|\/v1\/|\/chat\/|\/message|\/task|\/session|\/rpc|\/submit|\/send|\/completion|\/agent|\/conversation)/i.test(
         url
       ),
     extractInputs(body) {
@@ -673,7 +677,7 @@
       // through our POST+JSON path. Third-party hosts (amplitude etc.)
       // are excluded so the console isn't drowned in telemetry.
       const PROVIDER_RE =
-        /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im)/i;
+        /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i;
       try {
         const host = new URL(url, location.href).host;
         if (PROVIDER_RE.test(host)) {
@@ -757,7 +761,7 @@
       try {
         const host = new URL(url, location.href).host;
         if (
-          /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im)/i.test(
+          /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i.test(
             host
           )
         ) {

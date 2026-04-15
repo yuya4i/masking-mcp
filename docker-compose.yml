@@ -31,9 +31,15 @@ services:
     container_name: mask-mcp-gateway
     restart: unless-stopped
 
-    # Bind loopback only — this gateway is designed for local use.
+    # Bind on all interfaces (0.0.0.0) so WSL2's localhost forwarding
+    # can expose the gateway to Chrome on the Windows host. Pure-Linux
+    # / macOS users can still reach it via 127.0.0.1:8081 thanks to
+    # normal loopback — WSL2 is the only environment that requires the
+    # broader bind because its 127.0.0.1 is not the same as Windows's.
+    # The gateway itself is still safe: it holds no API keys (pure MITM
+    # passthrough) and the only privileged endpoints require ADMIN_TOKEN.
     ports:
-      - "127.0.0.1:8081:8081"
+      - "8081:8081"
 
     # .env is optional. Only used when present (e.g. to pin ADMIN_TOKEN
     # or tweak runtime flags). Compose 2.24+ treats a missing file as

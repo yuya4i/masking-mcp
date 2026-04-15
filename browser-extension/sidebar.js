@@ -585,6 +585,14 @@
       masked: entity.masked !== false, // default true
       locked: false, // set by show() after force_masked_categories is read
       severity: normaliseSeverity(entity.severity),
+      // Gateway-computed ``<ENTITY_TYPE_N>`` placeholder so the row
+      // preview shows the exact token the AI service will see.
+      // Falls back to ``<LABEL>`` (unnumbered) when the server did
+      // not emit one, e.g. if the extension is talking to an older
+      // gateway build.
+      placeholder: typeof entity.placeholder === "string" && entity.placeholder
+        ? entity.placeholder
+        : `<${String(entity.label || "MASKED")}>`,
     };
   }
 

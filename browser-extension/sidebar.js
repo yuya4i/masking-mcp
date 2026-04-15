@@ -329,22 +329,46 @@
     .category.is-collapsed .rows {
       display: none;
     }
+    /* --- New 2-line row layout ---------------------------------------
+       Line 1:  🔑 value → <PLACEHOLDER>
+       Line 2:  N件 · [SEVERITY] · 🔒長押しで解除 (critical only)
+       The whole row (``.row``) is the interactive surface for critical
+       items so long-press fires wherever the user presses — no tiny
+       SVG target to hunt for. An absolute-positioned fill (``.lp-fill``)
+       animates left→right across the full row width during the hold.
+    */
     .row {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 8px 12px 8px 30px;
+      display: block;
+      position: relative;
+      padding: 10px 14px 10px 18px;
       border-bottom: 1px solid var(--border);
       border-left: 4px solid var(--sev-low);
       font-size: 13px;
       transition: background-color 0.18s ease-out, box-shadow 0.18s ease-out;
+      overflow: hidden;
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
     }
-    .row.sev-critical { border-left-color: var(--sev-critical); }
+    .row.sev-critical {
+      border-left-color: var(--sev-critical);
+      background: var(--sev-critical-bg);
+      /* touch-action: none on critical so long-press gesture is not
+         hijacked by browser scrolling on mobile. */
+      touch-action: none;
+    }
     .row.sev-high     { border-left-color: var(--sev-high); }
     .row.sev-medium   { border-left-color: var(--sev-medium); }
     .row.sev-low      { border-left-color: var(--sev-low); }
+    .row.is-unmasked { opacity: 0.55; background: #fafafa; }
+    .row.sev-critical.is-unmasked { opacity: 0.7; background: #fff7ed; }
     .row.long-press-pulse {
-      box-shadow: inset 4px 0 0 var(--sev-critical-bg);
+      animation: lp-pulse 0.45s ease-out;
+    }
+    @keyframes lp-pulse {
+      0%   { box-shadow: inset 0 0 0 0 var(--sev-critical); }
+      30%  { box-shadow: inset 0 0 0 4px var(--sev-critical); }
+      100% { box-shadow: inset 0 0 0 0 var(--sev-critical); }
     }
     .category.is-locked .row {
       border-bottom-color: #fecaca;
@@ -355,127 +379,105 @@
     .row:hover {
       background: var(--row-bg-hover);
     }
+    .row.sev-critical:hover {
+      background: #fecaca;
+    }
     .category.is-locked .row:hover {
       background: #fee2e2;
     }
-    .row-checkbox {
-      width: 16px;
-      height: 16px;
+    /* Long-press progress fill — sits behind the row text, animates
+       its ``width`` from 0 → 100% over 800ms while the user holds. */
+    .row .lp-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 0%;
+      background: rgba(220, 38, 38, 0.22);
+      pointer-events: none;
+      transition: width 0.05s linear;
+      z-index: 0;
+    }
+    .row .row-line1,
+    .row .row-line2 {
+      position: relative;
+      z-index: 1;
+    }
+    .row-line1 {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .row-icon {
       flex: 0 0 auto;
-      margin-top: 2px;
-      accent-color: var(--primary);
-      cursor: pointer;
-    }
-    .row-checkbox:disabled {
-      cursor: not-allowed;
-      opacity: 0.55;
-    }
-    .row-meta {
-      flex: 1 1 auto;
-      min-width: 0;
+      font-size: 14px;
+      line-height: 1;
     }
     .row-value {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
         "Liberation Mono", monospace;
-      font-size: 12px;
+      font-size: 12.5px;
       background: var(--bg);
-      padding: 1px 5px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      word-break: break-all;
+      font-weight: 600;
+    }
+    .row.sev-critical .row-value {
+      background: #fff;
+      color: var(--sev-critical);
+    }
+    .row-arrow {
+      flex: 0 0 auto;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+    .row-placeholder {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
+        "Liberation Mono", monospace;
+      font-size: 12px;
+      color: var(--primary);
+      background: #eef2ff;
+      padding: 2px 6px;
       border-radius: 4px;
       word-break: break-all;
     }
-    .category.is-locked .row-value {
-      background: #fff;
-    }
-    .row-count {
+    .row-line2 {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 4px;
       font-size: 11px;
       color: var(--text-muted);
-      margin-left: 6px;
     }
-    .row-label {
-      display: inline-block;
-      font-size: 10px;
-      color: var(--text-muted);
-      margin-left: 6px;
-      padding: 1px 5px;
-      border-radius: 3px;
-      border: 1px solid var(--border);
-      background: #fff;
-    }
+    .row-count { font-variant-numeric: tabular-nums; }
     .sev-pill {
       display: inline-block;
-      font-size: 9.5px;
+      font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.5px;
-      margin-left: 6px;
-      padding: 1px 6px;
+      letter-spacing: 0.4px;
+      padding: 1px 7px;
       border-radius: 8px;
       text-transform: uppercase;
-      vertical-align: middle;
-      line-height: 1.4;
     }
     .sev-pill.sev-critical { background: var(--sev-critical-bg); color: var(--sev-critical); border: 1px solid var(--sev-critical); }
     .sev-pill.sev-high     { background: var(--sev-high-bg);     color: var(--sev-high);     border: 1px solid var(--sev-high); }
     .sev-pill.sev-medium   { background: var(--sev-medium-bg);   color: #a16207;             border: 1px solid var(--sev-medium); }
     .sev-pill.sev-low      { background: var(--sev-low-bg);      color: var(--sev-low);      border: 1px solid var(--sev-low); }
     .row-lock {
-      font-size: 11px;
       color: var(--danger);
-      margin-left: 6px;
+      font-weight: 600;
     }
-    /* --- Long-press control for critical rows ------------------------- */
-    .longpress {
-      width: 20px;
-      height: 20px;
-      flex: 0 0 auto;
-      margin-top: 1px;
-      position: relative;
-      cursor: pointer;
-      user-select: none;
-      touch-action: none;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .longpress .lp-ring {
+    /* Hide the built-in checkbox: we drive state from the row itself.
+       The checkbox still exists in the DOM for keyboard accessibility
+       (it receives focus via Tab) but is visually suppressed. */
+    .row-checkbox {
       position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      transform: rotate(-90deg);
-    }
-    .longpress .lp-track {
-      fill: none;
-      stroke: var(--sev-critical);
-      stroke-width: 2;
-      opacity: 0.25;
-    }
-    .longpress .lp-progress {
-      fill: none;
-      stroke: var(--sev-critical);
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-dasharray: 56.548; /* 2 * pi * 9  */
-      stroke-dashoffset: 56.548;
-      transition: stroke-dashoffset 0.05s linear;
-    }
-    .longpress.is-on .lp-core {
-      fill: var(--sev-critical);
-    }
-    .longpress .lp-core {
-      fill: #ffffff;
-      stroke: var(--sev-critical);
-      stroke-width: 1.2;
-    }
-    .longpress.is-locked {
-      cursor: not-allowed;
-      opacity: 0.7;
-    }
-    .longpress .lp-lock {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      color: var(--sev-critical);
+      opacity: 0;
+      pointer-events: none;
+      width: 1px;
+      height: 1px;
     }
     .preview-section {
       margin-top: 14px;
@@ -583,157 +585,6 @@
       masked: entity.masked !== false, // default true
       locked: false, // set by show() after force_masked_categories is read
       severity: normaliseSeverity(entity.severity),
-    };
-  }
-
-  // Build a SVG long-press control and wire ``pointer*`` events so
-  // the caller's ``onToggle`` only fires when the user holds the
-  // control for 800 ms. Uses ``stroke-dashoffset`` animation on a
-  // circular SVG track; fully self-contained inside the Shadow DOM.
-  //
-  // ``locked`` replaces the control with a non-interactive lock
-  // glyph — used when a critical row is ALSO force-masked.
-  const LONG_PRESS_MS = 800;
-  const LONG_PRESS_TICK_MS = 50;
-  const LP_RING_CIRCUMFERENCE = 56.548; // 2π·9, matches the CSS dash length
-  function buildLongPressControl({ initial, locked, onToggle, row }) {
-    const wrap = document.createElement("div");
-    wrap.className = "longpress";
-    wrap.setAttribute("role", "switch");
-    wrap.setAttribute("tabindex", "0");
-    wrap.setAttribute("aria-checked", initial ? "true" : "false");
-    wrap.setAttribute("aria-label", `${row.value} を長押しで切り替え`);
-    wrap.title = locked
-      ? "force-mask: ロック中 (解除不可)"
-      : "長押し (800ms) で解除";
-    if (initial) wrap.classList.add("is-on");
-
-    if (locked) {
-      wrap.classList.add("is-locked");
-      const lock = document.createElement("span");
-      lock.className = "lp-lock";
-      lock.textContent = "\ud83d\udd12"; // 🔒
-      wrap.appendChild(lock);
-      return { element: wrap, isOn: () => true, setOn: () => {} };
-    }
-
-    const svgNS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(svgNS, "svg");
-    svg.setAttribute("viewBox", "0 0 20 20");
-    svg.setAttribute("class", "lp-ring");
-
-    const track = document.createElementNS(svgNS, "circle");
-    track.setAttribute("cx", "10");
-    track.setAttribute("cy", "10");
-    track.setAttribute("r", "9");
-    track.setAttribute("class", "lp-track");
-
-    const progress = document.createElementNS(svgNS, "circle");
-    progress.setAttribute("cx", "10");
-    progress.setAttribute("cy", "10");
-    progress.setAttribute("r", "9");
-    progress.setAttribute("class", "lp-progress");
-
-    const core = document.createElementNS(svgNS, "circle");
-    core.setAttribute("cx", "10");
-    core.setAttribute("cy", "10");
-    core.setAttribute("r", "4");
-    core.setAttribute("class", "lp-core");
-
-    svg.appendChild(track);
-    svg.appendChild(progress);
-    svg.appendChild(core);
-    wrap.appendChild(svg);
-
-    let timerId = null;
-    let tickId = null;
-    let startedAt = 0;
-
-    function resetRing() {
-      progress.style.strokeDashoffset = String(LP_RING_CIRCUMFERENCE);
-    }
-
-    function commit() {
-      const next = !wrap.classList.contains("is-on");
-      wrap.classList.toggle("is-on", next);
-      wrap.setAttribute("aria-checked", next ? "true" : "false");
-      wrap.classList.add("long-press-pulse");
-      setTimeout(() => wrap.classList.remove("long-press-pulse"), 200);
-      onToggle(next);
-    }
-
-    function clearTimers() {
-      if (timerId !== null) {
-        clearTimeout(timerId);
-        timerId = null;
-      }
-      if (tickId !== null) {
-        clearInterval(tickId);
-        tickId = null;
-      }
-    }
-
-    function onDown(event) {
-      event.preventDefault();
-      event.stopPropagation();
-      if (timerId !== null) return;
-      startedAt = Date.now();
-      resetRing();
-      try {
-        wrap.setPointerCapture(event.pointerId);
-      } catch (_) {
-        /* Some older WebViews throw on setPointerCapture for
-           synthesised pointer events; non-fatal — the fill animation
-           simply cannot follow a finger that slides off. */
-      }
-      tickId = setInterval(() => {
-        const elapsed = Math.min(LONG_PRESS_MS, Date.now() - startedAt);
-        const remaining = LP_RING_CIRCUMFERENCE * (1 - elapsed / LONG_PRESS_MS);
-        progress.style.strokeDashoffset = String(Math.max(0, remaining));
-      }, LONG_PRESS_TICK_MS);
-      timerId = setTimeout(() => {
-        clearTimers();
-        progress.style.strokeDashoffset = "0";
-        commit();
-        // Reset the ring after the pulse animation so the user can
-        // press again to toggle back.
-        setTimeout(resetRing, 250);
-      }, LONG_PRESS_MS);
-    }
-
-    function onUp() {
-      clearTimers();
-      resetRing();
-    }
-
-    wrap.addEventListener("pointerdown", onDown);
-    wrap.addEventListener("pointerup", onUp);
-    wrap.addEventListener("pointercancel", onUp);
-    wrap.addEventListener("pointerleave", onUp);
-    // Keyboard: hold Space / Enter for 800 ms. We reuse the same
-    // pointer machinery so the ring animates identically.
-    wrap.addEventListener("keydown", (event) => {
-      if (event.key === " " || event.key === "Enter") {
-        event.preventDefault();
-        if (timerId !== null) return;
-        onDown({ pointerId: -1, preventDefault() {}, stopPropagation() {} });
-      }
-    });
-    wrap.addEventListener("keyup", (event) => {
-      if (event.key === " " || event.key === "Enter") {
-        event.preventDefault();
-        onUp();
-      }
-    });
-
-    return {
-      element: wrap,
-      isOn: () => wrap.classList.contains("is-on"),
-      setOn: (next) => {
-        wrap.classList.toggle("is-on", !!next);
-        wrap.setAttribute("aria-checked", next ? "true" : "false");
-        resetRing();
-      },
     };
   }
 
@@ -1000,110 +851,223 @@
 
       function renderRow(row) {
         const id = `mcp-sb-${row.key.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-        // For critical rows we use a custom long-press control, so
-        // the outer node is a plain <div>; the built-in ``<label>``
-        // click-to-toggle behaviour would bypass the 800 ms guard.
         const isCritical = row.severity === "critical";
-        const wrap = document.createElement(isCritical ? "div" : "label");
-        wrap.className = `row sev-${row.severity}`;
-        if (!isCritical) wrap.setAttribute("for", id);
 
-        let control; // { element, isOn(), setOn() } — must expose these three
+        // New layout: every row is a ``<div>`` with the whole surface
+        // being the interactive target. Critical rows attach a long-
+        // press gesture handler to the div itself (not to a tiny SVG
+        // ring) so the user can press anywhere on the row. Non-critical
+        // rows toggle on a single click/tap.
+        const wrap = document.createElement("div");
+        wrap.className = `row sev-${row.severity}${row.masked ? "" : " is-unmasked"}`;
+        wrap.setAttribute("role", "switch");
+        wrap.setAttribute("tabindex", "0");
+        wrap.setAttribute("aria-checked", row.masked ? "true" : "false");
+        wrap.setAttribute(
+          "aria-label",
+          `${row.value} を${isCritical ? "長押しで" : "クリックで"}切り替え`
+        );
 
-        if (isCritical) {
-          const lp = buildLongPressControl({
-            initial: row.masked,
-            locked: row.locked,
-            row,
-            onToggle: (next) => {
-              if (row.locked) return;
-              row.masked = !!next;
-              syncCategoryToggle(row.category);
-              updatePreview();
-            },
-          });
-          control = lp;
-          wrap.appendChild(lp.element);
-        } else {
-          const checkbox = document.createElement("input");
-          checkbox.type = "checkbox";
-          checkbox.className = "row-checkbox";
-          checkbox.id = id;
-          checkbox.checked = row.masked;
-          checkbox.dataset.rowKey = row.key;
-          if (row.locked) {
-            checkbox.disabled = true;
-            checkbox.checked = true;
-          }
+        // Hidden checkbox — kept in the DOM so Tab focus + aria state
+        // map cleanly, and so the rest of the sidebar's bulk-action
+        // code can still address it via ``rowControls.checkbox``.
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "row-checkbox";
+        checkbox.id = id;
+        checkbox.checked = row.masked;
+        checkbox.dataset.rowKey = row.key;
+        if (row.locked) {
+          checkbox.disabled = true;
+          checkbox.checked = true;
+        }
+        wrap.appendChild(checkbox);
 
-          checkbox.addEventListener("change", () => {
-            if (row.locked) {
-              checkbox.checked = true;
-              row.masked = true;
-              return;
-            }
-            row.masked = !!checkbox.checked;
-            syncCategoryToggle(row.category);
-            updatePreview();
-          });
-
-          control = {
-            element: checkbox,
-            isOn: () => !!checkbox.checked,
-            setOn: (next) => {
-              checkbox.checked = !!next;
-            },
-          };
-          wrap.appendChild(checkbox);
+        // Long-press progress fill (critical only, absolute-positioned
+        // behind the text; width animates 0% → 100% during a hold).
+        let fill = null;
+        if (isCritical && !row.locked) {
+          fill = document.createElement("div");
+          fill.className = "lp-fill";
+          wrap.appendChild(fill);
         }
 
-        const meta = document.createElement("div");
-        meta.className = "row-meta";
+        // ----- Line 1: 🔑 value → <PLACEHOLDER> ------------------------
+        const line1 = document.createElement("div");
+        line1.className = "row-line1";
+
+        const icon = document.createElement("span");
+        icon.className = "row-icon";
+        icon.textContent = row.locked
+          ? "\ud83d\udd12"  // 🔒 force-masked
+          : isCritical
+            ? "\ud83d\udd11" // 🔑 critical
+            : "\ud83d\udd0d"; // 🔍 non-critical
+        line1.appendChild(icon);
 
         const value = document.createElement("span");
         value.className = "row-value";
         value.textContent = row.value;
+        line1.appendChild(value);
+
+        const arrow = document.createElement("span");
+        arrow.className = "row-arrow";
+        arrow.textContent = "\u2192"; // →
+        line1.appendChild(arrow);
+
+        const ph = document.createElement("span");
+        ph.className = "row-placeholder";
+        ph.textContent = row.placeholder || `<${row.label}>`;
+        line1.appendChild(ph);
+
+        // ----- Line 2: N件 · [SEV] · 🔒 長押しで解除 -------------------
+        const line2 = document.createElement("div");
+        line2.className = "row-line2";
 
         const count = document.createElement("span");
         count.className = "row-count";
-        count.textContent = `(${row.count}件)`;
+        count.textContent = `${row.count}件`;
+        line2.appendChild(count);
 
-        const labelTag = document.createElement("span");
-        labelTag.className = "row-label";
-        labelTag.textContent = row.label;
+        const dot1 = document.createElement("span");
+        dot1.textContent = "·";
+        line2.appendChild(dot1);
 
         const sevPill = document.createElement("span");
         sevPill.className = `sev-pill sev-${row.severity}`;
         sevPill.textContent = row.severity;
+        line2.appendChild(sevPill);
 
-        meta.appendChild(value);
-        meta.appendChild(count);
-        meta.appendChild(labelTag);
-        meta.appendChild(sevPill);
         if (isCritical) {
-          const lockHint = document.createElement("span");
-          lockHint.className = "row-lock";
-          lockHint.title = row.locked
-            ? "force-mask: ロック中 (解除不可)"
-            : "長押し (800ms) で解除";
-          lockHint.textContent = "\ud83d\udd12"; // 🔒
-          meta.appendChild(lockHint);
+          const dot2 = document.createElement("span");
+          dot2.textContent = "·";
+          line2.appendChild(dot2);
+          const hint = document.createElement("span");
+          hint.className = "row-lock";
+          hint.textContent = row.locked
+            ? "\ud83d\udd12 ロック中"
+            : "\ud83d\udd12 長押しで解除 (800ms)";
+          line2.appendChild(hint);
         } else if (row.locked) {
-          const lockIcon = document.createElement("span");
-          lockIcon.className = "row-lock";
-          lockIcon.title = "force-mask: ロック中";
-          lockIcon.textContent = "\ud83d\udd12"; // 🔒
-          meta.appendChild(lockIcon);
+          const dot2 = document.createElement("span");
+          dot2.textContent = "·";
+          line2.appendChild(dot2);
+          const lock = document.createElement("span");
+          lock.className = "row-lock";
+          lock.textContent = "\ud83d\udd12 ロック中";
+          line2.appendChild(lock);
         }
 
-        wrap.appendChild(meta);
-        // Expose a normalised control interface to the rest of the
-        // sidebar. ``checkbox`` alias keeps existing code paths (bulk
-        // actions, category toggle) working without branching on
-        // severity everywhere.
+        wrap.appendChild(line1);
+        wrap.appendChild(line2);
+
+        // ------ Interaction wiring ---------------------------------
+        const syncAria = () => {
+          wrap.setAttribute("aria-checked", row.masked ? "true" : "false");
+          wrap.classList.toggle("is-unmasked", !row.masked);
+        };
+
+        const setState = (next) => {
+          if (row.locked) return;
+          row.masked = !!next;
+          checkbox.checked = row.masked;
+          syncAria();
+          syncCategoryToggle(row.category);
+          updatePreview();
+        };
+
+        if (row.locked) {
+          // Locked by force_mask_categories: no interaction, stays masked.
+        } else if (!isCritical) {
+          // Single click anywhere on the row toggles.
+          wrap.addEventListener("click", () => setState(!row.masked));
+          wrap.addEventListener("keydown", (event) => {
+            if (event.key === " " || event.key === "Enter") {
+              event.preventDefault();
+              setState(!row.masked);
+            }
+          });
+        } else {
+          // Long-press: press anywhere on the row for 800ms. The fill
+          // overlay animates 0% → 100% width during the hold. Release
+          // before 800ms cancels; held to completion toggles.
+          let timerId = null;
+          let tickId = null;
+          let startedAt = 0;
+
+          const resetFill = () => {
+            if (!fill) return;
+            fill.style.transition = "width 0.2s ease-out";
+            fill.style.width = "0%";
+          };
+          const clearTimers = () => {
+            if (timerId !== null) { clearTimeout(timerId); timerId = null; }
+            if (tickId !== null) { clearInterval(tickId); tickId = null; }
+          };
+          const onDown = (event) => {
+            if (row.locked || timerId !== null) return;
+            if (event.preventDefault) event.preventDefault();
+            startedAt = Date.now();
+            if (fill) {
+              fill.style.transition = "width 0.05s linear";
+              fill.style.width = "0%";
+            }
+            try {
+              if (event.pointerId !== undefined) wrap.setPointerCapture(event.pointerId);
+            } catch (_) {
+              /* Safari / older WebViews may throw on setPointerCapture. */
+            }
+            tickId = setInterval(() => {
+              const elapsed = Math.min(800, Date.now() - startedAt);
+              if (fill) fill.style.width = `${(elapsed / 800) * 100}%`;
+            }, 50);
+            timerId = setTimeout(() => {
+              clearTimers();
+              if (fill) fill.style.width = "100%";
+              wrap.classList.add("long-press-pulse");
+              setTimeout(() => wrap.classList.remove("long-press-pulse"), 450);
+              setState(!row.masked);
+              setTimeout(resetFill, 350);
+            }, 800);
+          };
+          const onUp = () => {
+            clearTimers();
+            resetFill();
+          };
+          wrap.addEventListener("pointerdown", onDown);
+          wrap.addEventListener("pointerup", onUp);
+          wrap.addEventListener("pointercancel", onUp);
+          wrap.addEventListener("pointerleave", onUp);
+          // Keyboard: hold Space/Enter for 800ms.
+          let keyHeld = false;
+          wrap.addEventListener("keydown", (event) => {
+            if ((event.key === " " || event.key === "Enter") && !keyHeld) {
+              event.preventDefault();
+              keyHeld = true;
+              onDown({ pointerId: -1, preventDefault() {} });
+            }
+          });
+          wrap.addEventListener("keyup", (event) => {
+            if (event.key === " " || event.key === "Enter") {
+              event.preventDefault();
+              keyHeld = false;
+              onUp();
+            }
+          });
+        }
+
         rowControls.set(row.key, {
-          checkbox: control.element,
-          control,
+          checkbox,
+          control: {
+            element: wrap,
+            isOn: () => !!row.masked,
+            setOn: (next) => {
+              if (row.locked) return;
+              row.masked = !!next;
+              checkbox.checked = row.masked;
+              syncAria();
+            },
+          },
           row,
         });
         return wrap;

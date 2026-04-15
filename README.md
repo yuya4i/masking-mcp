@@ -531,6 +531,22 @@ make mcp    # MCP stdio サーバが起動 (Ctrl-C で停止)
 
 方法 1 (Base URL) が **全リクエストを自動的にマスク** するのに対し、MCP は **Claude がツールを呼ぶタイミングでだけマスク** される違いがあります。「必ずマスクしたい」なら方法 1、「必要なときだけマスクしたい」なら方法 2 が向いています。
 
+## ブラウザ拡張 (全生成AIサービス対応)
+
+Claude Code の `ANTHROPIC_BASE_URL` 経由のマスクは **Anthropic API を叩く Claude Code / SDK** に閉じています。Web 版 Claude.ai / ChatGPT / Gemini / Manus のチャット UI は SDK を介さず直接ブラウザから fetch を投げるため、`BASE_URL` ではカバーできません。そこで用意したのが `browser-extension/` の Chrome MV3 拡張です。
+
+| | `ANTHROPIC_BASE_URL` 方式 | ブラウザ拡張 方式 |
+|---|---|---|
+| 対象 | Claude Code / Anthropic SDK を使うプロセス | Web ブラウザの AI チャット UI |
+| カバー範囲 | Anthropic 1 プロバイダ | Claude.ai / ChatGPT / Gemini / Manus |
+| 動作原理 | HTTP プロキシ (MITM) | `window.fetch` / `XHR.send` の monkey-patch |
+| 認証 | 不要 (クライアントの API キーをパススルー) | なし (ループバック信頼モデル) |
+| 追加エンドポイント | 既存 `/proxy/*` | 新規 `POST /v1/extension/sanitize` |
+
+**インストール**: `make up` でゲートウェイを起動した後、`chrome://extensions` → Developer mode → Load unpacked → `browser-extension/` を選択するだけです。詳細手順・対応状況・既知の制約は [browser-extension/README.md](./browser-extension/README.md) を参照してください。
+
+拡張側からゲートウェイを叩く専用エンドポイントは `POST /v1/extension/sanitize` で、`admin_token` 不要の読み取り専用 (入力テキスト → マスク済みテキスト) として公開しています。監査ログには `request_type="extension"` として記録されるため、`data/audit.jsonl` をフィルタすれば拡張経由のトラフィックだけを抽出できます。
+
 ## テスト
 
 テストは Docker のビルドステージで走らせます。host に何もインストールする必要はありません。

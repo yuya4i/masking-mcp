@@ -174,6 +174,25 @@ class RuntimeConfig(BaseModel):
     force_mask_categories: list[str] = Field(
         default_factory=lambda: ["PERSON", "ORGANIZATION", "FINANCIAL"]
     )
+    #: Common-noun blocklist. Detections whose surface exactly matches
+    #: any entry here are dropped entirely before masking. Default list
+    #: covers generic Japanese business loanwords that Sudachi's
+    #: ``sudachidict_core`` occasionally tags as 固有名詞 (ex:
+    #: ``プロジェクト`` / ``メンバー``). Also protects the
+    #: KATAKANA_NAME heuristic from firing on bare generic terms.
+    #: Match is case-sensitive and exact; operators who want prefix
+    #: matching can add each variant explicitly.
+    common_noun_blocklist: list[str] = Field(
+        default_factory=lambda: [
+            "プロジェクト", "メンバー", "チーム", "マネージャー",
+            "リーダー", "ユーザー", "クライアント", "サーバー",
+            "システム", "データ", "ファイル", "フォルダ", "フォルダー",
+            "レポート", "ミーティング", "タスク", "チケット",
+            "スケジュール", "ドキュメント", "アカウント",
+            "パスワード", "メッセージ", "スタッフ", "カスタマー",
+            "オフィス", "ミーティングルーム",
+        ]
+    )
     #: Severity threshold below which the review UI defaults rows to
     #: unchecked (auto-allowed through). Typically ``"low"`` leaves all
     #: rows checked by default; setting to ``"medium"`` auto-un-checks

@@ -34,7 +34,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["injected.js", "review-modal.js"],
+      "resources": ["injected.js", "review-modal.js", "sidebar.js"],
       "matches": [
         "https://claude.ai/*",
         "https://*.claude.com/*",

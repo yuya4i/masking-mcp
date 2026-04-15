@@ -28,13 +28,16 @@
   const pending = new Map();
 
   // MAIN-world shared namespace used to hand data between
-  // ``review-modal.js`` and this script without postMessage overhead.
-  // ``settings`` is refreshed whenever content.js relays a new value
-  // (initial install + every chrome.storage change). Default to
-  // ``interactive: true`` so a lost message never silently
-  // demotes back to auto-mask.
+  // ``review-modal.js`` / ``sidebar.js`` and this script without
+  // postMessage overhead. ``settings`` is refreshed whenever
+  // content.js relays a new value (initial install + every
+  // chrome.storage change). Defaults:
+  //   * ``interactive: true``  — show review UI before sending.
+  //   * ``uiMode: "sidebar"``  — Milestone 8 Wave B default. Old users
+  //     who flip to "modal" in the popup get the legacy review-modal
+  //     experience.
   const NS = (window.__localMaskMCP = window.__localMaskMCP || {});
-  NS.settings = NS.settings || { interactive: true };
+  NS.settings = NS.settings || { interactive: true, uiMode: "sidebar" };
 
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
@@ -77,6 +80,17 @@
       payload: { text, service, source_url: sourceUrl },
     });
     if (!resp || resp.type !== "sanitize-result") return null;
+    return resp.result; // may be null on gateway failure
+  }
+
+  async function sanitizeAggregated(text, service, sourceUrl) {
+    // Sidebar mode (Milestone 8 Wave B) goes through the new
+    // ``/sanitize/aggregated`` endpoint. content.js distinguishes the
+    // two endpoints by the ``type`` field of the bridge message.
+    const resp = await request("sanitize-aggregated", {
+      payload: { text, service, source_url: sourceUrl },
+    });
+    if (!resp || resp.type !== "sanitize-aggregated-result") return null;
     return resp.result; // may be null on gateway failure
   }
 
@@ -325,6 +339,31 @@
     return out;
   }
 
+  // Sidebar variant: input is the flattened [start, end, label] list
+  // returned from sidebar.show(). Same back-to-front substitution
+  // contract; identical to ``sidebar.applyMasks`` — we keep a local
+  // copy here so injected.js never imports from the sidebar global
+  // (the sidebar may legitimately be missing if the user picked
+  // ``uiMode: "modal"`` and only review-modal.js was loaded).
+  function applyTriples(originalText, triples) {
+    if (!triples || triples.length === 0) return originalText;
+    const sorted = [...triples].sort((a, b) => b[0] - a[0]);
+    let out = originalText;
+    for (const [s, e, label] of sorted) {
+      if (
+        !Number.isInteger(s) ||
+        !Number.isInteger(e) ||
+        e <= s ||
+        s < 0 ||
+        e > out.length
+      ) {
+        continue;
+      }
+      out = out.slice(0, s) + `<${String(label || "MASKED")}>` + out.slice(e);
+    }
+    return out;
+  }
+
   async function processBody(adapter, bodyJson, url) {
     const inputs = adapter.extractInputs(bodyJson);
     if (!inputs.length) {
@@ -333,12 +372,55 @@
     LOG(`${adapter.name}: ${inputs.length} input string(s) to mask`);
 
     const interactive = NS.settings && NS.settings.interactive !== false;
+    const uiMode = (NS.settings && NS.settings.uiMode) || "sidebar";
+    const sidebar = NS.sidebar;
     const modal = NS.reviewModal;
+    // Dispatch policy:
+    //   * interactive off  → auto-mask via /sanitize, no UI.
+    //   * interactive on + uiMode "sidebar" + sidebar loaded
+    //                       → /sanitize/aggregated + sidebar.show().
+    //   * interactive on + uiMode "modal"  + modal loaded
+    //                       → /sanitize + reviewModal.show() (legacy).
+    //   * any other combo (UI helper missing) → fall back to auto-mask.
+    const useSidebar = interactive && uiMode === "sidebar" && !!sidebar;
+    const useModal = interactive && uiMode === "modal" && !!modal;
 
     const masked = [];
     let totalDetections = 0;
     let anyChanged = false;
     for (const text of inputs) {
+      if (useSidebar) {
+        const aggResp = await sanitizeAggregated(text, adapter.name, url);
+        if (!aggResp) {
+          if (!confirmSendUnmasked(adapter.name)) {
+            throw new Error("mask-mcp: user cancelled unmasked send");
+          }
+          masked.push(text);
+          continue;
+        }
+        const aggregated = Array.isArray(aggResp.aggregated)
+          ? aggResp.aggregated
+          : [];
+        if (aggregated.length === 0) {
+          // Nothing to review — forward verbatim. The aggregated
+          // endpoint does not return ``sanitized_text``; we just
+          // keep the original.
+          masked.push(text);
+          continue;
+        }
+        const decision = await sidebar.show(aggResp, text);
+        if (!decision.accepted) {
+          throw new Error("mask-mcp: user cancelled review");
+        }
+        const finalText = applyTriples(text, decision.maskedPositions);
+        if (finalText !== text) anyChanged = true;
+        masked.push(finalText);
+        totalDetections += decision.maskedPositions
+          ? decision.maskedPositions.length
+          : 0;
+        continue;
+      }
+
       const result = await sanitizeOnce(text, adapter.name, url);
       if (!result) {
         if (!confirmSendUnmasked(adapter.name)) {
@@ -352,7 +434,7 @@
         ? result.detections
         : [];
 
-      if (interactive && modal && detections.length > 0) {
+      if (useModal && detections.length > 0) {
         const decision = await modal.show(detections, text);
         if (!decision.accepted) {
           // Cancelled — abort the whole outbound request. The fetch
@@ -371,7 +453,7 @@
         continue;
       }
 
-      // Auto-mask path (interactive off, modal missing, or no
+      // Auto-mask path (interactive off, no UI helper loaded, or no
       // detections) — use the gateway-sanitised text as-is.
       if (result.sanitized_text !== text) anyChanged = true;
       masked.push(result.sanitized_text);

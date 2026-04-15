@@ -26,15 +26,18 @@
   const TAG_OUT = "mask-mcp-content"; // content → injected
 
   const GATEWAY_URL = "http://127.0.0.1:8081/v1/extension/sanitize";
+  const GATEWAY_AGGREGATED_URL =
+    "http://127.0.0.1:8081/v1/extension/sanitize/aggregated";
   const GATEWAY_TIMEOUT_MS = 3000;
 
   // 1) Inject the page-world scripts in order:
-  //    ``review-modal.js`` must run before ``injected.js`` so the
-  //    modal helper is already attached to
-  //    ``window.__localMaskMCP.reviewModal`` by the time the fetch
-  //    hook tries to call it. ``document_start`` runs before any
-  //    page script, so both hooks are installed before the first
-  //    fetch leaves the page.
+  //    ``review-modal.js`` and ``sidebar.js`` must run before
+  //    ``injected.js`` so the helper namespaces are already attached
+  //    to ``window.__localMaskMCP.{reviewModal,sidebar}`` by the time
+  //    the fetch hook tries to call them. ``document_start`` runs
+  //    before any page script, so all three hooks are installed before
+  //    the first fetch leaves the page. The ``async = false`` flag
+  //    preserves source order despite the dynamic insertion.
   function injectScript(file) {
     const el = document.createElement("script");
     el.src = chrome.runtime.getURL(file);
@@ -43,32 +46,44 @@
     el.addEventListener("load", () => el.remove());
   }
   injectScript("review-modal.js");
+  injectScript("sidebar.js");
   injectScript("injected.js");
 
-  // Push the current ``interactive`` preference into MAIN world as
-  // soon as we can. The injected script reads it off
+  // Push the current ``interactive`` + ``uiMode`` preferences into
+  // MAIN world as soon as we can. The injected script reads them off
   // ``window.__localMaskMCP.settings`` before every fetch, so a
   // toggle in the popup takes effect on the very next intercept.
+  // ``uiMode`` defaults to ``"sidebar"`` (Milestone 8 Wave B); the
+  // legacy modal experience is opt-in via the popup radio.
   async function broadcastSettings() {
     let interactive = true;
+    let uiMode = "sidebar";
     try {
-      const stored = await chrome.storage.local.get("interactive");
+      const stored = await chrome.storage.local.get(["interactive", "uiMode"]);
       interactive = stored.interactive !== false;
+      if (stored.uiMode === "modal" || stored.uiMode === "sidebar") {
+        uiMode = stored.uiMode;
+      }
     } catch (_) {
       interactive = true;
+      uiMode = "sidebar";
     }
     window.postMessage(
-      { source: TAG_OUT, type: "settings", settings: { interactive } },
+      {
+        source: TAG_OUT,
+        type: "settings",
+        settings: { interactive, uiMode },
+      },
       "*"
     );
   }
   broadcastSettings();
-  // Re-broadcast whenever the popup flips the toggle so open tabs
+  // Re-broadcast whenever the popup flips either toggle so open tabs
   // pick up the new setting without a reload.
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local") return;
-      if ("interactive" in changes) broadcastSettings();
+      if ("interactive" in changes || "uiMode" in changes) broadcastSettings();
     });
   } catch (_) {
     // ``chrome.storage`` is always available in an MV3 content
@@ -84,6 +99,8 @@
 
     if (data.type === "sanitize") {
       handleSanitize(data);
+    } else if (data.type === "sanitize-aggregated") {
+      handleSanitizeAggregated(data);
     } else if (data.type === "is-enabled") {
       handleIsEnabled(data);
     } else if (data.type === "detection-count") {
@@ -101,12 +118,37 @@
 
   async function handleSanitize(data) {
     const { id, payload } = data;
+    const responseBody = await callGateway(GATEWAY_URL, payload);
+    window.postMessage(
+      { source: TAG_OUT, id, type: "sanitize-result", result: responseBody },
+      "*"
+    );
+  }
+
+  async function handleSanitizeAggregated(data) {
+    const { id, payload } = data;
+    const responseBody = await callGateway(GATEWAY_AGGREGATED_URL, payload);
+    window.postMessage(
+      {
+        source: TAG_OUT,
+        id,
+        type: "sanitize-aggregated-result",
+        result: responseBody,
+      },
+      "*"
+    );
+  }
+
+  // Shared transport for the two sanitize endpoints. Identical
+  // request semantics; only the URL changes. Returns null on any
+  // failure so the caller can fall back to ``confirmSendUnmasked``.
+  async function callGateway(url, payload) {
     let responseBody = null;
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), GATEWAY_TIMEOUT_MS);
       try {
-        const resp = await fetch(GATEWAY_URL, {
+        const resp = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -117,18 +159,20 @@
         if (resp.ok) {
           responseBody = await resp.json();
         } else {
-          console.warn("[mask-mcp] gateway returned", resp.status);
+          console.warn("[mask-mcp] gateway returned", resp.status, "for", url);
         }
       } finally {
         clearTimeout(timer);
       }
     } catch (err) {
-      console.warn("[mask-mcp] gateway call failed:", err?.message || err);
+      console.warn(
+        "[mask-mcp] gateway call failed:",
+        err?.message || err,
+        "url:",
+        url
+      );
     }
-    window.postMessage(
-      { source: TAG_OUT, id, type: "sanitize-result", result: responseBody },
-      "*"
-    );
+    return responseBody;
   }
 
   async function handleIsEnabled(data) {

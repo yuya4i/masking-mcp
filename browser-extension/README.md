@@ -51,6 +51,59 @@ adapters; if you hit a missed case, the `console.debug` logs in
 devtools will show `[mask-mcp]` entries tagged with the adapter
 name — grep for those when reporting adapter bugs.
 
+## Interactive review mode
+
+Interactive mode is **ON by default**. Before an intercepted fetch
+leaves the browser, a Shadow-DOM-isolated panel shows every
+detection the gateway returned and lets you un-tick false
+positives. Press `Enter` (or click the primary button) to send the
+masked payload; press `Esc` (or the secondary button) to abort the
+request entirely.
+
+```
++---------------------------------------------------+
+| マスク対象の確認                                  |
+| 以下の項目がマスクされます…                       |
+|---------------------------------------------------|
+| [x] [EMAIL]    hogehoge@fugafuga.fizz  → <EMAIL>  |
+|     …連絡先 [hogehoge@fugafuga.fizz] まで…        |
+| [x] [PERSON]   タカハシユウヤ       → <PERSON>    |
+|     [タカハシユウヤ]と申します…                   |
+| [ ] [COMPANY]  プロジェクト        → <COMPANY>    |
+|     …開発中の[プロジェクト]名は…                  |
+|---------------------------------------------------|
+|       [キャンセル (Esc)]  [マスクして送信 (Enter)]|
++---------------------------------------------------+
+```
+
+The modal attaches to `document.body` via a throwaway `<div>` with
+`attachShadow({mode: 'open'})` and `z-index: 2147483647`, so the
+host page's DOM and CSS are unaffected. When dismissed the overlay
+is removed completely.
+
+Toggle interactive mode from the popup:
+
+- **Masking enabled** — master on/off (same as before).
+- **送信前に確認する (インタラクティブ・モード)** — when off the
+  modal is skipped and the gateway-sanitised payload is sent
+  automatically (Phase 1 behaviour).
+
+Colour-coded badges per entity category:
+
+| Colour | Categories |
+|---|---|
+| red | API_KEY, SECRET, EMAIL_ADDRESS, CREDIT_CARD, MY_NUMBER, PASSPORT, DRIVERS_LICENSE, BANK_ACCOUNT, DB_CONNECTION, PHONE_NUMBER |
+| orange | PERSON, PROPER_NOUN*, KATAKANA_NAME |
+| blue | LOCATION, PROPER_NOUN_LOCATION, PROPER_NOUN_ORG, ADDRESS, COMPANY |
+| grey | anything else (future analyzer entity types) |
+
+Keyboard:
+
+- `Enter` — confirm with the currently-ticked selection
+- `Esc` — cancel, abort the send
+- `Tab` / `Shift-Tab` — cycle focus through checkboxes + buttons
+- `Space` — toggle the focused checkbox
+
 ## Known limitations
 
 - Non-JSON request bodies (FormData, multipart) are passed through
@@ -77,8 +130,9 @@ browser-extension/
   manifest.json      MV3 manifest (host_permissions, scripts, icons)
   content.js         Isolated-world bridge (chrome.* access + postMessage relay)
   injected.js        Main-world fetch/XHR hooks + per-service adapters
-  background.js      Service worker — badge + per-tab counts
-  popup.html/css/js  Toolbar popup (enabled toggle, gateway health, count)
+  review-modal.js    Main-world Shadow-DOM modal for per-detection review
+  background.js      Service worker — badge + per-tab counts + storage seed
+  popup.html/css/js  Toolbar popup (enabled toggle, interactive toggle, gateway health, count)
   icons/             16/48/128 px RGBA PNGs (generated from scripts/)
   scripts/
     generate-icons.py Regenerate icons inside local-mask-mcp:latest container

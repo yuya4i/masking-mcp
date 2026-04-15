@@ -58,6 +58,18 @@ async function saveEnabled(value) {
   await chrome.storage.local.set({ enabled: value });
 }
 
+async function loadInteractive() {
+  // Default is ON — the user explicitly requested interactive mode
+  // as the headline UX, and the content script falls back to the
+  // same default if the key is missing.
+  const { interactive = true } = await chrome.storage.local.get("interactive");
+  $("interactive-toggle").checked = interactive;
+}
+
+async function saveInteractive(value) {
+  await chrome.storage.local.set({ interactive: value });
+}
+
 async function loadDetectionCount() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) {
@@ -79,10 +91,14 @@ async function loadDetectionCount() {
 
 document.addEventListener("DOMContentLoaded", () => {
   loadEnabled();
+  loadInteractive();
   probeGateway();
   loadDetectionCount();
 
   $("enabled-toggle").addEventListener("change", (e) => {
     saveEnabled(e.target.checked);
+  });
+  $("interactive-toggle").addEventListener("change", (e) => {
+    saveInteractive(e.target.checked);
   });
 });

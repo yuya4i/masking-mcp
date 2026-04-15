@@ -27,10 +27,29 @@
   let sequence = 0;
   const pending = new Map();
 
+  // MAIN-world shared namespace used to hand data between
+  // ``review-modal.js`` and this script without postMessage overhead.
+  // ``settings`` is refreshed whenever content.js relays a new value
+  // (initial install + every chrome.storage change). Default to
+  // ``interactive: true`` so a lost message never silently
+  // demotes back to auto-mask.
+  const NS = (window.__localMaskMCP = window.__localMaskMCP || {});
+  NS.settings = NS.settings || { interactive: true };
+
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (!data || data.source !== TAG_OUT || typeof data.id !== "string") return;
+    if (!data || data.source !== TAG_OUT) return;
+    // Settings broadcasts are a special "no id" message carrying the
+    // latest ``interactive`` flag from chrome.storage.local.
+    if (data.type === "settings" && data.settings) {
+      NS.settings = {
+        ...NS.settings,
+        ...data.settings,
+      };
+      return;
+    }
+    if (typeof data.id !== "string") return;
     const entry = pending.get(data.id);
     if (!entry) return;
     pending.delete(data.id);
@@ -281,12 +300,40 @@
     }
   }
 
+  // Apply the subset of gateway detections that the user kept
+  // checked in the review modal. We always use the ``tag`` strategy
+  // (``<ENTITY_TYPE>``) because that's what the gateway does by
+  // default and replicating partial/hash client-side is out of
+  // scope for Phase 1. Replacements walk end → start so earlier
+  // offsets stay valid during the rewrite.
+  function applyTagSubstitutions(originalText, detections, keptIds) {
+    if (!keptIds || keptIds.size === 0) return originalText;
+    const kept = detections
+      .map((d, idx) => ({ ...d, __idx: idx }))
+      .filter((d) => keptIds.has(d.__idx))
+      .filter(
+        (d) =>
+          Number.isInteger(d.start) &&
+          Number.isInteger(d.end) &&
+          d.end > d.start
+      )
+      .sort((a, b) => b.start - a.start);
+    let out = originalText;
+    for (const d of kept) {
+      out = out.slice(0, d.start) + `<${d.entity_type}>` + out.slice(d.end);
+    }
+    return out;
+  }
+
   async function processBody(adapter, bodyJson, url) {
     const inputs = adapter.extractInputs(bodyJson);
     if (!inputs.length) {
       return { changed: false, body: bodyJson };
     }
     LOG(`${adapter.name}: ${inputs.length} input string(s) to mask`);
+
+    const interactive = NS.settings && NS.settings.interactive !== false;
+    const modal = NS.reviewModal;
 
     const masked = [];
     let totalDetections = 0;
@@ -300,11 +347,35 @@
         masked.push(text);
         continue;
       }
+
+      const detections = Array.isArray(result.detections)
+        ? result.detections
+        : [];
+
+      if (interactive && modal && detections.length > 0) {
+        const decision = await modal.show(detections, text);
+        if (!decision.accepted) {
+          // Cancelled — abort the whole outbound request. The fetch
+          // hook translates this exception into a rejected Promise
+          // so the page's send logic sees a normal network error.
+          throw new Error("mask-mcp: user cancelled review");
+        }
+        const finalText = applyTagSubstitutions(
+          text,
+          detections,
+          decision.maskedDetectionIds
+        );
+        if (finalText !== text) anyChanged = true;
+        masked.push(finalText);
+        totalDetections += decision.maskedDetectionIds.size;
+        continue;
+      }
+
+      // Auto-mask path (interactive off, modal missing, or no
+      // detections) — use the gateway-sanitised text as-is.
       if (result.sanitized_text !== text) anyChanged = true;
       masked.push(result.sanitized_text);
-      totalDetections += Array.isArray(result.detections)
-        ? result.detections.length
-        : 0;
+      totalDetections += detections.length;
     }
 
     reportDetectionCount(totalDetections);
@@ -362,8 +433,12 @@
       LOG(`${adapter.name}: substituted masked body`);
       return originalFetch(input, nextInit);
     } catch (err) {
-      if (err && err.message && err.message.includes("user cancelled")) {
-        LOG("user cancelled unmasked send");
+      if (err && err.message && err.message.includes("mask-mcp: user cancelled")) {
+        LOG(err.message);
+        // Surface as a rejected Promise so the page's send logic
+        // treats it as a normal network failure (no masked payload
+        // ever leaves the browser). Chat UIs typically present this
+        // as "send failed — try again" which is the correct UX.
         return Promise.reject(err);
       }
       WARN("fetch hook error; falling back to original:", err?.message || err);
@@ -416,8 +491,8 @@
           LOG(`${adapter.name}: substituted masked XHR body`);
           originalXhrSend.call(xhr, JSON.stringify(result.body));
         } catch (err) {
-          if (err && err.message && err.message.includes("user cancelled")) {
-            LOG("user cancelled unmasked XHR send");
+          if (err && err.message && err.message.includes("mask-mcp: user cancelled")) {
+            LOG(err.message);
             try { xhr.abort(); } catch (_) { /* noop */ }
             return;
           }

@@ -158,7 +158,25 @@ class MaskingService:
         self._analyzer_fingerprints[name] = fingerprint
         return analyzer
 
-    def sanitize_text(self, request: TextSanitizeRequest) -> SanitizeResponse:
+    def sanitize_text(
+        self,
+        request: TextSanitizeRequest,
+        *,
+        request_type: str = "text",
+        upstream_target: str | None = None,
+    ) -> SanitizeResponse:
+        """Run the full masking pipeline on a text payload.
+
+        ``request_type`` and ``upstream_target`` are optional audit-log
+        annotations: the default call — ``sanitize_text(request)`` — is
+        byte-for-byte identical to the pre-extension implementation, so
+        every existing caller (`/sanitize/text`, `/sanitize/file`,
+        `/proxy/*`, the MCP adapter) keeps its ``request_type="text"``
+        audit tag. The extension route passes ``request_type="extension"``
+        and the originating page URL as ``upstream_target`` so operators
+        can reconstruct "where did this PII originate" from the audit log
+        without having to cross-reference the raw request.
+        """
         started = time.perf_counter()
         config = self.config_repo.load()
         audit_id = str(uuid.uuid4())
@@ -180,7 +198,9 @@ class MaskingService:
                 detections=[],
                 forwarded=False,
             )
-            self._write_audit(audit_id, "text", False, [], None, "success", started)
+            self._write_audit(
+                audit_id, request_type, False, [], upstream_target, "success", started
+            )
             return response
 
         # Presidio always runs (pre-refactor default). Sudachi is the
@@ -260,7 +280,9 @@ class MaskingService:
         sanitized_text = self._apply_strategy(request.text, maskable, mask_strategy)
         detections = self._build_detection_results(request.text, recognizer_results, allow_types)
 
-        self._write_audit(audit_id, "text", True, detections, None, "success", started)
+        self._write_audit(
+            audit_id, request_type, True, detections, upstream_target, "success", started
+        )
         return SanitizeResponse(
             audit_id=audit_id,
             filter_enabled=True,

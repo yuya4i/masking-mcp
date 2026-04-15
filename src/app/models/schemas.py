@@ -190,7 +190,12 @@ class SanitizeResponse(BaseModel):
 
 class AuditRecord(BaseModel):
     audit_id: str
-    request_type: Literal["text", "pdf", "image", "proxy"]
+    #: Origin of the request. ``"extension"`` is written by the
+    #: browser-extension-facing `/v1/extension/sanitize` route and makes
+    #: it possible to tell "this detection came from a Chrome extension
+    #: monkey-patching fetch on claude.ai" apart from the other entry
+    #: points during audit review.
+    request_type: Literal["text", "pdf", "image", "proxy", "extension"]
     filter_enabled: bool
     detected_count: int
     entity_summary: dict[str, int]
@@ -198,3 +203,54 @@ class AuditRecord(BaseModel):
     status: Literal["success", "blocked", "error"]
     elapsed_ms: int
     created_at: datetime
+
+
+class ExtensionSanitizeRequest(BaseModel):
+    """Browser-extension-facing sanitize request.
+
+    This is deliberately a narrower contract than
+    :class:`TextSanitizeRequest`: the extension only ever wants a
+    single masked string back, so the proxy-forwarding fields
+    (``forward_upstream`` / ``provider_id`` / ``upstream_payload``)
+    are intentionally omitted. The two optional hints — ``service``
+    and ``source_url`` — exist so the gateway's audit log can record
+    which AI service the text was bound for without the extension
+    having to implement the heavier legacy request schema.
+    """
+
+    text: str
+    #: Service identifier the content script matched against
+    #: (``"claude"`` / ``"chatgpt"`` / ``"gemini"`` / ``"manus"`` / …).
+    #: Free-form on purpose — the gateway does not dispatch on this,
+    #: it only echoes it into the audit log.
+    service: str | None = None
+    #: Page URL the extension captured the fetch/XHR from. Saved
+    #: verbatim in the audit record for forensic purposes.
+    source_url: str | None = None
+
+
+class ExtensionSanitizeResponse(BaseModel):
+    """Response shape returned to the browser extension.
+
+    Mirrors the core fields of :class:`SanitizeResponse` but drops
+    the proxy-forwarding metadata (the extension never forwards to
+    an upstream — it substitutes the masked text back into the page
+    fetch itself). ``action`` collapses the per-detection state into
+    a single top-level summary so the content script can decide at a
+    glance whether to swap the body, leave it alone, or fall through
+    to the user-prompt confirmation dialog.
+    """
+
+    sanitized_text: str
+    detections: list[DetectionResult]
+    #: Coarse disposition of the call:
+    #: * ``"masked"`` — at least one detection resulted in a mask
+    #:   being applied and ``sanitized_text`` differs from the input.
+    #: * ``"no_change"`` — detections (if any) were all allow-listed
+    #:   or the filter was disabled; forward the original text.
+    #: * ``"failed"`` — the gateway hit an internal error. Current
+    #:   code path always raises before returning this value; kept
+    #:   here so the extension's type guards stay exhaustive even if
+    #:   a future fallback mode starts emitting it.
+    action: Literal["masked", "no_change", "failed"]
+    audit_id: str

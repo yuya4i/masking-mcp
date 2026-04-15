@@ -129,6 +129,17 @@ BUILTIN_PATTERNS: dict[str, list[tuple[str, str]]] = {
         ("PHONE_NUMBER", r"0\d{1,4}[-(]\d{1,4}[-)]\d{3,4}"),
         ("PHONE_NUMBER", r"\b0[789]0\d{8}\b"),
     ],
+    # --- EMAIL_ADDRESS (permissive — catches uncommon TLDs) ---
+    # Permissive RFC-5322-ish pattern: anything with an @, dot, and
+    # letters for TLD. Intentionally broader than Presidio's built-in
+    # EMAIL_ADDRESS recognizer so uncommon TLDs like ``.fizz`` / ``.xyz``
+    # / ``.dev`` / ``.lgbt`` are caught. Presidio's recognizer relies on
+    # a hardcoded TLD whitelist and misses newer gTLDs; this preset
+    # deliberately falls back to the structural ``user@domain.tld``
+    # shape so anything syntactically an email is flagged.
+    "EMAIL_ADDRESS": [
+        ("EMAIL_ADDRESS", r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,63}\b"),
+    ],
 }
 
 
@@ -169,4 +180,5 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "API_KEY": "APIキー / シークレット / トークン",
     "INTERNAL_ID": "プロジェクトID / 従業員ID / チケット番号",
     "PHONE_NUMBER_JP": "日本語電話番号 (090-, 03-, etc.)",
+    "EMAIL_ADDRESS": "メールアドレス (Presidio 非依存 / 新規 gTLD 対応)",
 }

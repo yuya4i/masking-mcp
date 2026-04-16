@@ -163,14 +163,14 @@
       /* Severity palette -- Tailwind 500/100 pairs. Mirrored in
          review-modal.js so both surfaces flash the same colour for
          the same risk tier. */
-      --sev-critical: #dc2626;    /* red-600  */
-      --sev-critical-bg: #fee2e2; /* red-100  */
-      --sev-high: #f97316;        /* orange-500 */
-      --sev-high-bg: #ffedd5;     /* orange-100 */
-      --sev-medium: #eab308;      /* amber-500 */
-      --sev-medium-bg: #fef3c7;   /* amber-100 */
-      --sev-low: #6b7280;         /* gray-500 */
-      --sev-low-bg: #f3f4f6;      /* gray-100 */
+      --sev-critical: #e11d48;    /* rose-600 — vivid rose  */
+      --sev-critical-bg: #fff1f2; /* rose-50  */
+      --sev-high: #ea580c;        /* orange-600 — deeper    */
+      --sev-high-bg: #fff7ed;     /* orange-50  */
+      --sev-medium: #ca8a04;      /* yellow-600 — muted gold */
+      --sev-medium-bg: #fefce8;   /* yellow-50  */
+      --sev-low: #64748b;         /* slate-500 — cool gray  */
+      --sev-low-bg: #f8fafc;      /* slate-50   */
 
       /* Shared micro-animation duration */
       --ease-fast: 0.15s ease;
@@ -189,14 +189,14 @@
         --shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
         --row-bg-hover: #374151;
         --locked-bg: #450a0a;
-        --sev-critical: #f87171;
-        --sev-critical-bg: #450a0a;
+        --sev-critical: #fb7185;
+        --sev-critical-bg: rgba(225, 29, 72, 0.15);
         --sev-high: #fb923c;
-        --sev-high-bg: #431407;
-        --sev-medium: #facc15;
-        --sev-medium-bg: #422006;
-        --sev-low: #9ca3af;
-        --sev-low-bg: #1f2937;
+        --sev-high-bg: rgba(234, 88, 12, 0.12);
+        --sev-medium: #fbbf24;
+        --sev-medium-bg: rgba(202, 138, 4, 0.10);
+        --sev-low: #94a3b8;
+        --sev-low-bg: rgba(100, 116, 139, 0.10);
     }
 
     .root.light {
@@ -455,7 +455,7 @@
     }
     .category.is-locked {
       background: var(--locked-bg);
-      border-color: #fecaca;
+      border-color: var(--sev-critical);
     }
 
     .category-header {
@@ -541,7 +541,7 @@
       border-top: 1px solid var(--border);
     }
     .category.is-locked .rows {
-      border-top-color: #fecaca;
+      border-top-color: var(--sev-critical);
     }
     .category.is-collapsed .rows {
       display: none;
@@ -581,8 +581,8 @@
     .row.sev-high     { border-left-color: var(--sev-high); }
     .row.sev-medium   { border-left-color: var(--sev-medium); }
     .row.sev-low      { border-left-color: var(--sev-low); }
-    .row.is-unmasked  { opacity: 0.55; background: #fafafa; }
-    .row.sev-critical.is-unmasked { opacity: 0.7; background: #fff7ed; }
+    .row.is-unmasked  { opacity: 0.55; background: var(--bg); }
+    .row.sev-critical.is-unmasked { opacity: 0.7; background: var(--sev-high-bg); }
 
     .row.long-press-pulse {
       animation: lp-pulse 0.45s ease-out;
@@ -602,7 +602,7 @@
     }
 
     .category.is-locked .row {
-      border-bottom-color: #fecaca;
+      border-bottom-color: var(--sev-critical);
     }
     .row:last-child {
       border-bottom: none;
@@ -614,12 +614,12 @@
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
     }
     .row.sev-critical:hover {
-      background: #fecaca;
+      background: var(--sev-critical-bg);
       transform: translateY(-1px);
-      box-shadow: 0 2px 8px rgba(220, 38, 38, 0.12);
+      box-shadow: 0 2px 8px rgba(225, 29, 72, 0.15);
     }
     .category.is-locked .row:hover {
-      background: #fee2e2;
+      background: var(--sev-critical-bg);
     }
 
     /* Long-press progress fill */
@@ -666,7 +666,7 @@
       transition: background var(--ease-fast);
     }
     .row.sev-critical .row-value {
-      background: #fff;
+      background: var(--bg-panel);
       color: var(--sev-critical);
     }
     .row-arrow {
@@ -712,7 +712,7 @@
     }
     .sev-pill.sev-critical { background: var(--sev-critical-bg); color: var(--sev-critical); border: 1px solid var(--sev-critical); }
     .sev-pill.sev-high     { background: var(--sev-high-bg);     color: var(--sev-high);     border: 1px solid var(--sev-high); }
-    .sev-pill.sev-medium   { background: var(--sev-medium-bg);   color: #a16207;             border: 1px solid var(--sev-medium); }
+    .sev-pill.sev-medium   { background: var(--sev-medium-bg);   color: var(--sev-medium);   border: 1px solid var(--sev-medium); }
     .sev-pill.sev-low      { background: var(--sev-low-bg);      color: var(--sev-low);      border: 1px solid var(--sev-low); }
 
     .row-lock {

@@ -108,18 +108,26 @@
   // cross-engine deps) must load before engine.js and the final
   // bundle.js launcher that flips engine.ready = true.
   // Each file is a MV3-safe script (no ES6 import / eval).
-  injectScript("engine/patterns.js");
-  injectScript("engine/classification.js");
-  injectScript("engine/severity.js");
-  injectScript("engine/categories.js");
-  injectScript("engine/aggregate.js");
-  injectScript("engine/force-mask.js");
-  injectScript("engine/blocklist.js");
-  injectScript("engine/engine.js");
-  injectScript("engine/bundle.js");
+  const ENGINE_FILES = [
+    "engine/patterns.js",
+    "engine/classification.js",
+    "engine/severity.js",
+    "engine/categories.js",
+    "engine/aggregate.js",
+    "engine/force-mask.js",
+    "engine/blocklist.js",
+    "engine/engine.js",
+    "engine/bundle.js",
+  ];
+  for (const f of ENGINE_FILES) injectScript(f);
   injectScript("review-modal.js");
   injectScript("sidebar.js");
   injectScript("injected.js");
+  console.debug(
+    "[mask-mcp] injected",
+    ENGINE_FILES.length + 3,
+    "scripts (engine + ui + hook)"
+  );
 
   // Push the current ``interactive`` + ``uiMode`` preferences into
   // MAIN world as soon as we can. The injected script reads them off
@@ -130,11 +138,15 @@
   async function broadcastSettings() {
     let interactive = true;
     let uiMode = "sidebar";
+    let maskAllowlist = [];
     try {
-      const stored = await chrome.storage.local.get(["interactive", "uiMode"]);
+      const stored = await chrome.storage.local.get(["interactive", "uiMode", "maskAllowlist"]);
       interactive = stored.interactive !== false;
       if (stored.uiMode === "modal" || stored.uiMode === "sidebar") {
         uiMode = stored.uiMode;
+      }
+      if (Array.isArray(stored.maskAllowlist)) {
+        maskAllowlist = stored.maskAllowlist.filter((v) => typeof v === "string");
       }
     } catch (_) {
       interactive = true;
@@ -144,18 +156,18 @@
       {
         source: TAG_OUT,
         type: "settings",
-        settings: { interactive, uiMode },
+        settings: { interactive, uiMode, maskAllowlist },
       },
       "*"
     );
   }
   broadcastSettings();
-  // Re-broadcast whenever the popup flips either toggle so open tabs
-  // pick up the new setting without a reload.
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local") return;
-      if ("interactive" in changes || "uiMode" in changes) broadcastSettings();
+      if ("interactive" in changes || "uiMode" in changes || "maskAllowlist" in changes) {
+        broadcastSettings();
+      }
     });
   } catch (_) {
     // ``chrome.storage`` is always available in an MV3 content
@@ -167,7 +179,24 @@
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (!data || data.source !== TAG_IN || typeof data.id !== "string") return;
+    if (!data || data.source !== TAG_IN) return;
+
+    // Allowlist add (no id — fire-and-forget write to chrome.storage).
+    if (data.type === "add-allowlist" && typeof data.value === "string") {
+      (async () => {
+        try {
+          const { maskAllowlist = [] } = await chrome.storage.local.get("maskAllowlist");
+          const v = data.value.trim();
+          if (v && !maskAllowlist.includes(v)) {
+            maskAllowlist.push(v);
+            await chrome.storage.local.set({ maskAllowlist });
+          }
+        } catch (_) {}
+      })();
+      return;
+    }
+
+    if (typeof data.id !== "string") return;
 
     if (data.type === "sanitize") {
       handleSanitize(data);
@@ -256,9 +285,7 @@
         console.warn(
           "[mask-mcp] gateway timed out after",
           elapsed + "ms (limit",
-          GATEWAY_TIMEOUT_MS + "ms).",
-          "Check: (1) gateway running? curl http://127.0.0.1:8081/health",
-          "(2) if on WSL, docker-compose.yml bind should be 0.0.0.0:8081."
+          GATEWAY_TIMEOUT_MS + "ms)."
         );
       } else {
         console.warn(
@@ -311,7 +338,10 @@
   //                  if unreachable. Expert-mode only.
   async function handleHybridPref(data) {
     const { id } = data;
-    let pref = "auto";
+    // Web Store build: default to standalone (no Docker required).
+    // Power users can opt into "gateway" / "auto" via DevTools but
+    // the shipped UX assumes a self-contained browser-only engine.
+    let pref = "standalone";
     try {
       const stored = await chrome.storage.local.get(["mask_mcp_pref_hybrid"]);
       const v = stored.mask_mcp_pref_hybrid;
@@ -319,7 +349,7 @@
         pref = v;
       }
     } catch (_) {
-      pref = "auto";
+      pref = "standalone";
     }
     window.postMessage(
       {

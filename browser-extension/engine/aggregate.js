@@ -67,6 +67,11 @@
         positions.push([h.start, h.end]);
       }
       positions.sort((a, b) => a[0] - b[0]);
+      // Drop polite-phrase false positives mis-tagged as PERSON.
+      if ((label === "PERSON" || label === "PROPER_NOUN_PERSON") &&
+          severity.isFalsePositivePerson(value)) {
+        continue;
+      }
       const masked = hits.some((h) => (h.action || "masked") === "masked");
       const n = numbering.get(label + "\x00" + value) || 1;
       aggregated.push({
@@ -75,7 +80,7 @@
         positions, masked,
         placeholder: "<" + label + "_" + n + ">",
         classification: classification.classificationFor(label),
-        severity: severity.severityFor(label),
+        severity: severity.severityForSurface(label, value),
       });
     }
     return aggregated;

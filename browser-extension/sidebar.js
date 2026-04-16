@@ -124,14 +124,23 @@
   }
 
   const STYLE = `
+    /* ================================================================
+       PII Masking Review Sidebar - Modernised stylesheet
+       Glassmorphism header, micro-animations, custom scrollbar,
+       segment-control tabs, gradient buttons, code-block preview.
+       NOTE: no backticks allowed anywhere inside this template literal.
+       ================================================================ */
+
     :host {
       all: initial;
     }
+
+    /* --- Root & design tokens ---------------------------------------- */
     .root {
-      position: fixed;
-      inset: 0;
+      position: relative;
+      width: 100%;
+      height: 100%;
       pointer-events: none;
-      z-index: 2147483647;
       font-family: system-ui, -apple-system, "Segoe UI", Roboto,
         "Helvetica Neue", sans-serif;
       font-size: 14px;
@@ -142,71 +151,96 @@
       --danger: #dc2626;
       --bg: #f9fafb;
       --bg-panel: #ffffff;
+      --bg-panel-rgb: 255, 255, 255;
       --border: #e5e7eb;
       --text: #111827;
       --text-muted: #6b7280;
-      --shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+      --shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
       --radius: 12px;
       --row-bg-hover: #f3f4f6;
       --locked-bg: #fef2f2;
 
-      /* Severity palette — Tailwind 500/100 pairs. Mirrored in
+      /* Severity palette -- Tailwind 500/100 pairs. Mirrored in
          review-modal.js so both surfaces flash the same colour for
          the same risk tier. */
-      --sev-critical: #dc2626;    /* red-600  */
-      --sev-critical-bg: #fee2e2; /* red-100  */
-      --sev-high: #f97316;        /* orange-500 */
-      --sev-high-bg: #ffedd5;     /* orange-100 */
-      --sev-medium: #eab308;      /* amber-500 */
-      --sev-medium-bg: #fef3c7;   /* amber-100 */
-      --sev-low: #6b7280;         /* gray-500 */
-      --sev-low-bg: #f3f4f6;      /* gray-100 */
+      --sev-critical: #e11d48;    /* rose-600 — vivid rose  */
+      --sev-critical-bg: #fff1f2; /* rose-50  */
+      --sev-high: #ea580c;        /* orange-600 — deeper    */
+      --sev-high-bg: #fff7ed;     /* orange-50  */
+      --sev-medium: #ca8a04;      /* yellow-600 — muted gold */
+      --sev-medium-bg: #fefce8;   /* yellow-50  */
+      --sev-low: #64748b;         /* slate-500 — cool gray  */
+      --sev-low-bg: #f8fafc;      /* slate-50   */
+
+      /* Shared micro-animation duration */
+      --ease-fast: 0.15s ease;
     }
-    .overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 400px;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.10);
-      pointer-events: auto;
+
+    .root.dark {
+        --primary: #818cf8;
+        --primary-hover: #6366f1;
+        --danger: #f87171;
+        --bg: var(--site-bg, #1f2937);
+        --bg-panel: var(--site-bg, #111827);
+        --bg-panel-rgb: 17, 24, 39;
+        --border: #374151;
+        --text: #f9fafb;
+        --text-muted: #9ca3af;
+        --shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+        --row-bg-hover: #374151;
+        --locked-bg: #450a0a;
+        --sev-critical: #fb7185;
+        --sev-critical-bg: rgba(225, 29, 72, 0.15);
+        --sev-high: #fb923c;
+        --sev-high-bg: rgba(234, 88, 12, 0.12);
+        --sev-medium: #fbbf24;
+        --sev-medium-bg: rgba(202, 138, 4, 0.10);
+        --sev-low: #94a3b8;
+        --sev-low-bg: rgba(100, 116, 139, 0.10);
     }
+
+    .root.light {
+        --bg: var(--site-bg, #f9fafb);
+        --bg-panel: var(--site-bg, #ffffff);
+    }
+
+    /* --- Panel shell ------------------------------------------------- */
     .panel {
-      position: absolute;
-      top: 0;
-      right: 0;
-      bottom: 0;
-      width: 400px;
-      max-width: 100vw;
+      position: relative;
+      width: 100%;
+      height: 100%;
       background: var(--bg-panel);
       border-left: 1px solid var(--border);
       box-shadow: var(--shadow);
       display: flex;
       flex-direction: column;
-      transform: translateX(100%);
-      transition: transform 0.18s ease-out;
       pointer-events: auto;
       overflow: hidden;
     }
-    .panel.is-open {
-      transform: translateX(0);
-    }
+
+    /* --- Glassmorphism header ---------------------------------------- */
     .panel header {
       flex: 0 0 auto;
       padding: 14px 16px 12px 16px;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid rgba(var(--bg-panel-rgb), 0.45);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      background: var(--bg-panel);
+      background: rgba(var(--bg-panel-rgb), 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      z-index: 2;
     }
+
     .panel header h2 {
       margin: 0;
       font-size: 15px;
-      font-weight: 600;
+      font-weight: 700;
       color: var(--text);
+      letter-spacing: 0.025em;
     }
+
     .close-btn {
       background: transparent;
       border: none;
@@ -216,20 +250,27 @@
       padding: 4px 8px;
       border-radius: 6px;
       color: var(--text-muted);
+      transition: background var(--ease-fast), color var(--ease-fast),
+        transform var(--ease-fast);
     }
     .close-btn:hover,
     .close-btn:focus-visible {
       background: var(--row-bg-hover);
       color: var(--text);
       outline: none;
+      transform: scale(1.08);
     }
-    /* The .body is now a flex column so the preview can be pinned at
-       the bottom and only the category list scrolls. Vertical layout:
+    .close-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* --- Body layout (flex column) ----------------------------------- */
+    /* The .body is a flex column so the preview can be pinned at the
+       bottom and only the category list scrolls.  Vertical layout:
          [bulk-bar]    flex 0 0 auto  (fixed)
          [categories]  flex 1 1 auto  (scrolls)
          [preview]     flex 0 0 auto  (pinned, capped height)
-       The outer footer (confirm / cancel) still sits below .body.
-    */
+       The outer footer (confirm / cancel) still sits below .body. */
     .body {
       flex: 1 1 auto;
       min-height: 0;
@@ -239,22 +280,82 @@
       background: var(--bg);
       overflow: hidden;
     }
+
     .bulk-bar {
       flex: 0 0 auto;
       display: flex;
       gap: 8px;
       margin-bottom: 12px;
     }
+
+    /* --- Custom scrollbar -------------------------------------------- */
     .categories {
       flex: 1 1 auto;
       min-height: 0;
       overflow-y: auto;
       padding-right: 4px;
       margin-right: -4px;
-      /* Leave a little air between the last category card and the
-         pinned preview above it. */
       padding-bottom: 6px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(var(--bg-panel-rgb), 0.45) transparent;
     }
+    .categories::-webkit-scrollbar {
+      width: 6px;
+    }
+    .categories::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .categories::-webkit-scrollbar-thumb {
+      background: rgba(107, 114, 128, 0.28);
+      border-radius: 3px;
+    }
+    .categories::-webkit-scrollbar-thumb:hover {
+      background: rgba(107, 114, 128, 0.45);
+    }
+
+    /* --- Severity tab bar (segment control) -------------------------- */
+    .sev-tabs {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 2px;
+      margin-bottom: 8px;
+      background: var(--row-bg-hover);
+      border-radius: 10px;
+      padding: 3px;
+    }
+    .sev-tab {
+      flex: 1 1 0;
+      padding: 5px 0;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 500;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      text-align: center;
+      white-space: nowrap;
+      transition: background var(--ease-fast), color var(--ease-fast),
+        box-shadow var(--ease-fast), transform var(--ease-fast);
+    }
+    .sev-tab:hover {
+      background: rgba(var(--bg-panel-rgb), 0.6);
+      color: var(--text);
+    }
+    .sev-tab:active { transform: scale(0.97); }
+    .sev-tab.active {
+      font-weight: 600;
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    }
+    .sev-tab.active[data-sev="all"]      { background: var(--text-muted); }
+    .sev-tab.active[data-sev="critical"] { background: var(--sev-critical); }
+    .sev-tab.active[data-sev="high"]     { background: var(--sev-high); }
+    .sev-tab.active[data-sev="medium"]   { background: var(--sev-medium); }
+    .sev-tab.active[data-sev="low"]      { background: var(--sev-low); }
+
+    /* --- Bulk buttons ------------------------------------------------ */
     .bulk-btn {
       flex: 1 1 0;
       padding: 6px 10px;
@@ -265,29 +366,97 @@
       background: var(--bg-panel);
       color: var(--text);
       cursor: pointer;
+      transition: background var(--ease-fast), border-color var(--ease-fast),
+        transform var(--ease-fast), box-shadow var(--ease-fast);
     }
     .bulk-btn:hover,
     .bulk-btn:focus-visible {
       background: var(--row-bg-hover);
       outline: none;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
     }
+    .bulk-btn:active { transform: scale(0.97); }
+
+    /* --- Hold-duration slider ---------------------------------------- */
+    .hold-slider-bar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .hold-slider-bar label {
+      white-space: nowrap;
+    }
+    .hold-slider-bar input[type="range"] {
+      flex: 1 1 auto;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--border);
+      outline: none;
+      transition: background var(--ease-fast);
+    }
+    .hold-slider-bar input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--sev-critical);
+      border: 2px solid var(--bg-panel);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+      cursor: pointer;
+      transition: transform var(--ease-fast), box-shadow var(--ease-fast);
+    }
+    .hold-slider-bar input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.18);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+    }
+    .hold-slider-bar input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--sev-critical);
+      border: 2px solid var(--bg-panel);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+      cursor: pointer;
+    }
+    .hold-slider-bar .hold-val {
+      min-width: 28px;
+      text-align: right;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* --- Empty state ------------------------------------------------- */
     .empty {
       padding: 24px 0;
       text-align: center;
       color: var(--text-muted);
       font-size: 13px;
     }
+
+    /* --- Category cards ---------------------------------------------- */
     .category {
       background: var(--bg-panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border: 1px solid rgba(var(--bg-panel-rgb), 0.25);
+      border-radius: 14px;
       margin-bottom: 10px;
       overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03);
+      transition: box-shadow var(--ease-fast), transform var(--ease-fast);
+    }
+    .category:hover {
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.04);
     }
     .category.is-locked {
-      background: var(--locked-bg);
-      border-color: #fecaca;
+      border-color: var(--sev-critical);
     }
+
     .category-header {
       display: flex;
       align-items: center;
@@ -295,23 +464,31 @@
       padding: 10px 12px;
       cursor: pointer;
       user-select: none;
+      border-left: 4px solid transparent;
+      transition: filter var(--ease-fast), background var(--ease-fast);
     }
+    .category.cat-sev-critical .category-header { border-left-color: var(--sev-critical); }
+    .category.cat-sev-high     .category-header { border-left-color: var(--sev-high); }
+    .category.cat-sev-medium   .category-header { border-left-color: var(--sev-medium); }
+    .category.cat-sev-low      .category-header { border-left-color: var(--sev-low); }
     .category-header:hover {
-      background: var(--row-bg-hover);
+      filter: brightness(0.95);
     }
     .category.is-locked .category-header:hover {
-      background: #fee2e2;
+      filter: brightness(0.92);
     }
+
     .twisty {
       width: 14px;
       text-align: center;
       color: var(--text-muted);
       font-size: 12px;
-      transition: transform 0.12s ease-out;
+      transition: transform 0.15s ease;
     }
     .category.is-collapsed .twisty {
       transform: rotate(-90deg);
     }
+
     .category-name {
       flex: 1 1 auto;
       font-weight: 600;
@@ -320,6 +497,7 @@
       display: flex;
       align-items: center;
       gap: 6px;
+      letter-spacing: 0.01em;
     }
     .category-count {
       color: var(--text-muted);
@@ -329,6 +507,7 @@
     .lock-icon {
       font-size: 12px;
       color: var(--danger);
+      transition: transform var(--ease-fast);
     }
     .category-toggle {
       width: 16px;
@@ -336,30 +515,34 @@
       flex: 0 0 auto;
       accent-color: var(--primary);
       cursor: pointer;
+      transition: transform var(--ease-fast);
     }
+    .category-toggle:hover { transform: scale(1.15); }
     .category-toggle:disabled {
       cursor: not-allowed;
       opacity: 0.55;
     }
+    .category-toggle:disabled:hover { transform: none; }
+
     .rows {
       border-top: 1px solid var(--border);
     }
     .category.is-locked .rows {
-      border-top-color: #fecaca;
+      border-top-color: var(--sev-critical);
     }
     .category.is-collapsed .rows {
       display: none;
     }
-    /* --- New 2-line row layout ---------------------------------------
+
+    /* --- Row layout (2-line) -----------------------------------------
        Line 1:  icon + value -> <PLACEHOLDER>
        Line 2:  N-ken + severity pill + long-press hint (critical only)
        The whole row element (.row) is the interactive surface for
        critical items so the long-press gesture fires wherever the
-       user presses -- no tiny SVG target to hunt for. An absolute-
-       positioned fill (.lp-fill) animates left-to-right across the
-       full row width during the hold. Note: backticks MUST NOT
-       appear inside this CSS block because the surrounding string
-       is a JS template literal and any backtick terminates it.
+       user presses. An absolute-positioned fill (.lp-fill) animates
+       left-to-right across the full row width during the hold.
+       NOTE: backticks MUST NOT appear in this block -- the enclosing
+       string is a JS template literal and any backtick terminates it.
     */
     .row {
       display: block;
@@ -368,24 +551,19 @@
       border-bottom: 1px solid var(--border);
       border-left: 4px solid var(--sev-low);
       font-size: 13px;
-      transition: background-color 0.18s ease-out, box-shadow 0.18s ease-out;
+      transition: background-color var(--ease-fast), box-shadow var(--ease-fast),
+        transform var(--ease-fast);
       overflow: hidden;
       cursor: pointer;
       user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
-    .row.sev-critical {
-      border-left-color: var(--sev-critical);
-      background: var(--sev-critical-bg);
-      /* touch-action: none on critical so long-press gesture is not
-         hijacked by browser scrolling on mobile. */
-      touch-action: none;
-    }
+    .row.sev-critical { border-left-color: var(--sev-critical); }
     .row.sev-high     { border-left-color: var(--sev-high); }
     .row.sev-medium   { border-left-color: var(--sev-medium); }
     .row.sev-low      { border-left-color: var(--sev-low); }
-    .row.is-unmasked { opacity: 0.55; background: #fafafa; }
-    .row.sev-critical.is-unmasked { opacity: 0.7; background: #fff7ed; }
+    .row.is-unmasked  { opacity: 0.55; background: var(--bg); border-right: 4px solid #22c55e; }
+
     .row.long-press-pulse {
       animation: lp-pulse 0.45s ease-out;
     }
@@ -394,25 +572,32 @@
       30%  { box-shadow: inset 0 0 0 4px var(--sev-critical); }
       100% { box-shadow: inset 0 0 0 0 var(--sev-critical); }
     }
+    .row.unlock-flash {
+      animation: unlock-glow 0.6s ease-out;
+    }
+    @keyframes unlock-glow {
+      0%   { box-shadow: inset 0 0 0 0 #22c55e; background: #f0fdf4; }
+      40%  { box-shadow: inset 0 0 0 4px #22c55e; background: #dcfce7; }
+      100% { box-shadow: inset 0 0 0 0 #22c55e; background: transparent; }
+    }
+
     .category.is-locked .row {
-      border-bottom-color: #fecaca;
+      border-bottom-color: var(--sev-critical);
     }
     .row:last-child {
       border-bottom: none;
     }
+    /* Row hover: subtle lift + shadow */
     .row:hover {
       background: var(--row-bg-hover);
-    }
-    .row.sev-critical:hover {
-      background: #fecaca;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
     }
     .category.is-locked .row:hover {
-      background: #fee2e2;
+      filter: brightness(0.95);
     }
-    /* Long-press progress fill: sits behind the row text, animates
-       its width from 0 to 100 percent over 800ms while the user
-       holds. No backticks in this comment -- the enclosing string
-       is a JS template literal. */
+
+    /* Long-press progress fill */
     .row .lp-fill {
       position: absolute;
       left: 0;
@@ -439,35 +624,66 @@
       flex: 0 0 auto;
       font-size: 14px;
       line-height: 1;
+      transition: transform var(--ease-fast);
+    }
+    .row:hover .row-icon {
+      transform: scale(1.1);
     }
     .row-value {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
         "Liberation Mono", monospace;
       font-size: 12.5px;
-      background: var(--bg);
-      padding: 2px 6px;
+      background: transparent;
+      border: 1px solid var(--border);
+      padding: 1px 6px;
       border-radius: 4px;
       word-break: break-all;
-      font-weight: 600;
+      font-weight: 500;
+      color: var(--text-muted);
+      opacity: 0.65;
+      transition: all var(--ease-fast);
     }
-    .row.sev-critical .row-value {
-      background: #fff;
-      color: var(--sev-critical);
+    .row.is-unmasked .row-value {
+      border-color: var(--text-muted);
+      color: var(--text);
+      opacity: 1;
+      font-weight: 600;
     }
     .row-arrow {
       flex: 0 0 auto;
+      color: var(--primary);
+      font-weight: 800;
+      font-size: 15px;
+      transition: all var(--ease-fast);
+    }
+    .row.is-unmasked .row-arrow {
       color: var(--text-muted);
-      font-weight: 700;
+      transform: scaleX(-1);
+    }
+    .row:hover .row-arrow {
+      transform: translateX(2px);
+    }
+    .row.is-unmasked:hover .row-arrow {
+      transform: scaleX(-1) translateX(2px);
     }
     .row-placeholder {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
         "Liberation Mono", monospace;
       font-size: 12px;
       color: var(--primary);
-      background: #eef2ff;
-      padding: 2px 6px;
+      background: transparent;
+      border: 1px solid var(--primary);
+      padding: 1px 6px;
       border-radius: 4px;
       word-break: break-all;
+      font-weight: 600;
+      transition: all var(--ease-fast);
+    }
+    .row.is-unmasked .row-placeholder {
+      border-color: var(--border);
+      color: var(--text-muted);
+      opacity: 0.5;
+      font-weight: 500;
     }
     .row-line2 {
       display: flex;
@@ -478,6 +694,8 @@
       color: var(--text-muted);
     }
     .row-count { font-variant-numeric: tabular-nums; }
+
+    /* --- Severity pills ---------------------------------------------- */
     .sev-pill {
       display: inline-block;
       font-size: 10px;
@@ -486,15 +704,41 @@
       padding: 1px 7px;
       border-radius: 8px;
       text-transform: uppercase;
+      transition: transform var(--ease-fast);
     }
     .sev-pill.sev-critical { background: var(--sev-critical-bg); color: var(--sev-critical); border: 1px solid var(--sev-critical); }
     .sev-pill.sev-high     { background: var(--sev-high-bg);     color: var(--sev-high);     border: 1px solid var(--sev-high); }
-    .sev-pill.sev-medium   { background: var(--sev-medium-bg);   color: #a16207;             border: 1px solid var(--sev-medium); }
+    .sev-pill.sev-medium   { background: var(--sev-medium-bg);   color: var(--sev-medium);   border: 1px solid var(--sev-medium); }
     .sev-pill.sev-low      { background: var(--sev-low-bg);      color: var(--sev-low);      border: 1px solid var(--sev-low); }
+
     .row-lock {
       color: var(--danger);
       font-weight: 600;
     }
+    .exclude-btn {
+      margin-left: auto;
+      padding: 2px 8px;
+      font: inherit;
+      font-size: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg-panel);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--ease-fast);
+    }
+    .exclude-btn:hover:not(:disabled) {
+      background: var(--sev-low-bg);
+      color: var(--text);
+      border-color: var(--text-muted);
+    }
+    .exclude-btn:disabled {
+      opacity: 0.6;
+      cursor: default;
+      background: var(--sev-low-bg);
+      color: var(--sev-low);
+    }
+
     /* Hide the built-in checkbox: we drive state from the row itself.
        The checkbox still exists in the DOM for keyboard accessibility
        (it receives focus via Tab) but is visually suppressed. */
@@ -505,6 +749,8 @@
       width: 1px;
       height: 1px;
     }
+
+    /* --- Preview section (code-block aesthetic) ---------------------- */
     .preview-section {
       flex: 0 0 auto;
       margin-top: 8px;
@@ -515,8 +761,7 @@
     }
     .preview-section::before {
       /* Soft gradient fade at the top edge so content scrolling
-         behind the preview does not clip abruptly. Pure decoration;
-         the border-top above it is the real separator. */
+         behind the preview does not clip abruptly. */
       content: "";
       position: absolute;
       left: 0;
@@ -532,25 +777,37 @@
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
-      letter-spacing: 0.4px;
+      letter-spacing: 0.05em;
     }
     .preview {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
+        "Liberation Mono", monospace;
       background: var(--bg-panel);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 10px 12px;
+      padding: 12px 14px;
       font-size: 12px;
-      line-height: 1.55;
+      line-height: 1.6;
       white-space: pre-wrap;
       word-break: break-word;
-      /* Capped so a long AI prompt does not steal scroll real-estate
-         from the category list above. The preview itself scrolls
-         internally when content exceeds this height. */
       max-height: 22vh;
       min-height: 60px;
       overflow-y: auto;
       color: var(--text);
+      scrollbar-width: thin;
+      scrollbar-color: rgba(107, 114, 128, 0.25) transparent;
     }
+    .preview::-webkit-scrollbar { width: 5px; }
+    .preview::-webkit-scrollbar-track { background: transparent; }
+    .preview::-webkit-scrollbar-thumb {
+      background: rgba(107, 114, 128, 0.25);
+      border-radius: 3px;
+    }
+    .preview::-webkit-scrollbar-thumb:hover {
+      background: rgba(107, 114, 128, 0.4);
+    }
+
+    /* --- Footer ------------------------------------------------------ */
     footer {
       flex: 0 0 auto;
       padding: 12px 16px;
@@ -558,17 +815,23 @@
       display: flex;
       justify-content: flex-end;
       gap: 8px;
-      background: var(--bg-panel);
+      background: rgba(var(--bg-panel-rgb), 0.9);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
     }
+
     button.primary,
     button.secondary {
       font: inherit;
       font-size: 13px;
-      padding: 8px 14px;
+      padding: 8px 16px;
       border-radius: 8px;
       cursor: pointer;
       border: 1px solid transparent;
+      transition: background var(--ease-fast), box-shadow var(--ease-fast),
+        transform var(--ease-fast), border-color var(--ease-fast);
     }
+
     button.secondary {
       background: var(--bg-panel);
       border-color: var(--border);
@@ -578,16 +841,28 @@
     button.secondary:focus-visible {
       background: var(--row-bg-hover);
       outline: none;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
     }
+    button.secondary:active {
+      transform: scale(0.97);
+      box-shadow: none;
+    }
+
     button.primary {
-      background: var(--primary);
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
       color: #ffffff;
       font-weight: 600;
+      box-shadow: 0 1px 3px rgba(79, 70, 229, 0.3);
     }
     button.primary:hover,
     button.primary:focus-visible {
-      background: var(--primary-hover);
+      background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary) 100%);
       outline: none;
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
+    }
+    button.primary:active {
+      transform: scale(0.97);
+      box-shadow: 0 0 0 rgba(79, 70, 229, 0.2);
     }
   `;
 
@@ -694,10 +969,22 @@
     // first-occurrence order so the UI lists categories in the same
     // order the gateway returned them.
     const rows = aggregated.map(buildRowState);
+    const NS = (window.__localMaskMCP = window.__localMaskMCP || {});
+    const allowlist = new Set(
+      Array.isArray(NS.settings && NS.settings.maskAllowlist)
+        ? NS.settings.maskAllowlist
+        : []
+    );
     for (const row of rows) {
       if (forcedCategories.has(row.category)) {
         row.locked = true;
         row.masked = true;
+      }
+      // Allowlisted values auto-unmask; not locked (user may re-mask
+      // or remove from allowlist via popup).
+      if (allowlist.has(row.value)) {
+        row.masked = false;
+        row.locked = false;
       }
     }
     const categoryOrder = [];
@@ -711,13 +998,35 @@
     }
 
     return new Promise((resolve) => {
+      // --- Push layout: wrap existing body children in a flex sibling ---
+      // Instead of position:fixed (which overlays), we make <body> a
+      // flex row. Existing content goes into a wrapper (flex:1) and the
+      // sidebar host sits beside it (flex:0 0 auto). This keeps both
+      // in the same document flow so they never overlap.
+      const wrapper = document.createElement("div");
+      wrapper.setAttribute("data-mask-mcp-wrapper", "");
+      wrapper.style.cssText = "flex:1 1 0;min-width:0;overflow:auto;height:100vh;";
+      while (document.body.firstChild) {
+        wrapper.appendChild(document.body.firstChild);
+      }
+      document.body.appendChild(wrapper);
+      document.body.style.cssText += ";display:flex!important;flex-direction:row!important;margin:0!important;overflow:hidden!important;height:100vh!important;";
+
       const host = document.createElement("div");
       host.setAttribute("data-mask-mcp-sidebar", "");
       host.style.all = "initial";
-      host.style.position = "fixed";
-      host.style.inset = "0";
+      host.style.display = "block";
+      host.style.height = "100vh";
       host.style.zIndex = "2147483647";
-      host.style.pointerEvents = "none";
+
+      function sidebarWidth() {
+        return Math.min(400, Math.floor(window.innerWidth * 0.45));
+      }
+      function applySidebarLayout() {
+        const sw = sidebarWidth();
+        host.style.width = sw + "px";
+        host.style.minWidth = sw + "px";
+      }
       const shadow = host.attachShadow({ mode: "open" });
 
       const style = document.createElement("style");
@@ -730,15 +1039,40 @@
       root.setAttribute("aria-modal", "true");
       root.setAttribute("aria-labelledby", "mcp-sb-title");
 
-      const overlay = document.createElement("div");
-      overlay.className = "overlay";
-      // Note: clicking the overlay does NOT auto-cancel — the spec
-      // requires an explicit user choice via Cancel / Confirm.
-      overlay.addEventListener("click", (event) => {
-        event.stopPropagation();
-        // Yank focus back to the panel so screen readers stay anchored.
-        panel.focus();
-      });
+      // Detect page background and apply matching theme.
+      (function applyTheme() {
+        try {
+          const candidates = [
+            document.body,
+            document.documentElement,
+            document.querySelector("main"),
+            document.querySelector("[class*=chat]"),
+            document.querySelector("[class*=conversation]"),
+          ].filter(Boolean);
+          let bgColor = "rgb(255,255,255)";
+          for (const el of candidates) {
+            const cs = getComputedStyle(el);
+            const bg = cs.backgroundColor;
+            if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
+              bgColor = bg;
+              break;
+            }
+          }
+          const m = bgColor.match(/\d+/g);
+          const r = parseInt(m[0], 10);
+          const g = parseInt(m[1], 10);
+          const b = parseInt(m[2], 10);
+          const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+          const isDark = luminance < 0.5;
+          root.classList.add(isDark ? "dark" : "light");
+          root.style.setProperty("--site-bg", bgColor);
+        } catch (_) {
+          root.classList.add("light");
+        }
+      })();
+
+      // Push layout — no overlay. The host element is constrained to
+      // 400px on the right edge so the chat area stays fully interactive.
 
       const panel = document.createElement("div");
       panel.className = "panel";
@@ -773,6 +1107,75 @@
       bulkBar.appendChild(deselectAllBtn);
       body.appendChild(bulkBar);
 
+      // --- Hold-duration slider ---
+      let lockHoldMs = 1000;
+      const lockHoldLabel = () =>
+        lockHoldMs === 0
+          ? "\ud83d\udd12 クリックで解除"
+          : "\ud83d\udd12 長押しで解除 (" + (lockHoldMs / 1000) + "s)";
+      const holdSliderBar = document.createElement("div");
+      holdSliderBar.className = "hold-slider-bar";
+      const holdLabel = document.createElement("label");
+      holdLabel.textContent = "\ud83d\udd12 解除長押し";
+      const holdSlider = document.createElement("input");
+      holdSlider.type = "range";
+      holdSlider.min = "0";
+      holdSlider.max = "1.5";
+      holdSlider.step = "0.1";
+      holdSlider.value = "1";
+      const holdVal = document.createElement("span");
+      holdVal.className = "hold-val";
+      holdVal.textContent = "1s";
+      holdSlider.addEventListener("input", () => {
+        lockHoldMs = Math.round(parseFloat(holdSlider.value) * 1000);
+        holdVal.textContent = holdSlider.value + "s";
+        for (const el of categoriesWrap.querySelectorAll(".row-lock")) {
+          if (el.textContent.includes("長押しで解除")) {
+            el.textContent = lockHoldLabel();
+          }
+        }
+      });
+      holdSliderBar.appendChild(holdLabel);
+      holdSliderBar.appendChild(holdSlider);
+      holdSliderBar.appendChild(holdVal);
+      body.appendChild(holdSliderBar);
+
+      // --- Severity filter tabs ---
+      const sevTabs = document.createElement("div");
+      sevTabs.className = "sev-tabs";
+      let activeFilter = "all";
+      const SEV_KEYS = ["all", "critical", "high", "medium", "low"];
+      const SEV_LABELS = { all: "All", critical: "Critical", high: "High", medium: "Medium", low: "Low" };
+      for (const key of SEV_KEYS) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "sev-tab" + (key === "all" ? " active" : "");
+        btn.dataset.sev = key;
+        btn.textContent = SEV_LABELS[key];
+        btn.addEventListener("click", () => {
+          activeFilter = key;
+          for (const t of sevTabs.children) t.classList.remove("active");
+          btn.classList.add("active");
+          applySevFilter();
+        });
+        sevTabs.appendChild(btn);
+      }
+      body.appendChild(sevTabs);
+
+      function applySevFilter() {
+        const cats = categoriesWrap.querySelectorAll(".category");
+        for (const cat of cats) {
+          const rows = cat.querySelectorAll(".row");
+          let visibleCount = 0;
+          for (const r of rows) {
+            const show = activeFilter === "all" || r.dataset.severity === activeFilter;
+            r.style.display = show ? "" : "none";
+            if (show) visibleCount++;
+          }
+          cat.style.display = visibleCount > 0 ? "" : "none";
+        }
+      }
+
       // Track the DOM nodes per row/category so toggles can reach the
       // corresponding checkboxes without touching textContent.
       const rowControls = new Map(); // key → { checkbox, row }
@@ -804,6 +1207,7 @@
         // can tell at a glance that a PERSON group is actually critical
         // because it hides an API_KEY.
         const groupSeverity = worstSeverity(items);
+        wrap.classList.add(`cat-sev-${groupSeverity}`);
         const groupPill = document.createElement("span");
         groupPill.className = `sev-pill sev-${groupSeverity}`;
         groupPill.textContent = groupSeverity;
@@ -916,6 +1320,7 @@
         // rows toggle on a single click/tap.
         const wrap = document.createElement("div");
         wrap.className = `row sev-${row.severity}${row.masked ? "" : " is-unmasked"}`;
+        wrap.dataset.severity = row.severity;
         wrap.setAttribute("role", "switch");
         wrap.setAttribute("tabindex", "0");
         wrap.setAttribute("aria-checked", row.masked ? "true" : "false");
@@ -942,9 +1347,10 @@
         // Long-press progress fill (critical only, absolute-positioned
         // behind the text; width animates 0% → 100% during a hold).
         let fill = null;
-        if (isCritical && !row.locked) {
+        if (isCritical || row.locked) {
           fill = document.createElement("div");
           fill.className = "lp-fill";
+          if (row.locked) fill.style.background = "var(--sev-critical-bg)";
           wrap.appendChild(fill);
         }
 
@@ -985,34 +1391,34 @@
         count.textContent = `${row.count}件`;
         line2.appendChild(count);
 
-        const dot1 = document.createElement("span");
-        dot1.textContent = "·";
-        line2.appendChild(dot1);
-
-        const sevPill = document.createElement("span");
-        sevPill.className = `sev-pill sev-${row.severity}`;
-        sevPill.textContent = row.severity;
-        line2.appendChild(sevPill);
-
-        if (isCritical) {
-          const dot2 = document.createElement("span");
-          dot2.textContent = "·";
-          line2.appendChild(dot2);
-          const hint = document.createElement("span");
-          hint.className = "row-lock";
-          hint.textContent = row.locked
-            ? "\ud83d\udd12 ロック中"
-            : "\ud83d\udd12 長押しで解除 (800ms)";
-          line2.appendChild(hint);
-        } else if (row.locked) {
+        if (row.locked) {
           const dot2 = document.createElement("span");
           dot2.textContent = "·";
           line2.appendChild(dot2);
           const lock = document.createElement("span");
           lock.className = "row-lock";
-          lock.textContent = "\ud83d\udd12 ロック中";
+          lock.textContent = "\ud83d\udd12";
           line2.appendChild(lock);
         }
+
+        const excludeBtn = document.createElement("button");
+        excludeBtn.className = "exclude-btn";
+        excludeBtn.textContent = "\u2716 \u9664\u5916";
+        excludeBtn.title = "\u30DE\u30B9\u30AD\u30F3\u30B0\u4E0D\u8981\u30EA\u30B9\u30C8\u306B\u8FFD\u52A0";
+        excludeBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          try {
+            window.postMessage({
+              source: "mask-mcp-inpage",
+              type: "add-allowlist",
+              value: row.value,
+            }, "*");
+          } catch (_) {}
+          setState(false);
+          excludeBtn.textContent = "\u2714 \u9664\u5916\u6E08";
+          excludeBtn.disabled = true;
+        });
+        line2.appendChild(excludeBtn);
 
         wrap.appendChild(line1);
         wrap.appendChild(line2);
@@ -1023,19 +1429,37 @@
           wrap.classList.toggle("is-unmasked", !row.masked);
         };
 
+        const baseIcon = isCritical ? "\ud83d\udd11" : "\ud83d\udd0d";
+        const lockIcon = "\ud83d\udd12";
+        const wasOriginallyLocked = row.locked;
+
+        const unlockRow = () => {
+          row.locked = false;
+          checkbox.disabled = false;
+          icon.textContent = baseIcon;
+          wrap.classList.remove("is-locked");
+          const hintEl = wrap.querySelector(".row-lock");
+          if (hintEl) hintEl.remove();
+          const catEl = wrap.closest(".category");
+          if (catEl) catEl.classList.remove("is-locked");
+        };
+
         const setState = (next) => {
-          if (row.locked) return;
+          if (row.locked) unlockRow();
           row.masked = !!next;
           checkbox.checked = row.masked;
+          // Restore lock icon when re-masking a row that was originally
+          // force-locked. The row stays click-toggleable (no relock).
+          if (wasOriginallyLocked) {
+            icon.textContent = row.masked ? lockIcon : baseIcon;
+          }
           syncAria();
           syncCategoryToggle(row.category);
           updatePreview();
         };
 
-        if (row.locked) {
-          // Locked by force_mask_categories: no interaction, stays masked.
-        } else if (!isCritical) {
-          // Single click anywhere on the row toggles.
+        if (!row.locked) {
+          // Unlocked rows (all severities): single click toggles.
           wrap.addEventListener("click", () => setState(!row.masked));
           wrap.addEventListener("keydown", (event) => {
             if (event.key === " " || event.key === "Enter") {
@@ -1044,9 +1468,8 @@
             }
           });
         } else {
-          // Long-press: press anywhere on the row for 800ms. The fill
-          // overlay animates 0% → 100% width during the hold. Release
-          // before 800ms cancels; held to completion toggles.
+          // Locked rows only: long-press with slider duration.
+          const getHoldMs = () => lockHoldMs;
           let timerId = null;
           let tickId = null;
           let startedAt = 0;
@@ -1061,7 +1484,14 @@
             if (tickId !== null) { clearInterval(tickId); tickId = null; }
           };
           const onDown = (event) => {
-            if (row.locked || timerId !== null) return;
+            if (timerId !== null) return;
+            // After unlock the row behaves like any other row —
+            // single click toggles without the long-press gate.
+            if (!row.locked) {
+              if (event.preventDefault) event.preventDefault();
+              setState(!row.masked);
+              return;
+            }
             if (event.preventDefault) event.preventDefault();
             startedAt = Date.now();
             if (fill) {
@@ -1073,18 +1503,29 @@
             } catch (_) {
               /* Safari / older WebViews may throw on setPointerCapture. */
             }
-            tickId = setInterval(() => {
-              const elapsed = Math.min(800, Date.now() - startedAt);
-              if (fill) fill.style.width = `${(elapsed / 800) * 100}%`;
-            }, 50);
-            timerId = setTimeout(() => {
+            const ms = getHoldMs();
+            const doToggle = () => {
               clearTimers();
               if (fill) fill.style.width = "100%";
+              const wasLocked = row.locked;
               wrap.classList.add("long-press-pulse");
               setTimeout(() => wrap.classList.remove("long-press-pulse"), 450);
               setState(!row.masked);
+              if (wasLocked) {
+                wrap.classList.add("unlock-flash");
+                setTimeout(() => wrap.classList.remove("unlock-flash"), 600);
+              }
               setTimeout(resetFill, 350);
-            }, 800);
+            };
+            if (ms === 0) {
+              doToggle();
+              return;
+            }
+            tickId = setInterval(() => {
+              const elapsed = Math.min(ms, Date.now() - startedAt);
+              if (fill) fill.style.width = `${(elapsed / ms) * 100}%`;
+            }, 50);
+            timerId = setTimeout(doToggle, ms);
           };
           const onUp = () => {
             clearTimers();
@@ -1125,6 +1566,7 @@
             },
           },
           row,
+          setState,
         });
         return wrap;
       }
@@ -1276,15 +1718,46 @@
       panel.appendChild(body);
       panel.appendChild(footer);
 
-      root.appendChild(overlay);
       root.appendChild(panel);
       shadow.appendChild(root);
 
       document.body.appendChild(host);
 
+      // Live allowlist sync — when the user adds entries via the
+      // options page, our content script broadcasts new settings.
+      // injected.js fires "mask-mcp:settings-updated" on window and
+      // we react here to auto-unmask any open rows whose value
+      // matches a newly-allowlisted entry.
+      function onSettingsUpdated(event) {
+        const next = event && event.detail;
+        if (!next || !Array.isArray(next.maskAllowlist)) return;
+        const allowSet = new Set(next.maskAllowlist);
+        for (const [, ctl] of rowControls) {
+          if (allowSet.has(ctl.row.value) && ctl.row.masked) {
+            ctl.setState(false);
+          }
+        }
+      }
+      window.addEventListener("mask-mcp:settings-updated", onSettingsUpdated);
+
       function cleanup() {
         document.removeEventListener("keydown", onKeyDown, true);
+        window.removeEventListener("resize", onResize);
+        window.removeEventListener("mask-mcp:settings-updated", onSettingsUpdated);
         if (host.parentNode) host.parentNode.removeChild(host);
+        // Unwrap: move children back to <body> and remove wrapper.
+        if (wrapper.parentNode === document.body) {
+          while (wrapper.firstChild) {
+            document.body.appendChild(wrapper.firstChild);
+          }
+          wrapper.remove();
+          document.body.style.cssText = document.body.style.cssText
+            .replace(/display:\s*flex\s*!important;?/g, "")
+            .replace(/flex-direction:\s*row\s*!important;?/g, "")
+            .replace(/overflow:\s*hidden\s*!important;?/g, "")
+            .replace(/height:\s*100vh\s*!important;?/g, "")
+            .replace(/margin:\s*0\s*!important;?/g, "");
+        }
       }
 
       function onConfirm() {
@@ -1374,7 +1847,11 @@
       // Trigger the slide-in animation on the next frame so the
       // transition actually fires (initial paint has the panel
       // off-screen at translateX(100%)).
-      requestAnimationFrame(() => panel.classList.add("is-open"));
+      const onResize = () => applySidebarLayout();
+      requestAnimationFrame(() => {
+        applySidebarLayout();
+        window.addEventListener("resize", onResize);
+      });
 
       // Focus the primary confirm button so Enter immediately
       // completes the happy-path flow (mirrors review-modal.js).

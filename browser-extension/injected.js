@@ -21,6 +21,47 @@
   const LOG = (...args) => console.debug("[mask-mcp]", ...args);
   const WARN = (...args) => console.warn("[mask-mcp]", ...args);
 
+  // Query params that commonly carry session credentials. Our diagnostic
+  // LOGs echo URLs verbatim, which means JWT/API-key leaks into console
+  // and any screenshot / paste. Redaction keeps the host + path visible
+  // (useful for endpoint discovery) while masking secrets.
+  const SENSITIVE_QS = [
+    "token",
+    "auth",
+    "key",
+    "api_key",
+    "access_token",
+    "sentry_key",
+    "session",
+  ];
+
+  function redactUrl(raw) {
+    try {
+      const u = new URL(raw, location.href);
+      let dirty = false;
+      for (const k of SENSITIVE_QS) {
+        if (u.searchParams.has(k)) {
+          u.searchParams.set(k, "REDACTED");
+          dirty = true;
+        }
+      }
+      return dirty ? u.toString() : raw;
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  // Bounded-length snippet for logging WS frames. Socket.IO EVENT frames
+  // start with ``42[...]`` and are usually under a few hundred chars —
+  // 160 chars is enough to see the event name + first field without
+  // drowning the console in long JSON payloads.
+  function previewPayload(data, max = 160) {
+    if (typeof data !== "string") return "(" + typeof data + ")";
+    return data.length <= max
+      ? data
+      : data.slice(0, max) + "…(+" + (data.length - max) + " chars)";
+  }
+
   const TAG_IN = "mask-mcp-inpage";   // outgoing to content script
   const TAG_OUT = "mask-mcp-content"; // incoming from content script
 
@@ -50,6 +91,16 @@
         ...NS.settings,
         ...data.settings,
       };
+      // Notify open UI surfaces (e.g. sidebar) so they can apply
+      // live-updated settings (allowlist additions etc.) without
+      // requiring a re-render trigger.
+      try {
+        window.dispatchEvent(
+          new CustomEvent("mask-mcp:settings-updated", {
+            detail: NS.settings,
+          })
+        );
+      } catch (_) {}
       return;
     }
     if (typeof data.id !== "string") return;
@@ -109,23 +160,58 @@
     return hybridDecision;
   }
 
-  // Look up the shared pure-JS engine attached by bundle.js. Returns
-  // null when the engine failed to load (user should see an error in
-  // the console and we'll proceed with gateway-only semantics).
-  function getEngine() {
-    const e = NS.engine;
-    if (e && e.ready && typeof e.maskAggregated === "function") return e;
-    return null;
+  // Engine readiness resolves when bundle.js dispatches
+  // "mask-mcp:engine-ready" or when polling detects engine.ready.
+  // Safety timeout prevents callers from hanging if the engine scripts
+  // silently fail to load (e.g., page CSP blocks chrome-extension://).
+  const ENGINE_WAIT_MS = 3000;
+  function isEngineReady(e) {
+    return !!(e && e.ready && typeof e.maskAggregated === "function");
+  }
+  const enginePromise = new Promise((resolve) => {
+    if (isEngineReady(NS.engine)) {
+      resolve(NS.engine);
+      return;
+    }
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("mask-mcp:engine-ready", onReady);
+      resolve(value);
+    };
+    const onReady = () => finish(NS.engine);
+    window.addEventListener("mask-mcp:engine-ready", onReady);
+    const iv = setInterval(() => {
+      if (isEngineReady(NS.engine)) {
+        clearInterval(iv);
+        finish(NS.engine);
+      }
+    }, 50);
+    setTimeout(() => {
+      clearInterval(iv);
+      finish(isEngineReady(NS.engine) ? NS.engine : null);
+    }, ENGINE_WAIT_MS);
+  });
+
+  async function getEngine() {
+    const e = await enginePromise;
+    return isEngineReady(e) ? e : null;
   }
 
   async function sanitizeOnce(text, service, sourceUrl) {
     const backend = await resolveBackend();
     if (backend === "standalone") {
-      const engine = getEngine();
+      const engine = await getEngine();
       if (!engine) {
         // Engine missing AND gateway not preferred: degrade by returning
         // the raw text so the fetch hook's unmasked-confirm prompt fires.
-        WARN("standalone mode requested but engine unavailable");
+        WARN(
+          "standalone mode requested but engine unavailable after",
+          ENGINE_WAIT_MS + "ms.",
+          "Check DevTools Console for [mask-mcp] engine bundle errors",
+          "or CSP violations blocking chrome-extension:// scripts."
+        );
         return null;
       }
       try {
@@ -148,9 +234,14 @@
     //   * gateway     → ask the content script to proxy to the gateway.
     const backend = await resolveBackend();
     if (backend === "standalone") {
-      const engine = getEngine();
+      const engine = await getEngine();
       if (!engine) {
-        WARN("standalone mode requested but engine unavailable");
+        WARN(
+          "standalone mode requested but engine unavailable after",
+          ENGINE_WAIT_MS + "ms.",
+          "Check DevTools Console for [mask-mcp] engine bundle errors",
+          "or CSP violations blocking chrome-extension:// scripts."
+        );
         return null;
       }
       try {
@@ -324,17 +415,48 @@
     },
   };
 
+  // Manus is operated by Butterfly Effect Inc.; its backend APIs are
+  // served from *.butterfly-effect.dev, not only from manus.im. The
+  // user-facing page at manus.im fetches chat/session endpoints from
+  // butterfly-effect.dev, so a ``manus.im``-only matcher never fires.
+  // Match either host, then gate on a common API path keyword to keep
+  // out static assets and telemetry.
   const manusAdapter = {
     name: "manus",
-    match: (url) => /manus\.im/.test(url) && /\/api\//.test(url),
+    match: (url) =>
+      /(manus\.im|butterfly-effect\.dev)/i.test(url) &&
+      !/(sentry|amplitude|analytics|telemetry|segment\.io|datadog|newrelic)/i.test(
+        url
+      ) &&
+      /(\/api\/|\/v1\/|\/chat\/|\/message|\/task|\/session|\/rpc|\/submit|\/send|\/completion|\/agent|\/conversation)/i.test(
+        url
+      ),
     extractInputs(body) {
       const out = [];
-      if (typeof body?.input === "string" && body.input.trim()) out.push(body.input);
-      if (typeof body?.prompt === "string" && body.prompt.trim()) out.push(body.prompt);
+      const pushIfString = (v) => {
+        if (typeof v === "string" && v.trim()) out.push(v);
+      };
+      pushIfString(body?.input);
+      pushIfString(body?.prompt);
+      pushIfString(body?.query);
+      pushIfString(body?.text);
+      pushIfString(body?.message);
+      pushIfString(body?.content);
+      if (Array.isArray(body?.contents)) {
+        for (const c of body.contents) {
+          if (c?.type === "text" && typeof c.value === "string" && c.value.trim()) {
+            out.push(c.value);
+          }
+        }
+      }
       if (Array.isArray(body?.messages)) {
         for (const m of body.messages) {
           if (m?.role === "user" && typeof m.content === "string") {
             out.push(m.content);
+          } else if (Array.isArray(m?.content)) {
+            for (const p of m.content) {
+              if (typeof p?.text === "string" && p.text.trim()) out.push(p.text);
+            }
           }
         }
       }
@@ -344,16 +466,34 @@
       let i = 0;
       const next = (orig) => (i < masked.length ? masked[i++] : orig);
       const clone = JSON.parse(JSON.stringify(body));
-      if (typeof clone?.input === "string" && clone.input.trim()) {
-        clone.input = next(clone.input);
-      }
-      if (typeof clone?.prompt === "string" && clone.prompt.trim()) {
-        clone.prompt = next(clone.prompt);
+      const swap = (key) => {
+        if (typeof clone?.[key] === "string" && clone[key].trim()) {
+          clone[key] = next(clone[key]);
+        }
+      };
+      swap("input");
+      swap("prompt");
+      swap("query");
+      swap("text");
+      swap("message");
+      swap("content");
+      if (Array.isArray(clone?.contents)) {
+        for (const c of clone.contents) {
+          if (c?.type === "text" && typeof c.value === "string" && c.value.trim()) {
+            c.value = next(c.value);
+          }
+        }
       }
       if (Array.isArray(clone?.messages)) {
         for (const m of clone.messages) {
           if (m?.role === "user" && typeof m.content === "string") {
             m.content = next(m.content);
+          } else if (Array.isArray(m?.content)) {
+            for (const p of m.content) {
+              if (typeof p?.text === "string" && p.text.trim()) {
+                p.text = next(p.text);
+              }
+            }
           }
         }
       }
@@ -378,9 +518,8 @@
   function confirmSendUnmasked(serviceName) {
     try {
       return window.confirm(
-        `[Local Mask MCP] Gateway at 127.0.0.1:8081 is unreachable.\n\n` +
-          `Your input to ${serviceName} could NOT be masked.\n` +
-          `Send anyway without masking?`
+        `[PII Guard] Could not mask your input to ${serviceName}.\n\n` +
+          `Send the original text anyway?`
       );
     } catch (_) {
       return false;
@@ -596,11 +735,36 @@
       const method =
         (init && init.method) || (input && input.method) || "GET";
 
+      // Provider-host diagnostic: for the 4 AI provider hostnames we
+      // claim in manifest.json, log every request regardless of method.
+      // This is how we find streaming/WS/SSE endpoints that don't go
+      // through our POST+JSON path. Third-party hosts (amplitude etc.)
+      // are excluded so the console isn't drowned in telemetry.
+      const PROVIDER_RE =
+        /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i;
+      try {
+        const host = new URL(url, location.href).host;
+        if (PROVIDER_RE.test(host)) {
+          LOG(
+            "provider request:",
+            method.toUpperCase(),
+            redactUrl(url),
+            "bodyType=" + typeof (init && init.body)
+          );
+        }
+      } catch (_) {}
+
       if (method.toUpperCase() !== "POST") {
         return originalFetch(input, init);
       }
       const adapter = pickAdapter(url);
       if (!adapter) {
+        try {
+          const target = new URL(url, location.href).host;
+          if (PROVIDER_RE.test(target)) {
+            LOG("intercepted POST with no adapter match:", redactUrl(url));
+          }
+        } catch (_) {}
         return originalFetch(input, init);
       }
       if (!(await isEnabled())) {
@@ -656,6 +820,18 @@
     try {
       const method = (this._maskMcpMethod || "GET").toUpperCase();
       const url = this._maskMcpUrl || "";
+      // Same provider-host diagnostic as the fetch hook, so XHR-based
+      // submissions show up in the console too.
+      try {
+        const host = new URL(url, location.href).host;
+        if (
+          /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i.test(
+            host
+          )
+        ) {
+          LOG("provider xhr:", method, redactUrl(url), "bodyType=" + typeof body);
+        }
+      } catch (_) {}
       if (method !== "POST" || typeof body !== "string") {
         return originalXhrSend.apply(this, arguments);
       }
@@ -701,5 +877,183 @@
     }
   };
 
-  LOG("injected hooks installed on", window.location.hostname);
+  // --- sendBeacon hook (log only) ----------------------------------------
+  //
+  // Sentry / Amplitude SDKs routinely deliver envelopes via
+  // ``navigator.sendBeacon`` which bypasses fetch+XHR entirely. We
+  // pass the call through unchanged and only LOG provider hits so the
+  // console reveals whether manus chat submission uses this path.
+
+  if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+    const originalSendBeacon = navigator.sendBeacon.bind(navigator);
+    navigator.sendBeacon = function patchedSendBeacon(url, data) {
+      try {
+        const host = new URL(url, location.href).host;
+        if (
+          /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i.test(
+            host
+          )
+        ) {
+          LOG("provider beacon:", redactUrl(url), "bodyType=" + typeof data);
+        }
+      } catch (_) {}
+      return originalSendBeacon(url, data);
+    };
+  }
+
+  // --- WebSocket hook ----------------------------------------------------
+  //
+  // manus.im uses Socket.IO v4 (Engine.IO v4) over WebSocket for chat
+  // submission. Outgoing user text arrives as an EVENT frame:
+  //
+  //   42["message", {id, timestamp, type: "user_message", content, ...}]
+  //
+  // We parse each send() frame, mask the ``content`` field via the
+  // shared ``manusAdapter`` (which already knows how to extract /
+  // replace ``content``), and re-serialize. Non-EVENT frames
+  // (ping/pong, CONNECT, ACK) and EVENT frames of other shapes pass
+  // through untouched. WebSocket is not closed on user-cancel —
+  // dropping the single frame is enough and keeps the session alive.
+
+  function parseSocketIoEvent(raw) {
+    if (typeof raw !== "string") return null;
+    const m = raw.match(/^(42\d*)(\[[\s\S]*\])$/);
+    if (!m) return null;
+    let args;
+    try {
+      args = JSON.parse(m[2]);
+    } catch (_) {
+      return null;
+    }
+    if (!Array.isArray(args) || typeof args[0] !== "string") return null;
+    return { prefix: m[1], args };
+  }
+
+  function serializeSocketIoEvent(prefix, args) {
+    return prefix + JSON.stringify(args);
+  }
+
+  const manusWsAdapter = {
+    name: "manus-ws",
+    matchUrl(url) {
+      return /^wss?:\/\/(?:[^/]*\.)?manus\.im\/socket\.io\//i.test(url || "");
+    },
+    // Returns ``{ bodyJson, restore }`` only for the chat-submit frame
+    // the fetch-oriented ``manusAdapter`` can actually mask; null for
+    // any other event so they pass through unchanged.
+    handleEvent(args) {
+      if (args[0] !== "message") return null;
+      const payload = args[1];
+      if (!payload || typeof payload !== "object") return null;
+      if (payload.type !== "user_message") return null;
+      const hasContent =
+        typeof payload.content === "string" && payload.content.trim();
+      const hasContents =
+        Array.isArray(payload.contents) &&
+        payload.contents.some(
+          (c) =>
+            c?.type === "text" &&
+            typeof c.value === "string" &&
+            c.value.trim()
+        );
+      if (!hasContent && !hasContents) return null;
+      return {
+        bodyJson: payload,
+        restore: (maskedBody) => ["message", maskedBody, ...args.slice(2)],
+      };
+    },
+  };
+
+  if (typeof WebSocket !== "undefined") {
+    const originalWsSend = WebSocket.prototype.send;
+    WebSocket.prototype.send = function patchedWsSend(data) {
+      let asyncHandled = false;
+      try {
+        const url = this.url || "";
+        const host = new URL(url, location.href).host;
+        if (
+          /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i.test(
+            host
+          )
+        ) {
+          const size = (data && typeof data.length === "number") ? data.length : 0;
+          LOG(
+            "provider ws send:",
+            redactUrl(url),
+            "bodyType=" + typeof data,
+            "size=" + size,
+            "preview=" + previewPayload(data)
+          );
+        }
+
+        if (manusWsAdapter.matchUrl(url) && typeof data === "string") {
+          const parsed = parseSocketIoEvent(data);
+          if (!parsed) {
+            // ping/pong/CONNECT/ACK — pass through silently.
+          } else {
+            const wrapped = manusWsAdapter.handleEvent(parsed.args);
+            if (!wrapped) {
+              // Non-chat EVENT (typing, ack, etc.) — pass through.
+            } else {
+              asyncHandled = true;
+              const ws = this;
+              const args = arguments;
+              const redacted = redactUrl(url);
+              LOG("manus-ws: intercepting user_message frame");
+              (async () => {
+                if (!(await isEnabled())) {
+                  originalWsSend.apply(ws, args);
+                  return;
+                }
+                try {
+                  const result = await processBody(
+                    manusAdapter,
+                    wrapped.bodyJson,
+                    redacted
+                  );
+                  if (!result.changed) {
+                    originalWsSend.apply(ws, args);
+                    return;
+                  }
+                const newFrame = serializeSocketIoEvent(
+                  parsed.prefix,
+                  wrapped.restore(result.body)
+                );
+                LOG(
+                  `${manusWsAdapter.name}: substituted masked WS frame (${data.length} → ${newFrame.length} bytes)`
+                );
+                originalWsSend.call(ws, newFrame);
+              } catch (err) {
+                if (
+                  err &&
+                  err.message &&
+                  err.message.includes("mask-mcp: user cancelled")
+                ) {
+                  LOG(err.message, "— WS frame dropped");
+                  return;
+                }
+                WARN(
+                  "WS hook error; falling back to original:",
+                  err?.message || err
+                );
+                originalWsSend.apply(ws, args);
+              }
+            })();
+            }
+          }
+        }
+      } catch (err) {
+        WARN("WS send hook setup failed:", err?.message || err);
+      }
+      if (!asyncHandled) {
+        return originalWsSend.apply(this, arguments);
+      }
+    };
+  }
+
+  LOG(
+    "injected hooks installed on",
+    window.location.hostname,
+    "(fetch, xhr, sendBeacon, ws)"
+  );
 })();

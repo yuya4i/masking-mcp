@@ -167,6 +167,28 @@ h1 {
   text-decoration: underline;
 }
 
+/* Open settings button */
+.allowlist-quick {
+  display: block;
+  padding: 8px 0;
+}
+.open-options {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.open-options:hover {
+  background: #f1f5f9;
+  border-color: var(--accent);
+}
+
 footer {
   margin-top: 10px;
   padding-top: 8px;

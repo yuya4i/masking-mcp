@@ -57,6 +57,36 @@
       ? LABEL_TO_SEVERITY[label]
       : "low";
   }
+
+  // Surface patterns that escalate to ``critical``. Mirrors
+  // app/services/severity.py:severity_for_surface so the standalone
+  // engine and gateway agree on the same risk tier.
+  const FORMAL_COMPANY_RE = /(株式会社|㈱|有限会社|㈲|合同会社|合資会社)/;
+  const EMAIL_WITH_DOMAIN_RE = /[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}/;
+
+  const PERSON_FP_TOKENS = [
+    "ます", "ません", "ください", "いたします", "致します", "願い",
+    "注意", "確認", "ご了承", "申し訳", "ありがと", "よろしく",
+    "とおり", "ように", "ような", "については", "ところ", "ため",
+    "こと", "もの", "それ", "これ", "あれ",
+  ];
+
+  function isFalsePositivePerson(surface) {
+    if (!surface || surface.length <= 6) return false;
+    return PERSON_FP_TOKENS.some((tok) => surface.indexOf(tok) !== -1);
+  }
+
+  function severityForSurface(label, surface) {
+    if (label === "PERSON" || label === "PROPER_NOUN_PERSON") return "critical";
+    if (label === "ORGANIZATION" || label === "COMPANY" || label === "PROPER_NOUN_ORG") {
+      if (surface && FORMAL_COMPANY_RE.test(surface)) return "critical";
+    }
+    if (label === "EMAIL_ADDRESS") {
+      if (surface && EMAIL_WITH_DOMAIN_RE.test(surface)) return "critical";
+    }
+    return severityFor(label);
+  }
+
   function maxSeverity(severities) {
     const order = Object.fromEntries(SEVERITY_ORDER.map((s, i) => [s, i]));
     let best = "low", bestRank = order.low;
@@ -67,7 +97,7 @@
     return best;
   }
 
-  const api = { SEVERITY_ORDER, LABEL_TO_SEVERITY, severityFor, maxSeverity };
+  const api = { SEVERITY_ORDER, LABEL_TO_SEVERITY, severityFor, severityForSurface, maxSeverity, isFalsePositivePerson };
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root && typeof root === "object") {
     root.__localMaskMCP = root.__localMaskMCP || {};

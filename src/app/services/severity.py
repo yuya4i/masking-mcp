@@ -114,6 +114,70 @@ def severity_for(label: str) -> str:
     return LABEL_TO_SEVERITY.get(label, "low")
 
 
+# Surface patterns that escalate a detection to ``critical`` regardless
+# of the label-level severity. Used by :func:`severity_for_surface`.
+import re as _re
+
+_FORMAL_COMPANY_RE = _re.compile(r"(株式会社|㈱|有限会社|㈲|合同会社|合資会社)")
+_EMAIL_WITH_DOMAIN_RE = _re.compile(r"[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}")
+
+# Polite / business / verb-ending fragments that frequently get
+# mis-tagged as PERSON by Sudachi/Presidio. When a surface contains
+# any of these AND its length is implausibly long for a real name
+# (>6 chars), the detection is considered a false positive.
+_PERSON_FP_TOKENS = (
+    "ます", "ません", "ください", "いたします", "致します", "願い",
+    "注意", "確認", "ご了承", "申し訳", "ありがと", "よろしく",
+    "とおり", "ように", "ような", "については", "ところ", "ため",
+    "こと", "もの", "それ", "これ", "あれ",
+)
+
+
+def is_false_positive_person(surface: str) -> bool:
+    """True when a PERSON-labeled surface is almost certainly a phrase.
+
+    Heuristic only — meant to suppress Sudachi/Presidio noise where
+    polite Japanese expressions (ご注意くださいますよう…) get tagged
+    as proper-noun-person. A surface qualifies as FP when:
+
+    * length > 6 characters (real Japanese names are 2–6 chars), AND
+    * it contains at least one of the polite/verb-ending tokens
+      enumerated in :data:`_PERSON_FP_TOKENS`.
+
+    Short surfaces and surfaces with no polite markers are left
+    alone (they may still be real names).
+    """
+    if not surface or len(surface) <= 6:
+        return False
+    return any(tok in surface for tok in _PERSON_FP_TOKENS)
+
+
+def severity_for_surface(label: str, surface: str) -> str:
+    """Return the risk tier for a specific detected surface.
+
+    Augments :func:`severity_for` with surface-aware escalation:
+
+    * ``PERSON`` / ``PROPER_NOUN_PERSON`` are always ``critical``
+      (any name leak is treated as identity-level risk).
+    * ``ORGANIZATION`` / ``COMPANY`` / ``PROPER_NOUN_ORG`` are
+      escalated to ``critical`` when the surface contains a formal
+      Japanese company suffix (株式会社, ㈱, 有限会社, etc.).
+    * ``EMAIL_ADDRESS`` is escalated to ``critical`` when the
+      surface is a full email with a routable domain (RFC-ish
+      ``user@host.tld`` shape).
+    """
+    base = severity_for(label)
+    if label in ("PERSON", "PROPER_NOUN_PERSON"):
+        return "critical"
+    if label in ("ORGANIZATION", "COMPANY", "PROPER_NOUN_ORG"):
+        if surface and _FORMAL_COMPANY_RE.search(surface):
+            return "critical"
+    if label == "EMAIL_ADDRESS":
+        if surface and _EMAIL_WITH_DOMAIN_RE.search(surface):
+            return "critical"
+    return base
+
+
 def max_severity(severities: list[str]) -> str:
     """Return the highest-risk tier in a list.
 

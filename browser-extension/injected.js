@@ -288,6 +288,73 @@
     }
   }
 
+  // Merge LLM-detected contextual entities into the regex aggregated
+  // response. Skips LLM entirely when config is missing or mode is
+  // not "detect". Deduplicates by surface text so regex wins on
+  // overlap. Returns the (possibly augmented) aggResp.
+  async function mergeLlmDetect(aggResp, text) {
+    try {
+      const cfgResp = await request("llm-config", {});
+      const cfg = cfgResp && cfgResp.config;
+      if (!cfg || cfg.mode !== "detect") return aggResp;
+      const out = await llmAugment(text, "detect");
+      const llmEnts = (out && Array.isArray(out.entities)) ? out.entities : [];
+      if (!llmEnts.length) return aggResp;
+      const existing = new Set(
+        (aggResp.aggregated || []).map((a) => String(a.value))
+      );
+      const LABEL_TO_CATEGORY = {
+        PERSON: "PERSON",
+        COMPANY: "ORGANIZATION",
+        LOCATION: "LOCATION",
+        DEPARTMENT: "OTHER",
+        PROJECT_CODE: "OTHER",
+        CREDENTIAL: "CREDENTIAL",
+        SENSITIVE_FACT: "OTHER",
+      };
+      const LABEL_TO_SEVERITY = {
+        PERSON: "critical",
+        COMPANY: "critical",
+        LOCATION: "high",
+        DEPARTMENT: "medium",
+        PROJECT_CODE: "medium",
+        CREDENTIAL: "critical",
+        SENSITIVE_FACT: "high",
+      };
+      let added = 0;
+      const counters = {};
+      for (const ent of llmEnts) {
+        const value = typeof ent.text === "string" ? ent.text.trim() : "";
+        if (!value || existing.has(value)) continue;
+        const start = text.indexOf(value);
+        if (start < 0) continue;
+        const label = String(ent.entity_type || "SENSITIVE_FACT").toUpperCase();
+        const category = LABEL_TO_CATEGORY[label] || "OTHER";
+        const severity = LABEL_TO_SEVERITY[label] || "medium";
+        counters[label] = (counters[label] || 0) + 1;
+        aggResp.aggregated.push({
+          value,
+          label,
+          category,
+          count: 1,
+          positions: [[start, start + value.length]],
+          masked: true,
+          placeholder: `<${label}_${counters[label]}>`,
+          classification: "contextual",
+          severity,
+          source: "llm",
+        });
+        existing.add(value);
+        added++;
+      }
+      if (added > 0) LOG(`mergeLlmDetect: +${added} entities from LLM`);
+      return aggResp;
+    } catch (err) {
+      WARN("mergeLlmDetect failed:", err?.message || err);
+      return aggResp;
+    }
+  }
+
   async function isEnabled() {
     const resp = await request("is-enabled", {});
     if (!resp || resp.type !== "is-enabled-result") return true;
@@ -708,7 +775,7 @@
     let anyChanged = false;
     for (const text of inputs) {
       if (useSidebar) {
-        const aggResp = await sanitizeAggregated(text, adapter.name, url);
+        let aggResp = await sanitizeAggregated(text, adapter.name, url);
         if (!aggResp) {
           if (!confirmSendUnmasked(adapter.name)) {
             throw new Error("mask-mcp: user cancelled unmasked send");
@@ -716,6 +783,11 @@
           masked.push(text);
           continue;
         }
+        // v0.5.0 — detect mode: augment regex aggregated with LLM
+        // contextual entities. We call llmAugment(text, "detect")
+        // and merge the returned entities into aggResp.aggregated
+        // so the sidebar renders them with an 'llm' source badge.
+        aggResp = await mergeLlmDetect(aggResp, text);
         const aggregated = Array.isArray(aggResp.aggregated)
           ? aggResp.aggregated
           : [];

@@ -694,6 +694,16 @@
       color: var(--text-muted);
     }
     .row-count { font-variant-numeric: tabular-nums; }
+    .row-llm-badge {
+      display: inline-block;
+      padding: 1px 7px;
+      font-size: 10px;
+      font-weight: 600;
+      color: #fff;
+      background: linear-gradient(135deg, #a855f7, #6366f1);
+      border-radius: 10px;
+      letter-spacing: 0.02em;
+    }
 
     /* --- Severity pills ---------------------------------------------- */
     .sev-pill {
@@ -916,6 +926,7 @@
       placeholder: typeof entity.placeholder === "string" && entity.placeholder
         ? entity.placeholder
         : `<${String(entity.label || "MASKED")}>`,
+      source: entity.source === "llm" ? "llm" : "regex",
     };
   }
 
@@ -1390,6 +1401,17 @@
         count.className = "row-count";
         count.textContent = `${row.count}件`;
         line2.appendChild(count);
+
+        if (row.source === "llm") {
+          const dotLlm = document.createElement("span");
+          dotLlm.textContent = "·";
+          line2.appendChild(dotLlm);
+          const llmBadge = document.createElement("span");
+          llmBadge.className = "row-llm-badge";
+          llmBadge.textContent = "\u2728 LLM";
+          llmBadge.title = "ローカル LLM が文脈から検出";
+          line2.appendChild(llmBadge);
+        }
 
         if (row.locked) {
           const dot2 = document.createElement("span");

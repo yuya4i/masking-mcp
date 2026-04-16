@@ -45,7 +45,9 @@
         "engine/force-mask.js",
         "engine/blocklist.js",
         "engine/engine.js",
-        "engine/bundle.js"
+        "engine/bundle.js",
+        "engine/surrogates.js",
+        "engine/llm-prompts.js"
       ],
       "matches": [
         "https://claude.ai/*",

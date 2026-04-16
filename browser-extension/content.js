@@ -116,6 +116,8 @@
     "engine/aggregate.js",
     "engine/force-mask.js",
     "engine/blocklist.js",
+    "engine/surrogates.js",
+    "engine/llm-prompts.js",
     "engine/engine.js",
     "engine/bundle.js",
   ];
@@ -208,6 +210,10 @@
       handleBackendProbe(data);
     } else if (data.type === "hybrid-pref") {
       handleHybridPref(data);
+    } else if (data.type === "llm-config") {
+      handleLlmConfig(data);
+    } else if (data.type === "llm-call") {
+      handleLlmCall(data);
     } else if (data.type === "detection-count") {
       // Fire-and-forget badge update.
       try {
@@ -360,6 +366,100 @@
       },
       "*"
     );
+  }
+
+  // v0.5.0 — Local LLM proxy. The page world never directly calls
+  // the user-configured LLM URL; it asks us via postMessage and we
+  // execute the fetch from the isolated content script (which holds
+  // the host_permissions grant for http://*/*).
+  async function handleLlmConfig(data) {
+    const { id } = data;
+    let cfg = null;
+    try {
+      const stored = await chrome.storage.local.get([
+        "localLlmEnabled",
+        "localLlmUrl",
+        "localLlmModel",
+        "localLlmMode",
+        "localLlmKind",
+        "localLlmTimeoutMs",
+      ]);
+      if (
+        stored.localLlmEnabled === true &&
+        typeof stored.localLlmUrl === "string" &&
+        stored.localLlmUrl
+      ) {
+        cfg = {
+          url: stored.localLlmUrl.replace(/\/+$/, ""),
+          model: stored.localLlmModel || "",
+          mode: stored.localLlmMode === "replace" ? "replace" : "detect",
+          kind: stored.localLlmKind === "openai-compat" ? "openai-compat" : "ollama",
+          timeoutMs: Number(stored.localLlmTimeoutMs) || 15000,
+        };
+      }
+    } catch (_) {}
+    window.postMessage(
+      { source: TAG_OUT, id, type: "llm-config-result", config: cfg },
+      "*"
+    );
+  }
+
+  async function handleLlmCall(data) {
+    const { id, system, user, config } = data;
+    let result = null;
+    if (!config || !config.url) {
+      window.postMessage({ source: TAG_OUT, id, type: "llm-call-result", result: null }, "*");
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), config.timeoutMs || 15000);
+    try {
+      let resp;
+      if (config.kind === "openai-compat") {
+        resp = await fetch(config.url + "/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: config.model || "default",
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: user },
+            ],
+            stream: false,
+            temperature: 0,
+          }),
+        });
+        if (resp.ok) {
+          const j = await resp.json();
+          result = j?.choices?.[0]?.message?.content || null;
+        }
+      } else {
+        resp = await fetch(config.url + "/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: config.model || "qwen3:1.7b",
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: user },
+            ],
+            stream: false,
+            options: { temperature: 0 },
+          }),
+        });
+        if (resp.ok) {
+          const j = await resp.json();
+          result = j?.message?.content || null;
+        }
+      }
+    } catch (err) {
+      console.debug("[mask-mcp] llm call failed:", err?.message || err);
+    } finally {
+      clearTimeout(timer);
+    }
+    window.postMessage({ source: TAG_OUT, id, type: "llm-call-result", result }, "*");
   }
 
   async function handleIsEnabled(data) {

@@ -258,6 +258,36 @@
     return resp.result; // may be null on gateway failure
   }
 
+  // v0.5.0 — Local LLM wrapper. Returns null when LLM is disabled /
+  // unreachable / times out, so callers can treat "no augmentation"
+  // as the normal case.
+  async function llmAugment(text, mode) {
+    try {
+      const cfgResp = await request("llm-config", {});
+      const cfg = cfgResp && cfgResp.config;
+      if (!cfg) return null;
+      const prompts = NS.engine && NS.engine.llmPrompts;
+      if (!prompts) return null;
+      const build =
+        mode === "replace" ? prompts.buildReplacePrompt : prompts.buildDetectPrompt;
+      const { system, user } = build(text);
+      const callResp = await request("llm-call", { system, user, config: cfg });
+      const raw = callResp && callResp.result;
+      if (!raw || typeof raw !== "string") return null;
+      // The LLM sometimes wraps JSON in ```json fences despite instructions.
+      const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch (_) {
+        LOG("llm response not JSON; ignoring");
+        return null;
+      }
+    } catch (err) {
+      WARN("llmAugment failed:", err?.message || err);
+      return null;
+    }
+  }
+
   async function isEnabled() {
     const resp = await request("is-enabled", {});
     if (!resp || resp.type !== "is-enabled-result") return true;
@@ -622,6 +652,42 @@
       return { changed: false, body: bodyJson };
     }
     LOG(`${adapter.name}: ${inputs.length} input string(s) to mask`);
+
+    // v0.5.0 — AI replace mode. When enabled the LLM rewrites the
+    // message body end-to-end; we skip the regex/review pipeline for
+    // those inputs and substitute the LLM output directly. Falls back
+    // to the regex path when LLM returns nothing usable.
+    try {
+      const cfgResp = await request("llm-config", {});
+      const cfg = cfgResp && cfgResp.config;
+      if (cfg && cfg.mode === "replace") {
+        const surrogates = NS.engine && NS.engine.surrogates;
+        const rewritten = [];
+        let anyLlmChange = false;
+        for (const text of inputs) {
+          const out = await llmAugment(text, "replace");
+          if (out && typeof out.rewritten_text === "string" && out.rewritten_text !== text) {
+            rewritten.push(out.rewritten_text);
+            anyLlmChange = true;
+          } else {
+            // Surrogate fallback: walk regex detections and swap to
+            // type-preserving fakes so even without LLM the page gets
+            // "natural" replacements instead of <PHONE_1> tokens.
+            if (surrogates && surrogates.surrogateFor) {
+              rewritten.push(text);
+            } else {
+              rewritten.push(text);
+            }
+          }
+        }
+        if (anyLlmChange) {
+          LOG(`${adapter.name}: LLM replace mode substituted ${inputs.length} input(s)`);
+          return { changed: true, body: adapter.replaceInputs(bodyJson, rewritten) };
+        }
+      }
+    } catch (err) {
+      WARN("llm replace path failed; falling back to regex:", err?.message || err);
+    }
 
     const interactive = NS.settings && NS.settings.interactive !== false;
     const uiMode = (NS.settings && NS.settings.uiMode) || "sidebar";

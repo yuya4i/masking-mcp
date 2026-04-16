@@ -130,12 +130,65 @@ async function loadDetectionCount() {
   }
 }
 
+// --- Allowlist (mask exclusion database) --------------------------------
+
+async function loadAllowlist() {
+  const { maskAllowlist = [] } = await chrome.storage.local.get("maskAllowlist");
+  renderAllowlist(maskAllowlist);
+}
+
+function renderAllowlist(items) {
+  const container = $("allowlist-entries");
+  const countEl = $("allowlist-count");
+  countEl.textContent = items.length + "\u4EF6";
+  while (container.firstChild) container.removeChild(container.firstChild);
+  if (items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "allowlist-empty";
+    empty.textContent = "\u767B\u9332\u306A\u3057 \u2014 \u30DE\u30B9\u30AD\u30F3\u30B0\u4E0D\u8981\u306A\u5024\u3092\u8FFD\u52A0\u3057\u3066\u304F\u3060\u3055\u3044";
+    container.appendChild(empty);
+    return;
+  }
+  for (const val of items) {
+    const item = document.createElement("div");
+    item.className = "allowlist-item";
+    const text = document.createElement("span");
+    text.textContent = val;
+    const btn = document.createElement("button");
+    btn.className = "remove-btn";
+    btn.textContent = "\u00d7";
+    btn.title = "\u524A\u9664";
+    btn.addEventListener("click", () => removeFromAllowlist(val));
+    item.appendChild(text);
+    item.appendChild(btn);
+    container.appendChild(item);
+  }
+}
+
+async function addToAllowlist(value) {
+  const trimmed = value.trim();
+  if (!trimmed) return;
+  const { maskAllowlist = [] } = await chrome.storage.local.get("maskAllowlist");
+  if (maskAllowlist.includes(trimmed)) return;
+  maskAllowlist.push(trimmed);
+  await chrome.storage.local.set({ maskAllowlist });
+  renderAllowlist(maskAllowlist);
+}
+
+async function removeFromAllowlist(value) {
+  const { maskAllowlist = [] } = await chrome.storage.local.get("maskAllowlist");
+  const filtered = maskAllowlist.filter((v) => v !== value);
+  await chrome.storage.local.set({ maskAllowlist: filtered });
+  renderAllowlist(filtered);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   loadEnabled();
   loadInteractive();
   loadUiMode();
   probeGateway();
   loadDetectionCount();
+  loadAllowlist();
 
   $("enabled-toggle").addEventListener("change", (e) => {
     saveEnabled(e.target.checked);
@@ -143,9 +196,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("interactive-toggle").addEventListener("change", (e) => {
     saveInteractive(e.target.checked);
   });
-  // Radio change events bubble up from individual inputs; bind on
-  // the fieldset so we get a single listener regardless of how many
-  // radios live inside it.
   const fieldset = $("ui-mode-fieldset");
   if (fieldset) {
     fieldset.addEventListener("change", (e) => {
@@ -154,4 +204,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (value) saveUiMode(value);
     });
   }
+  $("allowlist-add-btn").addEventListener("click", () => {
+    const input = $("allowlist-input");
+    addToAllowlist(input.value);
+    input.value = "";
+  });
+  $("allowlist-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      addToAllowlist(e.target.value);
+      e.target.value = "";
+    }
+  });
 });

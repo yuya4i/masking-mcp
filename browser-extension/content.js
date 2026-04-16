@@ -138,11 +138,15 @@
   async function broadcastSettings() {
     let interactive = true;
     let uiMode = "sidebar";
+    let maskAllowlist = [];
     try {
-      const stored = await chrome.storage.local.get(["interactive", "uiMode"]);
+      const stored = await chrome.storage.local.get(["interactive", "uiMode", "maskAllowlist"]);
       interactive = stored.interactive !== false;
       if (stored.uiMode === "modal" || stored.uiMode === "sidebar") {
         uiMode = stored.uiMode;
+      }
+      if (Array.isArray(stored.maskAllowlist)) {
+        maskAllowlist = stored.maskAllowlist.filter((v) => typeof v === "string");
       }
     } catch (_) {
       interactive = true;
@@ -152,18 +156,18 @@
       {
         source: TAG_OUT,
         type: "settings",
-        settings: { interactive, uiMode },
+        settings: { interactive, uiMode, maskAllowlist },
       },
       "*"
     );
   }
   broadcastSettings();
-  // Re-broadcast whenever the popup flips either toggle so open tabs
-  // pick up the new setting without a reload.
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local") return;
-      if ("interactive" in changes || "uiMode" in changes) broadcastSettings();
+      if ("interactive" in changes || "uiMode" in changes || "maskAllowlist" in changes) {
+        broadcastSettings();
+      }
     });
   } catch (_) {
     // ``chrome.storage`` is always available in an MV3 content
@@ -175,7 +179,24 @@
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (!data || data.source !== TAG_IN || typeof data.id !== "string") return;
+    if (!data || data.source !== TAG_IN) return;
+
+    // Allowlist add (no id — fire-and-forget write to chrome.storage).
+    if (data.type === "add-allowlist" && typeof data.value === "string") {
+      (async () => {
+        try {
+          const { maskAllowlist = [] } = await chrome.storage.local.get("maskAllowlist");
+          const v = data.value.trim();
+          if (v && !maskAllowlist.includes(v)) {
+            maskAllowlist.push(v);
+            await chrome.storage.local.set({ maskAllowlist });
+          }
+        } catch (_) {}
+      })();
+      return;
+    }
+
+    if (typeof data.id !== "string") return;
 
     if (data.type === "sanitize") {
       handleSanitize(data);

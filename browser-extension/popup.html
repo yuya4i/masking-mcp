@@ -66,6 +66,18 @@
       </div>
     </section>
 
+    <section class="row allowlist-section">
+      <div class="allowlist-header">
+        <span class="label">マスキング除外リスト</span>
+        <span id="allowlist-count" class="value">0件</span>
+      </div>
+      <div id="allowlist-entries" class="allowlist-list"></div>
+      <div class="allowlist-add">
+        <input type="text" id="allowlist-input" placeholder="除外する値を入力 (例: テスト)">
+        <button id="allowlist-add-btn" type="button">追加</button>
+      </div>
+    </section>
+
     <footer>
       <a id="open-swagger" href="http://127.0.0.1:8081/v1/api" target="_blank" rel="noopener">
         Open gateway Swagger UI

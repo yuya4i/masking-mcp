@@ -571,18 +571,11 @@
       user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
-    .row.sev-critical {
-      border-left-color: var(--sev-critical);
-      background: var(--sev-critical-bg);
-      /* touch-action: none on critical so long-press gesture is not
-         hijacked by browser scrolling on mobile. */
-      touch-action: none;
-    }
+    .row.sev-critical { border-left-color: var(--sev-critical); }
     .row.sev-high     { border-left-color: var(--sev-high); }
     .row.sev-medium   { border-left-color: var(--sev-medium); }
     .row.sev-low      { border-left-color: var(--sev-low); }
     .row.is-unmasked  { opacity: 0.55; background: var(--bg); }
-    .row.sev-critical.is-unmasked { opacity: 0.7; background: var(--sev-high-bg); }
 
     .row.long-press-pulse {
       animation: lp-pulse 0.45s ease-out;
@@ -613,13 +606,8 @@
       transform: translateY(-1px);
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
     }
-    .row.sev-critical:hover {
-      background: var(--sev-critical-bg);
-      transform: translateY(-1px);
-      box-shadow: 0 2px 8px rgba(225, 29, 72, 0.15);
-    }
     .category.is-locked .row:hover {
-      background: var(--sev-critical-bg);
+      filter: brightness(0.95);
     }
 
     /* Long-press progress fill */
@@ -664,10 +652,6 @@
       word-break: break-all;
       font-weight: 600;
       transition: background var(--ease-fast);
-    }
-    .row.sev-critical .row-value {
-      background: var(--bg-panel);
-      color: var(--sev-critical);
     }
     .row-arrow {
       flex: 0 0 auto;
@@ -718,6 +702,29 @@
     .row-lock {
       color: var(--danger);
       font-weight: 600;
+    }
+    .exclude-btn {
+      margin-left: auto;
+      padding: 2px 8px;
+      font: inherit;
+      font-size: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg-panel);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--ease-fast);
+    }
+    .exclude-btn:hover:not(:disabled) {
+      background: var(--sev-low-bg);
+      color: var(--text);
+      border-color: var(--text-muted);
+    }
+    .exclude-btn:disabled {
+      opacity: 0.6;
+      cursor: default;
+      background: var(--sev-low-bg);
+      color: var(--sev-low);
     }
 
     /* Hide the built-in checkbox: we drive state from the row itself.
@@ -950,10 +957,22 @@
     // first-occurrence order so the UI lists categories in the same
     // order the gateway returned them.
     const rows = aggregated.map(buildRowState);
+    const NS = (window.__localMaskMCP = window.__localMaskMCP || {});
+    const allowlist = new Set(
+      Array.isArray(NS.settings && NS.settings.maskAllowlist)
+        ? NS.settings.maskAllowlist
+        : []
+    );
     for (const row of rows) {
       if (forcedCategories.has(row.category)) {
         row.locked = true;
         row.masked = true;
+      }
+      // Allowlisted values auto-unmask; not locked (user may re-mask
+      // or remove from allowlist via popup).
+      if (allowlist.has(row.value)) {
+        row.masked = false;
+        row.locked = false;
       }
     }
     const categoryOrder = [];
@@ -1369,25 +1388,34 @@
         sevPill.textContent = row.severity;
         line2.appendChild(sevPill);
 
-        if (isCritical) {
-          const dot2 = document.createElement("span");
-          dot2.textContent = "·";
-          line2.appendChild(dot2);
-          const hint = document.createElement("span");
-          hint.className = "row-lock";
-          hint.textContent = row.locked
-            ? lockHoldLabel()
-            : "\ud83d\udd12 長押しで解除 (800ms)";
-          line2.appendChild(hint);
-        } else if (row.locked) {
+        if (row.locked) {
           const dot2 = document.createElement("span");
           dot2.textContent = "·";
           line2.appendChild(dot2);
           const lock = document.createElement("span");
           lock.className = "row-lock";
-          lock.textContent = lockHoldLabel();
+          lock.textContent = "\ud83d\udd12";
           line2.appendChild(lock);
         }
+
+        const excludeBtn = document.createElement("button");
+        excludeBtn.className = "exclude-btn";
+        excludeBtn.textContent = "\u2716 \u9664\u5916";
+        excludeBtn.title = "\u30DE\u30B9\u30AD\u30F3\u30B0\u4E0D\u8981\u30EA\u30B9\u30C8\u306B\u8FFD\u52A0";
+        excludeBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          try {
+            window.postMessage({
+              source: "mask-mcp-inpage",
+              type: "add-allowlist",
+              value: row.value,
+            }, "*");
+          } catch (_) {}
+          setState(false);
+          excludeBtn.textContent = "\u2714 \u9664\u5916\u6E08";
+          excludeBtn.disabled = true;
+        });
+        line2.appendChild(excludeBtn);
 
         wrap.appendChild(line1);
         wrap.appendChild(line2);
@@ -1442,8 +1470,8 @@
           updatePreview();
         };
 
-        if (!isCritical && !row.locked) {
-          // Single click anywhere on the row toggles.
+        if (!row.locked) {
+          // Unlocked rows (all severities): single click toggles.
           wrap.addEventListener("click", () => setState(!row.masked));
           wrap.addEventListener("keydown", (event) => {
             if (event.key === " " || event.key === "Enter") {
@@ -1452,9 +1480,8 @@
             }
           });
         } else {
-          // Long-press: locked = slider value, critical = 800ms,
-          // unlocked non-critical = 0 (single click via else branch).
-          const getHoldMs = () => row.locked ? lockHoldMs : 800;
+          // Locked rows only: long-press with slider duration.
+          const getHoldMs = () => lockHoldMs;
           let timerId = null;
           let tickId = null;
           let startedAt = 0;

@@ -634,21 +634,40 @@
         "Liberation Mono", monospace;
       font-size: 12.5px;
       background: transparent;
-      border: 1px solid var(--border);
+      border: 1px dashed var(--danger);
       padding: 1px 6px;
       border-radius: 4px;
       word-break: break-all;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-decoration: line-through;
+      text-decoration-color: var(--danger);
+      text-decoration-thickness: 1.5px;
+      transition: all var(--ease-fast);
+    }
+    .row.is-unmasked .row-value {
+      border-style: solid;
+      border-color: #22c55e;
+      color: var(--text);
+      text-decoration: none;
       font-weight: 600;
-      transition: border-color var(--ease-fast);
     }
     .row-arrow {
       flex: 0 0 auto;
+      color: var(--primary);
+      font-weight: 800;
+      font-size: 15px;
+      transition: all var(--ease-fast);
+    }
+    .row.is-unmasked .row-arrow {
       color: var(--text-muted);
-      font-weight: 700;
-      transition: transform var(--ease-fast);
+      transform: scaleX(-1);
     }
     .row:hover .row-arrow {
-      transform: translateX(1px);
+      transform: translateX(2px);
+    }
+    .row.is-unmasked:hover .row-arrow {
+      transform: scaleX(-1) translateX(2px);
     }
     .row-placeholder {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
@@ -660,7 +679,17 @@
       padding: 1px 6px;
       border-radius: 4px;
       word-break: break-all;
-      transition: background var(--ease-fast);
+      font-weight: 600;
+      transition: all var(--ease-fast);
+    }
+    .row.is-unmasked .row-placeholder {
+      border-style: dashed;
+      border-color: var(--text-muted);
+      color: var(--text-muted);
+      text-decoration: line-through;
+      text-decoration-thickness: 1.5px;
+      opacity: 0.6;
+      font-weight: 500;
     }
     .row-line2 {
       display: flex;

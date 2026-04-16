@@ -75,7 +75,7 @@
         positions, masked,
         placeholder: "<" + label + "_" + n + ">",
         classification: classification.classificationFor(label),
-        severity: severity.severityFor(label),
+        severity: severity.severityForSurface(label, value),
       });
     }
     return aggregated;

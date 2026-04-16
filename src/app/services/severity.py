@@ -114,6 +114,40 @@ def severity_for(label: str) -> str:
     return LABEL_TO_SEVERITY.get(label, "low")
 
 
+# Surface patterns that escalate a detection to ``critical`` regardless
+# of the label-level severity. Used by :func:`severity_for_surface`.
+import re as _re
+
+_FORMAL_COMPANY_RE = _re.compile(r"(株式会社|㈱|有限会社|㈲|合同会社|合資会社)")
+_EMAIL_WITH_DOMAIN_RE = _re.compile(r"[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}")
+
+
+def severity_for_surface(label: str, surface: str) -> str:
+    """Return the risk tier for a specific detected surface.
+
+    Augments :func:`severity_for` with surface-aware escalation:
+
+    * ``PERSON`` / ``PROPER_NOUN_PERSON`` are always ``critical``
+      (any name leak is treated as identity-level risk).
+    * ``ORGANIZATION`` / ``COMPANY`` / ``PROPER_NOUN_ORG`` are
+      escalated to ``critical`` when the surface contains a formal
+      Japanese company suffix (株式会社, ㈱, 有限会社, etc.).
+    * ``EMAIL_ADDRESS`` is escalated to ``critical`` when the
+      surface is a full email with a routable domain (RFC-ish
+      ``user@host.tld`` shape).
+    """
+    base = severity_for(label)
+    if label in ("PERSON", "PROPER_NOUN_PERSON"):
+        return "critical"
+    if label in ("ORGANIZATION", "COMPANY", "PROPER_NOUN_ORG"):
+        if surface and _FORMAL_COMPANY_RE.search(surface):
+            return "critical"
+    if label == "EMAIL_ADDRESS":
+        if surface and _EMAIL_WITH_DOMAIN_RE.search(surface):
+            return "critical"
+    return base
+
+
 def max_severity(severities: list[str]) -> str:
     """Return the highest-risk tier in a list.
 

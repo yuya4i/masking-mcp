@@ -168,7 +168,7 @@
       left: 0;
       right: 400px;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.10);
+      background: transparent;
       pointer-events: auto;
     }
     .panel {
@@ -1395,6 +1395,10 @@
 
       function cleanup() {
         document.removeEventListener("keydown", onKeyDown, true);
+        document.documentElement.style.marginRight = "";
+        setTimeout(() => {
+          document.documentElement.style.transition = "";
+        }, 250);
         if (host.parentNode) host.parentNode.removeChild(host);
       }
 
@@ -1485,7 +1489,11 @@
       // Trigger the slide-in animation on the next frame so the
       // transition actually fires (initial paint has the panel
       // off-screen at translateX(100%)).
-      requestAnimationFrame(() => panel.classList.add("is-open"));
+      requestAnimationFrame(() => {
+        panel.classList.add("is-open");
+        document.documentElement.style.transition = "margin-right 0.2s ease";
+        document.documentElement.style.marginRight = "400px";
+      });
 
       // Focus the primary confirm button so Enter immediately
       // completes the happy-path flow (mirrors review-modal.js).

@@ -162,13 +162,12 @@
       --sev-low: #6b7280;         /* gray-500 */
       --sev-low-bg: #f3f4f6;      /* gray-100 */
     }
-    @media (prefers-color-scheme: dark) {
-      .root {
+    .root.dark {
         --primary: #818cf8;
         --primary-hover: #6366f1;
         --danger: #f87171;
-        --bg: #1f2937;
-        --bg-panel: #111827;
+        --bg: var(--site-bg, #1f2937);
+        --bg-panel: var(--site-bg, #111827);
         --border: #374151;
         --text: #f9fafb;
         --text-muted: #9ca3af;
@@ -183,7 +182,10 @@
         --sev-medium-bg: #422006;
         --sev-low: #9ca3af;
         --sev-low-bg: #1f2937;
-      }
+    }
+    .root.light {
+        --bg: var(--site-bg, #f9fafb);
+        --bg-panel: var(--site-bg, #ffffff);
     }
     .panel {
       position: relative;
@@ -833,6 +835,38 @@
       root.setAttribute("role", "dialog");
       root.setAttribute("aria-modal", "true");
       root.setAttribute("aria-labelledby", "mcp-sb-title");
+
+      // Detect page background and apply matching theme.
+      (function applyTheme() {
+        try {
+          const candidates = [
+            document.body,
+            document.documentElement,
+            document.querySelector("main"),
+            document.querySelector("[class*=chat]"),
+            document.querySelector("[class*=conversation]"),
+          ].filter(Boolean);
+          let bgColor = "rgb(255,255,255)";
+          for (const el of candidates) {
+            const cs = getComputedStyle(el);
+            const bg = cs.backgroundColor;
+            if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
+              bgColor = bg;
+              break;
+            }
+          }
+          const m = bgColor.match(/\d+/g);
+          const r = parseInt(m[0], 10);
+          const g = parseInt(m[1], 10);
+          const b = parseInt(m[2], 10);
+          const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+          const isDark = luminance < 0.5;
+          root.classList.add(isDark ? "dark" : "light");
+          root.style.setProperty("--site-bg", bgColor);
+        } catch (_) {
+          root.classList.add("light");
+        }
+      })();
 
       // Push layout — no overlay. The host element is constrained to
       // 400px on the right edge so the chat area stays fully interactive.

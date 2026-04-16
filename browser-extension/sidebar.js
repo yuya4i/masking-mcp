@@ -422,6 +422,14 @@
       30%  { box-shadow: inset 0 0 0 4px var(--sev-critical); }
       100% { box-shadow: inset 0 0 0 0 var(--sev-critical); }
     }
+    .row.unlock-flash {
+      animation: unlock-glow 0.6s ease-out;
+    }
+    @keyframes unlock-glow {
+      0%   { box-shadow: inset 0 0 0 0 #22c55e; background: #f0fdf4; }
+      40%  { box-shadow: inset 0 0 0 4px #22c55e; background: #dcfce7; }
+      100% { box-shadow: inset 0 0 0 0 #22c55e; background: transparent; }
+    }
     .category.is-locked .row {
       border-bottom-color: #fecaca;
     }
@@ -1067,7 +1075,7 @@
           const hint = document.createElement("span");
           hint.className = "row-lock";
           hint.textContent = row.locked
-            ? "\ud83d\udd12 長押しで解除 (1.2s)"
+            ? "\ud83d\udd12 長押しで解除 (3s)"
             : "\ud83d\udd12 長押しで解除 (800ms)";
           line2.appendChild(hint);
         } else if (row.locked) {
@@ -1076,7 +1084,7 @@
           line2.appendChild(dot2);
           const lock = document.createElement("span");
           lock.className = "row-lock";
-          lock.textContent = "\ud83d\udd12 長押しで解除 (1.2s)";
+          lock.textContent = "\ud83d\udd12 長押しで解除 (3s)";
           line2.appendChild(lock);
         }
 
@@ -1090,6 +1098,7 @@
         };
 
         const unlockRow = () => {
+          row._wasLocked = true;
           row.locked = false;
           checkbox.disabled = false;
           icon.textContent = isCritical ? "\ud83d\udd11" : "\ud83d\udd0d";
@@ -1104,10 +1113,29 @@
           if (catEl) catEl.classList.remove("is-locked");
         };
 
+        const relockRow = () => {
+          row.locked = true;
+          checkbox.disabled = true;
+          checkbox.checked = true;
+          icon.textContent = "\ud83d\udd12";
+          wrap.classList.add("is-locked");
+          wrap.classList.remove("is-unmasked");
+          const hintEl = wrap.querySelector(".row-lock");
+          if (hintEl) {
+            hintEl.textContent = "\ud83d\udd12 長押しで解除 (3s)";
+          }
+          const catEl = wrap.closest(".category");
+          if (catEl) catEl.classList.add("is-locked");
+        };
+
         const setState = (next) => {
           if (row.locked) unlockRow();
           row.masked = !!next;
-          checkbox.checked = row.masked;
+          if (row._wasLocked && row.masked) {
+            relockRow();
+          } else {
+            checkbox.checked = row.masked;
+          }
           syncAria();
           syncCategoryToggle(row.category);
           updatePreview();
@@ -1123,8 +1151,8 @@
             }
           });
         } else {
-          // Long-press: critical = 800ms, locked = 1200ms.
-          const HOLD_MS = row.locked ? 1200 : 800;
+          // Long-press: critical = 800ms, locked = 3000ms.
+          const HOLD_MS = row.locked ? 3000 : 800;
           let timerId = null;
           let tickId = null;
           let startedAt = 0;
@@ -1158,9 +1186,14 @@
             timerId = setTimeout(() => {
               clearTimers();
               if (fill) fill.style.width = "100%";
+              const wasLocked = row.locked;
               wrap.classList.add("long-press-pulse");
               setTimeout(() => wrap.classList.remove("long-press-pulse"), 450);
               setState(!row.masked);
+              if (wasLocked) {
+                wrap.classList.add("unlock-flash");
+                setTimeout(() => wrap.classList.remove("unlock-flash"), 600);
+              }
               setTimeout(resetFill, 350);
             }, HOLD_MS);
           };

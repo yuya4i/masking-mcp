@@ -432,6 +432,13 @@
       pushIfString(body?.text);
       pushIfString(body?.message);
       pushIfString(body?.content);
+      if (Array.isArray(body?.contents)) {
+        for (const c of body.contents) {
+          if (c?.type === "text" && typeof c.value === "string" && c.value.trim()) {
+            out.push(c.value);
+          }
+        }
+      }
       if (Array.isArray(body?.messages)) {
         for (const m of body.messages) {
           if (m?.role === "user" && typeof m.content === "string") {
@@ -460,6 +467,13 @@
       swap("text");
       swap("message");
       swap("content");
+      if (Array.isArray(clone?.contents)) {
+        for (const c of clone.contents) {
+          if (c?.type === "text" && typeof c.value === "string" && c.value.trim()) {
+            c.value = next(c.value);
+          }
+        }
+      }
       if (Array.isArray(clone?.messages)) {
         for (const m of clone.messages) {
           if (m?.role === "user" && typeof m.content === "string") {
@@ -923,31 +937,17 @@
       const payload = args[1];
       if (!payload || typeof payload !== "object") return null;
       if (payload.type !== "user_message") return null;
-      // DIAG: dump payload shape on match so we know which field holds
-      // the user text. Remove once the adapter is confirmed working.
-      try {
-        const shape = {};
-        for (const k of Object.keys(payload)) {
-          const v = payload[k];
-          shape[k] =
-            typeof v === "string"
-              ? `string(${v.length}): ${v.slice(0, 60)}${v.length > 60 ? "…" : ""}`
-              : Array.isArray(v)
-              ? `Array(${v.length})` +
-                (v[0] ? ` first=${JSON.stringify(v[0]).slice(0, 80)}` : "")
-              : v && typeof v === "object"
-              ? `Object keys=[${Object.keys(v).join(",")}]`
-              : `${typeof v}: ${v}`;
-        }
-        LOG("manus-ws: user_message payload shape", shape);
-      } catch (_) {}
-      if (typeof payload.content !== "string" || !payload.content.trim()) {
-        LOG(
-          "manus-ws: skip — content is not a non-empty string, typeof=" +
-            typeof payload.content
+      const hasContent =
+        typeof payload.content === "string" && payload.content.trim();
+      const hasContents =
+        Array.isArray(payload.contents) &&
+        payload.contents.some(
+          (c) =>
+            c?.type === "text" &&
+            typeof c.value === "string" &&
+            c.value.trim()
         );
-        return null;
-      }
+      if (!hasContent && !hasContents) return null;
       return {
         bodyJson: payload,
         restore: (maskedBody) => ["message", maskedBody, ...args.slice(2)],
@@ -980,32 +980,19 @@
         if (manusWsAdapter.matchUrl(url) && typeof data === "string") {
           const parsed = parseSocketIoEvent(data);
           if (!parsed) {
-            // ping/pong/CONNECT/ACK — expected, log only for size>2
-            if (data.length > 2) {
-              LOG("manus-ws: skip — not an EVENT frame, raw prefix=" + data.slice(0, 4));
-            }
+            // ping/pong/CONNECT/ACK — pass through silently.
           } else {
             const wrapped = manusWsAdapter.handleEvent(parsed.args);
             if (!wrapped) {
-              LOG(
-                "manus-ws: skip — event not adaptable, event=" +
-                  parsed.args[0] +
-                  (parsed.args[1] && typeof parsed.args[1] === "object"
-                    ? " payloadType=" + parsed.args[1].type
-                    : "")
-              );
+              // Non-chat EVENT (typing, ack, etc.) — pass through.
             } else {
               asyncHandled = true;
               const ws = this;
               const args = arguments;
               const redacted = redactUrl(url);
-              LOG(
-                "manus-ws: intercepting user_message frame, content length=" +
-                  wrapped.bodyJson.content.length
-              );
+              LOG("manus-ws: intercepting user_message frame");
               (async () => {
                 if (!(await isEnabled())) {
-                  LOG("manus-ws: skip — disabled via popup");
                   originalWsSend.apply(ws, args);
                   return;
                 }
@@ -1016,9 +1003,6 @@
                     redacted
                   );
                   if (!result.changed) {
-                    LOG(
-                      "manus-ws: skip — processBody returned changed=false (no PII detected or gateway unchanged)"
-                    );
                     originalWsSend.apply(ws, args);
                     return;
                   }

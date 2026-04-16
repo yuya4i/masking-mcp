@@ -878,15 +878,65 @@
     };
   }
 
-  // --- WebSocket hook (log only) -----------------------------------------
+  // --- WebSocket hook ----------------------------------------------------
   //
-  // manus chat streams may use WebSocket; neither the fetch nor the
-  // XHR hook catches those frames. Diagnostic only — payload is not
-  // modified until we confirm the actual transport.
+  // manus.im uses Socket.IO v4 (Engine.IO v4) over WebSocket for chat
+  // submission. Outgoing user text arrives as an EVENT frame:
+  //
+  //   42["message", {id, timestamp, type: "user_message", content, ...}]
+  //
+  // We parse each send() frame, mask the ``content`` field via the
+  // shared ``manusAdapter`` (which already knows how to extract /
+  // replace ``content``), and re-serialize. Non-EVENT frames
+  // (ping/pong, CONNECT, ACK) and EVENT frames of other shapes pass
+  // through untouched. WebSocket is not closed on user-cancel —
+  // dropping the single frame is enough and keeps the session alive.
+
+  function parseSocketIoEvent(raw) {
+    if (typeof raw !== "string") return null;
+    const m = raw.match(/^(42\d*)(\[[\s\S]*\])$/);
+    if (!m) return null;
+    let args;
+    try {
+      args = JSON.parse(m[2]);
+    } catch (_) {
+      return null;
+    }
+    if (!Array.isArray(args) || typeof args[0] !== "string") return null;
+    return { prefix: m[1], args };
+  }
+
+  function serializeSocketIoEvent(prefix, args) {
+    return prefix + JSON.stringify(args);
+  }
+
+  const manusWsAdapter = {
+    name: "manus-ws",
+    matchUrl(url) {
+      return /^wss?:\/\/(?:[^/]*\.)?manus\.im\/socket\.io\//i.test(url || "");
+    },
+    // Returns ``{ bodyJson, restore }`` only for the chat-submit frame
+    // the fetch-oriented ``manusAdapter`` can actually mask; null for
+    // any other event so they pass through unchanged.
+    handleEvent(args) {
+      if (args[0] !== "message") return null;
+      const payload = args[1];
+      if (!payload || typeof payload !== "object") return null;
+      if (payload.type !== "user_message") return null;
+      if (typeof payload.content !== "string" || !payload.content.trim()) {
+        return null;
+      }
+      return {
+        bodyJson: payload,
+        restore: (maskedBody) => ["message", maskedBody, ...args.slice(2)],
+      };
+    },
+  };
 
   if (typeof WebSocket !== "undefined") {
     const originalWsSend = WebSocket.prototype.send;
     WebSocket.prototype.send = function patchedWsSend(data) {
+      let asyncHandled = false;
       try {
         const url = this.url || "";
         const host = new URL(url, location.href).host;
@@ -904,8 +954,62 @@
             "preview=" + previewPayload(data)
           );
         }
-      } catch (_) {}
-      return originalWsSend.apply(this, arguments);
+
+        if (manusWsAdapter.matchUrl(url) && typeof data === "string") {
+          const parsed = parseSocketIoEvent(data);
+          const wrapped = parsed && manusWsAdapter.handleEvent(parsed.args);
+          if (wrapped) {
+            asyncHandled = true;
+            const ws = this;
+            const args = arguments;
+            const redacted = redactUrl(url);
+            (async () => {
+              if (!(await isEnabled())) {
+                originalWsSend.apply(ws, args);
+                return;
+              }
+              try {
+                const result = await processBody(
+                  manusAdapter,
+                  wrapped.bodyJson,
+                  redacted
+                );
+                if (!result.changed) {
+                  originalWsSend.apply(ws, args);
+                  return;
+                }
+                const newFrame = serializeSocketIoEvent(
+                  parsed.prefix,
+                  wrapped.restore(result.body)
+                );
+                LOG(
+                  `${manusWsAdapter.name}: substituted masked WS frame (${data.length} → ${newFrame.length} bytes)`
+                );
+                originalWsSend.call(ws, newFrame);
+              } catch (err) {
+                if (
+                  err &&
+                  err.message &&
+                  err.message.includes("mask-mcp: user cancelled")
+                ) {
+                  LOG(err.message, "— WS frame dropped");
+                  return;
+                }
+                WARN(
+                  "WS hook error; falling back to original:",
+                  err?.message || err
+                );
+                originalWsSend.apply(ws, args);
+              }
+            })();
+          }
+        }
+      } catch (err) {
+        WARN("WS send hook setup failed:", err?.message || err);
+      }
+      if (!asyncHandled) {
+        return originalWsSend.apply(this, arguments);
+      }
     };
   }
 

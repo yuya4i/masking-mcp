@@ -112,8 +112,12 @@ def detect_force_mask_trigger(
 
         matched_ja: set[str] = set()
         for surface, pos in tokens:
-            if surface in ja_targets and pos and pos[0] == "名詞":
-                matched_ja.add(surface)
+            if pos and pos[0] == "名詞":
+                # Exact match OR keyword is a substring of the token surface.
+                # Sudachi may fuse compound nouns (機密情報 instead of 機密 + 情報).
+                for kw in ja_targets:
+                    if kw == surface or kw in surface:
+                        matched_ja.add(kw)
         # Preserve the configured order.
         for kw in ja_keywords:
             if kw in matched_ja:

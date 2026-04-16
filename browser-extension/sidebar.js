@@ -1408,7 +1408,7 @@
           if (hintEl) {
             hintEl.textContent = isCritical
               ? "\ud83d\udd12 長押しで解除 (800ms)"
-              : "";
+              : "\ud83d\udd0d クリックで切替";
           }
           const catEl = wrap.closest(".category");
           if (catEl) catEl.classList.remove("is-locked");
@@ -1452,8 +1452,8 @@
             }
           });
         } else {
-          // Long-press: critical = 800ms, locked = slider value (live).
-          // When slider is 0, locked rows get single-click toggle.
+          // Long-press: locked = slider value, critical = 800ms,
+          // unlocked non-critical = 0 (single click via else branch).
           const getHoldMs = () => row.locked ? lockHoldMs : 800;
           let timerId = null;
           let tickId = null;

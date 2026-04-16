@@ -21,6 +21,47 @@
   const LOG = (...args) => console.debug("[mask-mcp]", ...args);
   const WARN = (...args) => console.warn("[mask-mcp]", ...args);
 
+  // Query params that commonly carry session credentials. Our diagnostic
+  // LOGs echo URLs verbatim, which means JWT/API-key leaks into console
+  // and any screenshot / paste. Redaction keeps the host + path visible
+  // (useful for endpoint discovery) while masking secrets.
+  const SENSITIVE_QS = [
+    "token",
+    "auth",
+    "key",
+    "api_key",
+    "access_token",
+    "sentry_key",
+    "session",
+  ];
+
+  function redactUrl(raw) {
+    try {
+      const u = new URL(raw, location.href);
+      let dirty = false;
+      for (const k of SENSITIVE_QS) {
+        if (u.searchParams.has(k)) {
+          u.searchParams.set(k, "REDACTED");
+          dirty = true;
+        }
+      }
+      return dirty ? u.toString() : raw;
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  // Bounded-length snippet for logging WS frames. Socket.IO EVENT frames
+  // start with ``42[...]`` and are usually under a few hundred chars —
+  // 160 chars is enough to see the event name + first field without
+  // drowning the console in long JSON payloads.
+  function previewPayload(data, max = 160) {
+    if (typeof data !== "string") return "(" + typeof data + ")";
+    return data.length <= max
+      ? data
+      : data.slice(0, max) + "…(+" + (data.length - max) + " chars)";
+  }
+
   const TAG_IN = "mask-mcp-inpage";   // outgoing to content script
   const TAG_OUT = "mask-mcp-content"; // incoming from content script
 
@@ -684,7 +725,7 @@
           LOG(
             "provider request:",
             method.toUpperCase(),
-            url,
+            redactUrl(url),
             "bodyType=" + typeof (init && init.body)
           );
         }
@@ -698,7 +739,7 @@
         try {
           const target = new URL(url, location.href).host;
           if (PROVIDER_RE.test(target)) {
-            LOG("intercepted POST with no adapter match:", url);
+            LOG("intercepted POST with no adapter match:", redactUrl(url));
           }
         } catch (_) {}
         return originalFetch(input, init);
@@ -765,7 +806,7 @@
             host
           )
         ) {
-          LOG("provider xhr:", method, url, "bodyType=" + typeof body);
+          LOG("provider xhr:", method, redactUrl(url), "bodyType=" + typeof body);
         }
       } catch (_) {}
       if (method !== "POST" || typeof body !== "string") {
@@ -830,7 +871,7 @@
             host
           )
         ) {
-          LOG("provider beacon:", url, "bodyType=" + typeof data);
+          LOG("provider beacon:", redactUrl(url), "bodyType=" + typeof data);
         }
       } catch (_) {}
       return originalSendBeacon(url, data);
@@ -855,7 +896,13 @@
           )
         ) {
           const size = (data && typeof data.length === "number") ? data.length : 0;
-          LOG("provider ws send:", url, "bodyType=" + typeof data, "size=" + size);
+          LOG(
+            "provider ws send:",
+            redactUrl(url),
+            "bodyType=" + typeof data,
+            "size=" + size,
+            "preview=" + previewPayload(data)
+          );
         }
       } catch (_) {}
       return originalWsSend.apply(this, arguments);

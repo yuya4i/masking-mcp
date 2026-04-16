@@ -124,9 +124,18 @@
   }
 
   const STYLE = `
+    /* ================================================================
+       PII Masking Review Sidebar - Modernised stylesheet
+       Glassmorphism header, micro-animations, custom scrollbar,
+       segment-control tabs, gradient buttons, code-block preview.
+       NOTE: no backticks allowed anywhere inside this template literal.
+       ================================================================ */
+
     :host {
       all: initial;
     }
+
+    /* --- Root & design tokens ---------------------------------------- */
     .root {
       position: relative;
       width: 100%;
@@ -142,15 +151,16 @@
       --danger: #dc2626;
       --bg: #f9fafb;
       --bg-panel: #ffffff;
+      --bg-panel-rgb: 255, 255, 255;
       --border: #e5e7eb;
       --text: #111827;
       --text-muted: #6b7280;
-      --shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+      --shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
       --radius: 12px;
       --row-bg-hover: #f3f4f6;
       --locked-bg: #fef2f2;
 
-      /* Severity palette — Tailwind 500/100 pairs. Mirrored in
+      /* Severity palette -- Tailwind 500/100 pairs. Mirrored in
          review-modal.js so both surfaces flash the same colour for
          the same risk tier. */
       --sev-critical: #dc2626;    /* red-600  */
@@ -161,13 +171,18 @@
       --sev-medium-bg: #fef3c7;   /* amber-100 */
       --sev-low: #6b7280;         /* gray-500 */
       --sev-low-bg: #f3f4f6;      /* gray-100 */
+
+      /* Shared micro-animation duration */
+      --ease-fast: 0.15s ease;
     }
+
     .root.dark {
         --primary: #818cf8;
         --primary-hover: #6366f1;
         --danger: #f87171;
         --bg: var(--site-bg, #1f2937);
         --bg-panel: var(--site-bg, #111827);
+        --bg-panel-rgb: 17, 24, 39;
         --border: #374151;
         --text: #f9fafb;
         --text-muted: #9ca3af;
@@ -183,10 +198,13 @@
         --sev-low: #9ca3af;
         --sev-low-bg: #1f2937;
     }
+
     .root.light {
         --bg: var(--site-bg, #f9fafb);
         --bg-panel: var(--site-bg, #ffffff);
     }
+
+    /* --- Panel shell ------------------------------------------------- */
     .panel {
       position: relative;
       width: 100%;
@@ -199,22 +217,30 @@
       pointer-events: auto;
       overflow: hidden;
     }
+
+    /* --- Glassmorphism header ---------------------------------------- */
     .panel header {
       flex: 0 0 auto;
       padding: 14px 16px 12px 16px;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid rgba(var(--bg-panel-rgb), 0.45);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      background: var(--bg-panel);
+      background: rgba(var(--bg-panel-rgb), 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      z-index: 2;
     }
+
     .panel header h2 {
       margin: 0;
       font-size: 15px;
-      font-weight: 600;
+      font-weight: 700;
       color: var(--text);
+      letter-spacing: 0.025em;
     }
+
     .close-btn {
       background: transparent;
       border: none;
@@ -224,20 +250,27 @@
       padding: 4px 8px;
       border-radius: 6px;
       color: var(--text-muted);
+      transition: background var(--ease-fast), color var(--ease-fast),
+        transform var(--ease-fast);
     }
     .close-btn:hover,
     .close-btn:focus-visible {
       background: var(--row-bg-hover);
       color: var(--text);
       outline: none;
+      transform: scale(1.08);
     }
-    /* The .body is now a flex column so the preview can be pinned at
-       the bottom and only the category list scrolls. Vertical layout:
+    .close-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* --- Body layout (flex column) ----------------------------------- */
+    /* The .body is a flex column so the preview can be pinned at the
+       bottom and only the category list scrolls.  Vertical layout:
          [bulk-bar]    flex 0 0 auto  (fixed)
          [categories]  flex 1 1 auto  (scrolls)
          [preview]     flex 0 0 auto  (pinned, capped height)
-       The outer footer (confirm / cancel) still sits below .body.
-    */
+       The outer footer (confirm / cancel) still sits below .body. */
     .body {
       flex: 1 1 auto;
       min-height: 0;
@@ -247,50 +280,82 @@
       background: var(--bg);
       overflow: hidden;
     }
+
     .bulk-bar {
       flex: 0 0 auto;
       display: flex;
       gap: 8px;
       margin-bottom: 12px;
     }
+
+    /* --- Custom scrollbar -------------------------------------------- */
     .categories {
       flex: 1 1 auto;
       min-height: 0;
       overflow-y: auto;
       padding-right: 4px;
       margin-right: -4px;
-      /* Leave a little air between the last category card and the
-         pinned preview above it. */
       padding-bottom: 6px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(var(--bg-panel-rgb), 0.45) transparent;
     }
+    .categories::-webkit-scrollbar {
+      width: 6px;
+    }
+    .categories::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .categories::-webkit-scrollbar-thumb {
+      background: rgba(107, 114, 128, 0.28);
+      border-radius: 3px;
+    }
+    .categories::-webkit-scrollbar-thumb:hover {
+      background: rgba(107, 114, 128, 0.45);
+    }
+
+    /* --- Severity tab bar (segment control) -------------------------- */
     .sev-tabs {
       flex: 0 0 auto;
       display: flex;
-      gap: 4px;
+      gap: 2px;
       margin-bottom: 8px;
+      background: var(--row-bg-hover);
+      border-radius: 10px;
+      padding: 3px;
     }
     .sev-tab {
       flex: 1 1 0;
-      padding: 4px 0;
+      padding: 5px 0;
       font: inherit;
       font-size: 11px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: var(--bg-panel);
+      font-weight: 500;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
       color: var(--text-muted);
       cursor: pointer;
       text-align: center;
       white-space: nowrap;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      transition: background var(--ease-fast), color var(--ease-fast),
+        box-shadow var(--ease-fast), transform var(--ease-fast);
     }
-    .sev-tab:hover { background: var(--row-bg-hover); }
-    .sev-tab.active { font-weight: 600; color: #fff; }
-    .sev-tab.active[data-sev="all"]      { background: var(--text-muted); border-color: var(--text-muted); }
-    .sev-tab.active[data-sev="critical"] { background: var(--sev-critical); border-color: var(--sev-critical); }
-    .sev-tab.active[data-sev="high"]     { background: var(--sev-high); border-color: var(--sev-high); }
-    .sev-tab.active[data-sev="medium"]   { background: var(--sev-medium); border-color: var(--sev-medium); }
-    .sev-tab.active[data-sev="low"]      { background: var(--sev-low); border-color: var(--sev-low); }
+    .sev-tab:hover {
+      background: rgba(var(--bg-panel-rgb), 0.6);
+      color: var(--text);
+    }
+    .sev-tab:active { transform: scale(0.97); }
+    .sev-tab.active {
+      font-weight: 600;
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    }
+    .sev-tab.active[data-sev="all"]      { background: var(--text-muted); }
+    .sev-tab.active[data-sev="critical"] { background: var(--sev-critical); }
+    .sev-tab.active[data-sev="high"]     { background: var(--sev-high); }
+    .sev-tab.active[data-sev="medium"]   { background: var(--sev-medium); }
+    .sev-tab.active[data-sev="low"]      { background: var(--sev-low); }
 
+    /* --- Bulk buttons ------------------------------------------------ */
     .bulk-btn {
       flex: 1 1 0;
       padding: 6px 10px;
@@ -301,12 +366,18 @@
       background: var(--bg-panel);
       color: var(--text);
       cursor: pointer;
+      transition: background var(--ease-fast), border-color var(--ease-fast),
+        transform var(--ease-fast), box-shadow var(--ease-fast);
     }
     .bulk-btn:hover,
     .bulk-btn:focus-visible {
       background: var(--row-bg-hover);
       outline: none;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
     }
+    .bulk-btn:active { transform: scale(0.97); }
+
+    /* --- Hold-duration slider ---------------------------------------- */
     .hold-slider-bar {
       flex: 0 0 auto;
       display: flex;
@@ -321,8 +392,38 @@
     }
     .hold-slider-bar input[type="range"] {
       flex: 1 1 auto;
+      -webkit-appearance: none;
+      appearance: none;
       height: 4px;
-      accent-color: var(--sev-critical);
+      border-radius: 2px;
+      background: var(--border);
+      outline: none;
+      transition: background var(--ease-fast);
+    }
+    .hold-slider-bar input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--sev-critical);
+      border: 2px solid var(--bg-panel);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+      cursor: pointer;
+      transition: transform var(--ease-fast), box-shadow var(--ease-fast);
+    }
+    .hold-slider-bar input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.18);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+    }
+    .hold-slider-bar input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--sev-critical);
+      border: 2px solid var(--bg-panel);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+      cursor: pointer;
     }
     .hold-slider-bar .hold-val {
       min-width: 28px;
@@ -330,23 +431,33 @@
       font-weight: 600;
       color: var(--text);
     }
+
+    /* --- Empty state ------------------------------------------------- */
     .empty {
       padding: 24px 0;
       text-align: center;
       color: var(--text-muted);
       font-size: 13px;
     }
+
+    /* --- Category cards ---------------------------------------------- */
     .category {
       background: var(--bg-panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border: 1px solid rgba(var(--bg-panel-rgb), 0.25);
+      border-radius: 14px;
       margin-bottom: 10px;
       overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03);
+      transition: box-shadow var(--ease-fast), transform var(--ease-fast);
+    }
+    .category:hover {
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.04);
     }
     .category.is-locked {
       background: var(--locked-bg);
       border-color: #fecaca;
     }
+
     .category-header {
       display: flex;
       align-items: center;
@@ -355,6 +466,7 @@
       cursor: pointer;
       user-select: none;
       border-left: 4px solid transparent;
+      transition: filter var(--ease-fast), background var(--ease-fast);
     }
     .category.cat-sev-critical .category-header {
       border-left-color: var(--sev-critical);
@@ -378,16 +490,18 @@
     .category.is-locked .category-header:hover {
       filter: brightness(0.92);
     }
+
     .twisty {
       width: 14px;
       text-align: center;
       color: var(--text-muted);
       font-size: 12px;
-      transition: transform 0.12s ease-out;
+      transition: transform 0.15s ease;
     }
     .category.is-collapsed .twisty {
       transform: rotate(-90deg);
     }
+
     .category-name {
       flex: 1 1 auto;
       font-weight: 600;
@@ -396,6 +510,7 @@
       display: flex;
       align-items: center;
       gap: 6px;
+      letter-spacing: 0.01em;
     }
     .category-count {
       color: var(--text-muted);
@@ -405,6 +520,7 @@
     .lock-icon {
       font-size: 12px;
       color: var(--danger);
+      transition: transform var(--ease-fast);
     }
     .category-toggle {
       width: 16px;
@@ -412,11 +528,15 @@
       flex: 0 0 auto;
       accent-color: var(--primary);
       cursor: pointer;
+      transition: transform var(--ease-fast);
     }
+    .category-toggle:hover { transform: scale(1.15); }
     .category-toggle:disabled {
       cursor: not-allowed;
       opacity: 0.55;
     }
+    .category-toggle:disabled:hover { transform: none; }
+
     .rows {
       border-top: 1px solid var(--border);
     }
@@ -426,16 +546,16 @@
     .category.is-collapsed .rows {
       display: none;
     }
-    /* --- New 2-line row layout ---------------------------------------
+
+    /* --- Row layout (2-line) -----------------------------------------
        Line 1:  icon + value -> <PLACEHOLDER>
        Line 2:  N-ken + severity pill + long-press hint (critical only)
        The whole row element (.row) is the interactive surface for
        critical items so the long-press gesture fires wherever the
-       user presses -- no tiny SVG target to hunt for. An absolute-
-       positioned fill (.lp-fill) animates left-to-right across the
-       full row width during the hold. Note: backticks MUST NOT
-       appear inside this CSS block because the surrounding string
-       is a JS template literal and any backtick terminates it.
+       user presses. An absolute-positioned fill (.lp-fill) animates
+       left-to-right across the full row width during the hold.
+       NOTE: backticks MUST NOT appear in this block -- the enclosing
+       string is a JS template literal and any backtick terminates it.
     */
     .row {
       display: block;
@@ -444,7 +564,8 @@
       border-bottom: 1px solid var(--border);
       border-left: 4px solid var(--sev-low);
       font-size: 13px;
-      transition: background-color 0.18s ease-out, box-shadow 0.18s ease-out;
+      transition: background-color var(--ease-fast), box-shadow var(--ease-fast),
+        transform var(--ease-fast);
       overflow: hidden;
       cursor: pointer;
       user-select: none;
@@ -460,8 +581,9 @@
     .row.sev-high     { border-left-color: var(--sev-high); }
     .row.sev-medium   { border-left-color: var(--sev-medium); }
     .row.sev-low      { border-left-color: var(--sev-low); }
-    .row.is-unmasked { opacity: 0.55; background: #fafafa; }
+    .row.is-unmasked  { opacity: 0.55; background: #fafafa; }
     .row.sev-critical.is-unmasked { opacity: 0.7; background: #fff7ed; }
+
     .row.long-press-pulse {
       animation: lp-pulse 0.45s ease-out;
     }
@@ -478,25 +600,29 @@
       40%  { box-shadow: inset 0 0 0 4px #22c55e; background: #dcfce7; }
       100% { box-shadow: inset 0 0 0 0 #22c55e; background: transparent; }
     }
+
     .category.is-locked .row {
       border-bottom-color: #fecaca;
     }
     .row:last-child {
       border-bottom: none;
     }
+    /* Row hover: subtle lift + shadow */
     .row:hover {
       background: var(--row-bg-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
     }
     .row.sev-critical:hover {
       background: #fecaca;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(220, 38, 38, 0.12);
     }
     .category.is-locked .row:hover {
       background: #fee2e2;
     }
-    /* Long-press progress fill: sits behind the row text, animates
-       its width from 0 to 100 percent over 800ms while the user
-       holds. No backticks in this comment -- the enclosing string
-       is a JS template literal. */
+
+    /* Long-press progress fill */
     .row .lp-fill {
       position: absolute;
       left: 0;
@@ -523,6 +649,10 @@
       flex: 0 0 auto;
       font-size: 14px;
       line-height: 1;
+      transition: transform var(--ease-fast);
+    }
+    .row:hover .row-icon {
+      transform: scale(1.1);
     }
     .row-value {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
@@ -533,6 +663,7 @@
       border-radius: 4px;
       word-break: break-all;
       font-weight: 600;
+      transition: background var(--ease-fast);
     }
     .row.sev-critical .row-value {
       background: #fff;
@@ -542,6 +673,10 @@
       flex: 0 0 auto;
       color: var(--text-muted);
       font-weight: 700;
+      transition: transform var(--ease-fast);
+    }
+    .row:hover .row-arrow {
+      transform: translateX(1px);
     }
     .row-placeholder {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
@@ -552,6 +687,7 @@
       padding: 2px 6px;
       border-radius: 4px;
       word-break: break-all;
+      transition: background var(--ease-fast);
     }
     .row-line2 {
       display: flex;
@@ -562,6 +698,8 @@
       color: var(--text-muted);
     }
     .row-count { font-variant-numeric: tabular-nums; }
+
+    /* --- Severity pills ---------------------------------------------- */
     .sev-pill {
       display: inline-block;
       font-size: 10px;
@@ -570,15 +708,18 @@
       padding: 1px 7px;
       border-radius: 8px;
       text-transform: uppercase;
+      transition: transform var(--ease-fast);
     }
     .sev-pill.sev-critical { background: var(--sev-critical-bg); color: var(--sev-critical); border: 1px solid var(--sev-critical); }
     .sev-pill.sev-high     { background: var(--sev-high-bg);     color: var(--sev-high);     border: 1px solid var(--sev-high); }
     .sev-pill.sev-medium   { background: var(--sev-medium-bg);   color: #a16207;             border: 1px solid var(--sev-medium); }
     .sev-pill.sev-low      { background: var(--sev-low-bg);      color: var(--sev-low);      border: 1px solid var(--sev-low); }
+
     .row-lock {
       color: var(--danger);
       font-weight: 600;
     }
+
     /* Hide the built-in checkbox: we drive state from the row itself.
        The checkbox still exists in the DOM for keyboard accessibility
        (it receives focus via Tab) but is visually suppressed. */
@@ -589,6 +730,8 @@
       width: 1px;
       height: 1px;
     }
+
+    /* --- Preview section (code-block aesthetic) ---------------------- */
     .preview-section {
       flex: 0 0 auto;
       margin-top: 8px;
@@ -599,8 +742,7 @@
     }
     .preview-section::before {
       /* Soft gradient fade at the top edge so content scrolling
-         behind the preview does not clip abruptly. Pure decoration;
-         the border-top above it is the real separator. */
+         behind the preview does not clip abruptly. */
       content: "";
       position: absolute;
       left: 0;
@@ -616,25 +758,37 @@
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
-      letter-spacing: 0.4px;
+      letter-spacing: 0.05em;
     }
     .preview {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
+        "Liberation Mono", monospace;
       background: var(--bg-panel);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 10px 12px;
+      padding: 12px 14px;
       font-size: 12px;
-      line-height: 1.55;
+      line-height: 1.6;
       white-space: pre-wrap;
       word-break: break-word;
-      /* Capped so a long AI prompt does not steal scroll real-estate
-         from the category list above. The preview itself scrolls
-         internally when content exceeds this height. */
       max-height: 22vh;
       min-height: 60px;
       overflow-y: auto;
       color: var(--text);
+      scrollbar-width: thin;
+      scrollbar-color: rgba(107, 114, 128, 0.25) transparent;
     }
+    .preview::-webkit-scrollbar { width: 5px; }
+    .preview::-webkit-scrollbar-track { background: transparent; }
+    .preview::-webkit-scrollbar-thumb {
+      background: rgba(107, 114, 128, 0.25);
+      border-radius: 3px;
+    }
+    .preview::-webkit-scrollbar-thumb:hover {
+      background: rgba(107, 114, 128, 0.4);
+    }
+
+    /* --- Footer ------------------------------------------------------ */
     footer {
       flex: 0 0 auto;
       padding: 12px 16px;
@@ -642,17 +796,23 @@
       display: flex;
       justify-content: flex-end;
       gap: 8px;
-      background: var(--bg-panel);
+      background: rgba(var(--bg-panel-rgb), 0.9);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
     }
+
     button.primary,
     button.secondary {
       font: inherit;
       font-size: 13px;
-      padding: 8px 14px;
+      padding: 8px 16px;
       border-radius: 8px;
       cursor: pointer;
       border: 1px solid transparent;
+      transition: background var(--ease-fast), box-shadow var(--ease-fast),
+        transform var(--ease-fast), border-color var(--ease-fast);
     }
+
     button.secondary {
       background: var(--bg-panel);
       border-color: var(--border);
@@ -662,16 +822,28 @@
     button.secondary:focus-visible {
       background: var(--row-bg-hover);
       outline: none;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
     }
+    button.secondary:active {
+      transform: scale(0.97);
+      box-shadow: none;
+    }
+
     button.primary {
-      background: var(--primary);
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
       color: #ffffff;
       font-weight: 600;
+      box-shadow: 0 1px 3px rgba(79, 70, 229, 0.3);
     }
     button.primary:hover,
     button.primary:focus-visible {
-      background: var(--primary-hover);
+      background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary) 100%);
       outline: none;
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
+    }
+    button.primary:active {
+      transform: scale(0.97);
+      box-shadow: 0 0 0 rgba(79, 70, 229, 0.2);
     }
   `;
 

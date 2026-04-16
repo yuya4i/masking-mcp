@@ -468,22 +468,10 @@
       border-left: 4px solid transparent;
       transition: filter var(--ease-fast), background var(--ease-fast);
     }
-    .category.cat-sev-critical .category-header {
-      border-left-color: var(--sev-critical);
-      background: var(--sev-critical-bg);
-    }
-    .category.cat-sev-high .category-header {
-      border-left-color: var(--sev-high);
-      background: var(--sev-high-bg);
-    }
-    .category.cat-sev-medium .category-header {
-      border-left-color: var(--sev-medium);
-      background: var(--sev-medium-bg);
-    }
-    .category.cat-sev-low .category-header {
-      border-left-color: var(--sev-low);
-      background: var(--sev-low-bg);
-    }
+    .category.cat-sev-critical .category-header { border-left-color: var(--sev-critical); }
+    .category.cat-sev-high     .category-header { border-left-color: var(--sev-high); }
+    .category.cat-sev-medium   .category-header { border-left-color: var(--sev-medium); }
+    .category.cat-sev-low      .category-header { border-left-color: var(--sev-low); }
     .category-header:hover {
       filter: brightness(0.95);
     }
@@ -1427,44 +1415,21 @@
         };
 
         const unlockRow = () => {
-          row._wasLocked = true;
           row.locked = false;
           checkbox.disabled = false;
           icon.textContent = isCritical ? "\ud83d\udd11" : "\ud83d\udd0d";
           wrap.classList.remove("is-locked");
+          // Remove the 🔒 hint entirely — unlocked rows toggle via click.
           const hintEl = wrap.querySelector(".row-lock");
-          if (hintEl) {
-            hintEl.textContent = isCritical
-              ? "\ud83d\udd12 長押しで解除 (800ms)"
-              : "\ud83d\udd0d クリックで切替";
-          }
+          if (hintEl) hintEl.remove();
           const catEl = wrap.closest(".category");
           if (catEl) catEl.classList.remove("is-locked");
-        };
-
-        const relockRow = () => {
-          row.locked = true;
-          checkbox.disabled = true;
-          checkbox.checked = true;
-          icon.textContent = "\ud83d\udd12";
-          wrap.classList.add("is-locked");
-          wrap.classList.remove("is-unmasked");
-          const hintEl = wrap.querySelector(".row-lock");
-          if (hintEl) {
-            hintEl.textContent = lockHoldLabel();
-          }
-          const catEl = wrap.closest(".category");
-          if (catEl) catEl.classList.add("is-locked");
         };
 
         const setState = (next) => {
           if (row.locked) unlockRow();
           row.masked = !!next;
-          if (row._wasLocked && row.masked) {
-            relockRow();
-          } else {
-            checkbox.checked = row.masked;
-          }
+          checkbox.checked = row.masked;
           syncAria();
           syncCategoryToggle(row.category);
           updatePreview();
@@ -1497,6 +1462,13 @@
           };
           const onDown = (event) => {
             if (timerId !== null) return;
+            // After unlock the row behaves like any other row —
+            // single click toggles without the long-press gate.
+            if (!row.locked) {
+              if (event.preventDefault) event.preventDefault();
+              setState(!row.masked);
+              return;
+            }
             if (event.preventDefault) event.preventDefault();
             startedAt = Date.now();
             if (fill) {

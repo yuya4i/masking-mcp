@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "PII Guard",
   "version": "1.0.0",
-  "description": "Detects and masks personal information (email, phone, address, name, IDs, API keys) in AI chat inputs before they leave your browser. Works fully offline.",
+  "description": "Mask personal info (email, phone, address, name, IDs, API keys) in AI chats before sending. 100% offline.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://claude.ai/*",

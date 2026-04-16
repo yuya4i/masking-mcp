@@ -285,9 +285,7 @@
         console.warn(
           "[mask-mcp] gateway timed out after",
           elapsed + "ms (limit",
-          GATEWAY_TIMEOUT_MS + "ms).",
-          "Check: (1) gateway running? curl http://127.0.0.1:8081/health",
-          "(2) if on WSL, docker-compose.yml bind should be 0.0.0.0:8081."
+          GATEWAY_TIMEOUT_MS + "ms)."
         );
       } else {
         console.warn(

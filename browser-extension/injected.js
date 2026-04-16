@@ -518,9 +518,8 @@
   function confirmSendUnmasked(serviceName) {
     try {
       return window.confirm(
-        `[Local Mask MCP] Gateway at 127.0.0.1:8081 is unreachable.\n\n` +
-          `Your input to ${serviceName} could NOT be masked.\n` +
-          `Send anyway without masking?`
+        `[PII Guard] Could not mask your input to ${serviceName}.\n\n` +
+          `Send the original text anyway?`
       );
     } catch (_) {
       return false;

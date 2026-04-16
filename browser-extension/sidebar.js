@@ -128,10 +128,10 @@
       all: initial;
     }
     .root {
-      position: fixed;
-      inset: 0;
+      position: relative;
+      width: 100%;
+      height: 100%;
       pointer-events: none;
-      z-index: 2147483647;
       font-family: system-ui, -apple-system, "Segoe UI", Roboto,
         "Helvetica Neue", sans-serif;
       font-size: 14px;
@@ -162,22 +162,12 @@
       --sev-low: #6b7280;         /* gray-500 */
       --sev-low-bg: #f3f4f6;      /* gray-100 */
     }
-    .overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 400px;
-      bottom: 0;
-      background: transparent;
-      pointer-events: auto;
-    }
     .panel {
       position: absolute;
       top: 0;
       right: 0;
       bottom: 0;
-      width: 400px;
-      max-width: 100vw;
+      width: 100%;
       background: var(--bg-panel);
       border-left: 1px solid var(--border);
       box-shadow: var(--shadow);
@@ -298,6 +288,29 @@
     .bulk-btn:focus-visible {
       background: var(--row-bg-hover);
       outline: none;
+    }
+    .hold-slider-bar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .hold-slider-bar label {
+      white-space: nowrap;
+    }
+    .hold-slider-bar input[type="range"] {
+      flex: 1 1 auto;
+      height: 4px;
+      accent-color: var(--sev-critical);
+    }
+    .hold-slider-bar .hold-val {
+      min-width: 28px;
+      text-align: right;
+      font-weight: 600;
+      color: var(--text);
     }
     .empty {
       padding: 24px 0;
@@ -751,7 +764,10 @@
       host.setAttribute("data-mask-mcp-sidebar", "");
       host.style.all = "initial";
       host.style.position = "fixed";
-      host.style.inset = "0";
+      host.style.top = "0";
+      host.style.right = "0";
+      host.style.bottom = "0";
+      host.style.width = "400px";
       host.style.zIndex = "2147483647";
       host.style.pointerEvents = "none";
       const shadow = host.attachShadow({ mode: "open" });
@@ -766,15 +782,8 @@
       root.setAttribute("aria-modal", "true");
       root.setAttribute("aria-labelledby", "mcp-sb-title");
 
-      const overlay = document.createElement("div");
-      overlay.className = "overlay";
-      // Note: clicking the overlay does NOT auto-cancel — the spec
-      // requires an explicit user choice via Cancel / Confirm.
-      overlay.addEventListener("click", (event) => {
-        event.stopPropagation();
-        // Yank focus back to the panel so screen readers stay anchored.
-        panel.focus();
-      });
+      // Push layout — no overlay. The host element is constrained to
+      // 400px on the right edge so the chat area stays fully interactive.
 
       const panel = document.createElement("div");
       panel.className = "panel";
@@ -808,6 +817,30 @@
       bulkBar.appendChild(selectAllBtn);
       bulkBar.appendChild(deselectAllBtn);
       body.appendChild(bulkBar);
+
+      // --- Hold-duration slider ---
+      let lockHoldMs = 3000;
+      const holdSliderBar = document.createElement("div");
+      holdSliderBar.className = "hold-slider-bar";
+      const holdLabel = document.createElement("label");
+      holdLabel.textContent = "\ud83d\udd12 解除長押し";
+      const holdSlider = document.createElement("input");
+      holdSlider.type = "range";
+      holdSlider.min = "1";
+      holdSlider.max = "5";
+      holdSlider.step = "0.5";
+      holdSlider.value = "3";
+      const holdVal = document.createElement("span");
+      holdVal.className = "hold-val";
+      holdVal.textContent = "3s";
+      holdSlider.addEventListener("input", () => {
+        lockHoldMs = Math.round(parseFloat(holdSlider.value) * 1000);
+        holdVal.textContent = holdSlider.value + "s";
+      });
+      holdSliderBar.appendChild(holdLabel);
+      holdSliderBar.appendChild(holdSlider);
+      holdSliderBar.appendChild(holdVal);
+      body.appendChild(holdSliderBar);
 
       // --- Severity filter tabs ---
       const sevTabs = document.createElement("div");
@@ -1151,8 +1184,8 @@
             }
           });
         } else {
-          // Long-press: critical = 800ms, locked = 3000ms.
-          const HOLD_MS = row.locked ? 3000 : 800;
+          // Long-press: critical = 800ms, locked = slider value (live).
+          const getHoldMs = () => row.locked ? lockHoldMs : 800;
           let timerId = null;
           let tickId = null;
           let startedAt = 0;
@@ -1179,9 +1212,10 @@
             } catch (_) {
               /* Safari / older WebViews may throw on setPointerCapture. */
             }
+            const ms = getHoldMs();
             tickId = setInterval(() => {
-              const elapsed = Math.min(HOLD_MS, Date.now() - startedAt);
-              if (fill) fill.style.width = `${(elapsed / HOLD_MS) * 100}%`;
+              const elapsed = Math.min(ms, Date.now() - startedAt);
+              if (fill) fill.style.width = `${(elapsed / ms) * 100}%`;
             }, 50);
             timerId = setTimeout(() => {
               clearTimers();
@@ -1195,7 +1229,7 @@
                 setTimeout(() => wrap.classList.remove("unlock-flash"), 600);
               }
               setTimeout(resetFill, 350);
-            }, HOLD_MS);
+            }, ms);
           };
           const onUp = () => {
             clearTimers();
@@ -1387,7 +1421,6 @@
       panel.appendChild(body);
       panel.appendChild(footer);
 
-      root.appendChild(overlay);
       root.appendChild(panel);
       shadow.appendChild(root);
 

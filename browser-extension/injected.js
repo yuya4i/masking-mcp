@@ -923,7 +923,29 @@
       const payload = args[1];
       if (!payload || typeof payload !== "object") return null;
       if (payload.type !== "user_message") return null;
+      // DIAG: dump payload shape on match so we know which field holds
+      // the user text. Remove once the adapter is confirmed working.
+      try {
+        const shape = {};
+        for (const k of Object.keys(payload)) {
+          const v = payload[k];
+          shape[k] =
+            typeof v === "string"
+              ? `string(${v.length}): ${v.slice(0, 60)}${v.length > 60 ? "…" : ""}`
+              : Array.isArray(v)
+              ? `Array(${v.length})` +
+                (v[0] ? ` first=${JSON.stringify(v[0]).slice(0, 80)}` : "")
+              : v && typeof v === "object"
+              ? `Object keys=[${Object.keys(v).join(",")}]`
+              : `${typeof v}: ${v}`;
+        }
+        LOG("manus-ws: user_message payload shape", shape);
+      } catch (_) {}
       if (typeof payload.content !== "string" || !payload.content.trim()) {
+        LOG(
+          "manus-ws: skip — content is not a non-empty string, typeof=" +
+            typeof payload.content
+        );
         return null;
       }
       return {
@@ -957,27 +979,49 @@
 
         if (manusWsAdapter.matchUrl(url) && typeof data === "string") {
           const parsed = parseSocketIoEvent(data);
-          const wrapped = parsed && manusWsAdapter.handleEvent(parsed.args);
-          if (wrapped) {
-            asyncHandled = true;
-            const ws = this;
-            const args = arguments;
-            const redacted = redactUrl(url);
-            (async () => {
-              if (!(await isEnabled())) {
-                originalWsSend.apply(ws, args);
-                return;
-              }
-              try {
-                const result = await processBody(
-                  manusAdapter,
-                  wrapped.bodyJson,
-                  redacted
-                );
-                if (!result.changed) {
+          if (!parsed) {
+            // ping/pong/CONNECT/ACK — expected, log only for size>2
+            if (data.length > 2) {
+              LOG("manus-ws: skip — not an EVENT frame, raw prefix=" + data.slice(0, 4));
+            }
+          } else {
+            const wrapped = manusWsAdapter.handleEvent(parsed.args);
+            if (!wrapped) {
+              LOG(
+                "manus-ws: skip — event not adaptable, event=" +
+                  parsed.args[0] +
+                  (parsed.args[1] && typeof parsed.args[1] === "object"
+                    ? " payloadType=" + parsed.args[1].type
+                    : "")
+              );
+            } else {
+              asyncHandled = true;
+              const ws = this;
+              const args = arguments;
+              const redacted = redactUrl(url);
+              LOG(
+                "manus-ws: intercepting user_message frame, content length=" +
+                  wrapped.bodyJson.content.length
+              );
+              (async () => {
+                if (!(await isEnabled())) {
+                  LOG("manus-ws: skip — disabled via popup");
                   originalWsSend.apply(ws, args);
                   return;
                 }
+                try {
+                  const result = await processBody(
+                    manusAdapter,
+                    wrapped.bodyJson,
+                    redacted
+                  );
+                  if (!result.changed) {
+                    LOG(
+                      "manus-ws: skip — processBody returned changed=false (no PII detected or gateway unchanged)"
+                    );
+                    originalWsSend.apply(ws, args);
+                    return;
+                  }
                 const newFrame = serializeSocketIoEvent(
                   parsed.prefix,
                   wrapped.restore(result.body)
@@ -1002,6 +1046,7 @@
                 originalWsSend.apply(ws, args);
               }
             })();
+            }
           }
         }
       } catch (err) {

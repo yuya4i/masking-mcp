@@ -820,6 +820,8 @@
 
       // --- Hold-duration slider ---
       let lockHoldMs = 3000;
+      const lockHoldLabel = () =>
+        "\ud83d\udd12 長押しで解除 (" + (lockHoldMs / 1000) + "s)";
       const holdSliderBar = document.createElement("div");
       holdSliderBar.className = "hold-slider-bar";
       const holdLabel = document.createElement("label");
@@ -836,6 +838,11 @@
       holdSlider.addEventListener("input", () => {
         lockHoldMs = Math.round(parseFloat(holdSlider.value) * 1000);
         holdVal.textContent = holdSlider.value + "s";
+        for (const el of categoriesWrap.querySelectorAll(".row-lock")) {
+          if (el.textContent.includes("長押しで解除")) {
+            el.textContent = lockHoldLabel();
+          }
+        }
       });
       holdSliderBar.appendChild(holdLabel);
       holdSliderBar.appendChild(holdSlider);
@@ -1108,7 +1115,7 @@
           const hint = document.createElement("span");
           hint.className = "row-lock";
           hint.textContent = row.locked
-            ? "\ud83d\udd12 長押しで解除 (3s)"
+            ? lockHoldLabel()
             : "\ud83d\udd12 長押しで解除 (800ms)";
           line2.appendChild(hint);
         } else if (row.locked) {
@@ -1117,7 +1124,7 @@
           line2.appendChild(dot2);
           const lock = document.createElement("span");
           lock.className = "row-lock";
-          lock.textContent = "\ud83d\udd12 長押しで解除 (3s)";
+          lock.textContent = lockHoldLabel();
           line2.appendChild(lock);
         }
 
@@ -1155,7 +1162,7 @@
           wrap.classList.remove("is-unmasked");
           const hintEl = wrap.querySelector(".row-lock");
           if (hintEl) {
-            hintEl.textContent = "\ud83d\udd12 長押しで解除 (3s)";
+            hintEl.textContent = lockHoldLabel();
           }
           const catEl = wrap.closest(".category");
           if (catEl) catEl.classList.add("is-locked");
@@ -1428,10 +1435,10 @@
 
       function cleanup() {
         document.removeEventListener("keydown", onKeyDown, true);
-        document.documentElement.style.marginRight = "";
-        setTimeout(() => {
-          document.documentElement.style.transition = "";
-        }, 250);
+        const el = document.documentElement;
+        el.style.width = "";
+        el.style.overflowX = "";
+        setTimeout(() => { el.style.transition = ""; }, 250);
         if (host.parentNode) host.parentNode.removeChild(host);
       }
 
@@ -1524,8 +1531,10 @@
       // off-screen at translateX(100%)).
       requestAnimationFrame(() => {
         panel.classList.add("is-open");
-        document.documentElement.style.transition = "margin-right 0.2s ease";
-        document.documentElement.style.marginRight = "400px";
+        const el = document.documentElement;
+        el.style.transition = "width 0.2s ease";
+        el.style.width = "calc(100vw - 400px)";
+        el.style.overflowX = "hidden";
       });
 
       // Focus the primary confirm button so Enter immediately

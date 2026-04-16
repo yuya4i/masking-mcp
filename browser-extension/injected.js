@@ -91,6 +91,16 @@
         ...NS.settings,
         ...data.settings,
       };
+      // Notify open UI surfaces (e.g. sidebar) so they can apply
+      // live-updated settings (allowlist additions etc.) without
+      // requiring a re-render trigger.
+      try {
+        window.dispatchEvent(
+          new CustomEvent("mask-mcp:settings-updated", {
+            detail: NS.settings,
+          })
+        );
+      } catch (_) {}
       return;
     }
     if (typeof data.id !== "string") return;

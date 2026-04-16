@@ -1550,6 +1550,7 @@
             },
           },
           row,
+          setState,
         });
         return wrap;
       }
@@ -1706,9 +1707,27 @@
 
       document.body.appendChild(host);
 
+      // Live allowlist sync — when the user adds entries via the
+      // options page, our content script broadcasts new settings.
+      // injected.js fires "mask-mcp:settings-updated" on window and
+      // we react here to auto-unmask any open rows whose value
+      // matches a newly-allowlisted entry.
+      function onSettingsUpdated(event) {
+        const next = event && event.detail;
+        if (!next || !Array.isArray(next.maskAllowlist)) return;
+        const allowSet = new Set(next.maskAllowlist);
+        for (const [, ctl] of rowControls) {
+          if (allowSet.has(ctl.row.value) && ctl.row.masked) {
+            ctl.setState(false);
+          }
+        }
+      }
+      window.addEventListener("mask-mcp:settings-updated", onSettingsUpdated);
+
       function cleanup() {
         document.removeEventListener("keydown", onKeyDown, true);
         window.removeEventListener("resize", onResize);
+        window.removeEventListener("mask-mcp:settings-updated", onSettingsUpdated);
         if (host.parentNode) host.parentNode.removeChild(host);
         // Unwrap: move children back to <body> and remove wrapper.
         if (wrapper.parentNode === document.body) {

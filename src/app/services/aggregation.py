@@ -41,7 +41,11 @@ from typing import Iterable
 from app.models.schemas import AggregatedEntity, DetectionResult
 from app.services.category_map import category_for
 from app.services.classification import classification_for
-from app.services.severity import severity_for, severity_for_surface
+from app.services.severity import (
+    severity_for,
+    severity_for_surface,
+    is_false_positive_person,
+)
 
 
 def aggregate_detections(
@@ -141,6 +145,10 @@ def aggregate_detections(
 
         number = numbering.get((label, value), 1)
         placeholder = f"<{label}_{number}>"
+        # Drop obvious PERSON false positives (polite Japanese phrases
+        # mis-tagged by Sudachi/Presidio).
+        if label in ("PERSON", "PROPER_NOUN_PERSON") and is_false_positive_person(value):
+            continue
         classification = classification_for(label)
         severity = severity_for_surface(label, value)
 

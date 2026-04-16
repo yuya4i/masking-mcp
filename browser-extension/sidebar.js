@@ -633,12 +633,13 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
         "Liberation Mono", monospace;
       font-size: 12.5px;
-      background: var(--bg);
-      padding: 2px 6px;
+      background: transparent;
+      border: 1px solid var(--border);
+      padding: 1px 6px;
       border-radius: 4px;
       word-break: break-all;
       font-weight: 600;
-      transition: background var(--ease-fast);
+      transition: border-color var(--ease-fast);
     }
     .row-arrow {
       flex: 0 0 auto;
@@ -654,8 +655,9 @@
         "Liberation Mono", monospace;
       font-size: 12px;
       color: var(--primary);
-      background: #eef2ff;
-      padding: 2px 6px;
+      background: transparent;
+      border: 1px solid var(--primary);
+      padding: 1px 6px;
       border-radius: 4px;
       word-break: break-all;
       transition: background var(--ease-fast);

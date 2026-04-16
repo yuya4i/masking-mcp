@@ -5,7 +5,7 @@ Phase A (standalone-only) を Chrome Web Store に提出するための素材ま
 ## ストア掲載情報
 
 ### 名前
-PII Guard for AI Chats
+PII Guard
 
 ### 短い説明 (132 文字以内)
 個人情報(電話番号・メール・住所・名前・APIキー等)を AI チャット送信前に自動検出してマスキング。完全オフライン動作。

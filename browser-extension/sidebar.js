@@ -1391,15 +1391,6 @@
         count.textContent = `${row.count}件`;
         line2.appendChild(count);
 
-        const dot1 = document.createElement("span");
-        dot1.textContent = "·";
-        line2.appendChild(dot1);
-
-        const sevPill = document.createElement("span");
-        sevPill.className = `sev-pill sev-${row.severity}`;
-        sevPill.textContent = row.severity;
-        line2.appendChild(sevPill);
-
         if (row.locked) {
           const dot2 = document.createElement("span");
           dot2.textContent = "·";

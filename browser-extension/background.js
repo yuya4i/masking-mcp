@@ -41,6 +41,9 @@ chrome.runtime.onInstalled.addListener(async () => {
     "enabled",
     "interactive",
     "uiMode",
+    "localLlmEnabled",
+    "localLlmMode",
+    "localLlmTimeoutMs",
   ]);
   const patch = {};
   if (typeof stored.enabled !== "boolean") patch.enabled = true;
@@ -48,6 +51,12 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (stored.uiMode !== "sidebar" && stored.uiMode !== "modal") {
     patch.uiMode = "sidebar";
   }
+  // v0.5.0 — local LLM proxy defaults.
+  if (typeof stored.localLlmEnabled !== "boolean") patch.localLlmEnabled = false;
+  if (stored.localLlmMode !== "detect" && stored.localLlmMode !== "replace") {
+    patch.localLlmMode = "detect";
+  }
+  if (typeof stored.localLlmTimeoutMs !== "number") patch.localLlmTimeoutMs = 15000;
   if (Object.keys(patch).length > 0) {
     await chrome.storage.local.set(patch);
   }

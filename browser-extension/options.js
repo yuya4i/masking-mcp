@@ -116,11 +116,119 @@ async function loadUiMode() {
   if (target) target.checked = true;
 }
 
+// --- Local LLM section -------------------------------------------------
+
+function setLlmStatus(state, text) {
+  const el = $("llm-status");
+  el.textContent = text;
+  el.className = "status-pill status-" + state;
+}
+
+function normalizeUrl(raw) {
+  if (!raw) return "";
+  let url = raw.trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(url)) url = "http://" + url;
+  return url;
+}
+
+async function probeLlm(url) {
+  if (!url) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
+  try {
+    const resp = await fetch(url + "/api/tags", {
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      return { ok: true, kind: "ollama", models: (data.models || []).map((m) => m.name) };
+    }
+  } catch (_) {}
+  try {
+    const resp = await fetch(url + "/v1/models", { signal: controller.signal });
+    if (resp.ok) {
+      const data = await resp.json();
+      return {
+        ok: true,
+        kind: "openai-compat",
+        models: (data.data || []).map((m) => m.id),
+      };
+    }
+  } catch (_) {}
+  clearTimeout(timer);
+  return { ok: false };
+}
+
+async function testLlm() {
+  const rawUrl = $("llm-url").value;
+  const url = normalizeUrl(rawUrl);
+  if (!url) {
+    setLlmStatus("unknown", "URL 未設定");
+    return;
+  }
+  setLlmStatus("checking", "接続確認中...");
+  const result = await probeLlm(url);
+  if (result && result.ok) {
+    setLlmStatus("ok", `接続 OK (${result.kind}, ${result.models.length} モデル)`);
+    populateModels(result.models);
+    await chrome.storage.local.set({ localLlmUrl: url, localLlmKind: result.kind });
+  } else {
+    setLlmStatus("err", "接続失敗");
+  }
+}
+
+function populateModels(models) {
+  const sel = $("llm-model");
+  const prev = sel.value;
+  while (sel.firstChild) sel.removeChild(sel.firstChild);
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = "(未選択)";
+  sel.appendChild(blank);
+  for (const m of models) {
+    const opt = document.createElement("option");
+    opt.value = m;
+    opt.textContent = m;
+    if (m === prev) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+async function loadLlmSettings() {
+  const stored = await chrome.storage.local.get([
+    "localLlmEnabled",
+    "localLlmUrl",
+    "localLlmModel",
+    "localLlmMode",
+    "localLlmTimeoutMs",
+  ]);
+  $("llm-enabled").checked = stored.localLlmEnabled === true;
+  $("llm-url").value = stored.localLlmUrl || "";
+  $("llm-mode").value = stored.localLlmMode === "replace" ? "replace" : "detect";
+  $("llm-timeout").value = stored.localLlmTimeoutMs || 15000;
+  if (stored.localLlmModel) {
+    const opt = document.createElement("option");
+    opt.value = stored.localLlmModel;
+    opt.textContent = stored.localLlmModel + " (保存済み)";
+    opt.selected = true;
+    $("llm-model").appendChild(opt);
+  }
+  if (stored.localLlmUrl && stored.localLlmEnabled) {
+    testLlm();
+  } else if (!stored.localLlmUrl) {
+    setLlmStatus("unknown", "未設定");
+  } else {
+    setLlmStatus("unknown", "無効化中");
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   loadAllowlist();
   loadEnabled();
   loadInteractive();
   loadUiMode();
+  loadLlmSettings();
 
   $("allowlist-add-btn").addEventListener("click", () => {
     const input = $("allowlist-input");
@@ -155,5 +263,30 @@ document.addEventListener("DOMContentLoaded", () => {
       const value = e.target.value === "modal" ? "modal" : "sidebar";
       chrome.storage.local.set({ uiMode: value });
     });
+  });
+
+  // LLM event wiring.
+  $("llm-enabled").addEventListener("change", (e) => {
+    chrome.storage.local.set({ localLlmEnabled: e.target.checked });
+    if (!e.target.checked) setLlmStatus("unknown", "無効化中");
+    else if ($("llm-url").value) testLlm();
+  });
+  $("llm-test-btn").addEventListener("click", testLlm);
+  $("llm-url").addEventListener("change", (e) => {
+    const url = normalizeUrl(e.target.value);
+    chrome.storage.local.set({ localLlmUrl: url });
+    e.target.value = url;
+  });
+  $("llm-model").addEventListener("change", (e) => {
+    chrome.storage.local.set({ localLlmModel: e.target.value });
+  });
+  $("llm-mode").addEventListener("change", (e) => {
+    const v = e.target.value === "replace" ? "replace" : "detect";
+    chrome.storage.local.set({ localLlmMode: v });
+  });
+  $("llm-timeout").addEventListener("change", (e) => {
+    const n = Math.max(2000, Math.min(60000, parseInt(e.target.value, 10) || 15000));
+    chrome.storage.local.set({ localLlmTimeoutMs: n });
+    e.target.value = n;
   });
 });

@@ -54,11 +54,51 @@ async function loadDetectionCount() {
   }
 }
 
+async function loadLlmIndicator() {
+  const el = $("llm-indicator");
+  if (!el) return;
+  const { localLlmEnabled, localLlmUrl, localLlmModel } =
+    await chrome.storage.local.get(["localLlmEnabled", "localLlmUrl", "localLlmModel"]);
+  if (!localLlmEnabled) {
+    el.textContent = "無効";
+    el.className = "value status-unknown";
+    return;
+  }
+  if (!localLlmUrl) {
+    el.textContent = "URL 未設定";
+    el.className = "value status-warn";
+    return;
+  }
+  el.textContent = "確認中…";
+  el.className = "value status-unknown";
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 2500);
+  try {
+    const resp = await fetch(localLlmUrl.replace(/\/+$/, "") + "/api/tags", {
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (resp.ok) {
+      el.textContent = localLlmModel ? `✓ ${localLlmModel}` : "✓ 接続";
+      el.className = "value status-ok";
+    } else {
+      el.textContent = "HTTP " + resp.status;
+      el.className = "value status-warn";
+    }
+  } catch (_) {
+    el.textContent = "切断";
+    el.className = "value status-err";
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   loadEnabled();
   loadInteractive();
   loadUiMode();
   loadDetectionCount();
+  loadLlmIndicator();
 
   $("enabled-toggle").addEventListener("change", (e) => {
     saveEnabled(e.target.checked);

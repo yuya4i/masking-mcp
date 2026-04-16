@@ -562,7 +562,7 @@
     .row.sev-high     { border-left-color: var(--sev-high); }
     .row.sev-medium   { border-left-color: var(--sev-medium); }
     .row.sev-low      { border-left-color: var(--sev-low); }
-    .row.is-unmasked  { opacity: 0.55; background: var(--bg); }
+    .row.is-unmasked  { opacity: 0.55; background: var(--bg); border-right: 4px solid #22c55e; }
 
     .row.long-press-pulse {
       animation: lp-pulse 0.45s ease-out;

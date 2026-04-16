@@ -131,32 +131,31 @@ function normalizeUrl(raw) {
   return url;
 }
 
+async function swFetch(url, timeoutMs) {
+  // Route through the service worker so Chrome's Private Network Access
+  // policy does not block HTTPS-page → http://localhost calls.
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: "LLM_FETCH",
+      url,
+      method: "GET",
+      timeoutMs: timeoutMs || 4000,
+    });
+    if (resp && resp.ok && resp.body) return JSON.parse(resp.body);
+  } catch (_) {}
+  return null;
+}
+
 async function probeLlm(url) {
   if (!url) return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 4000);
-  try {
-    const resp = await fetch(url + "/api/tags", {
-      signal: controller.signal,
-      cache: "no-store",
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      return { ok: true, kind: "ollama", models: (data.models || []).map((m) => m.name) };
-    }
-  } catch (_) {}
-  try {
-    const resp = await fetch(url + "/v1/models", { signal: controller.signal });
-    if (resp.ok) {
-      const data = await resp.json();
-      return {
-        ok: true,
-        kind: "openai-compat",
-        models: (data.data || []).map((m) => m.id),
-      };
-    }
-  } catch (_) {}
-  clearTimeout(timer);
+  const tags = await swFetch(url + "/api/tags", 4000);
+  if (tags && Array.isArray(tags.models)) {
+    return { ok: true, kind: "ollama", models: tags.models.map((m) => m.name) };
+  }
+  const oai = await swFetch(url + "/v1/models", 4000);
+  if (oai && Array.isArray(oai.data)) {
+    return { ok: true, kind: "openai-compat", models: oai.data.map((m) => m.id) };
+  }
   return { ok: false };
 }
 

@@ -71,25 +71,23 @@ async function loadLlmIndicator() {
   }
   el.textContent = "確認中…";
   el.className = "value status-unknown";
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 2500);
   try {
-    const resp = await fetch(localLlmUrl.replace(/\/+$/, "") + "/api/tags", {
-      signal: controller.signal,
-      cache: "no-store",
+    const resp = await chrome.runtime.sendMessage({
+      type: "LLM_FETCH",
+      url: localLlmUrl.replace(/\/+$/, "") + "/api/tags",
+      method: "GET",
+      timeoutMs: 2500,
     });
-    if (resp.ok) {
+    if (resp && resp.ok) {
       el.textContent = localLlmModel ? `✓ ${localLlmModel}` : "✓ 接続";
       el.className = "value status-ok";
     } else {
-      el.textContent = "HTTP " + resp.status;
-      el.className = "value status-warn";
+      el.textContent = resp && resp.status ? `HTTP ${resp.status}` : "切断";
+      el.className = "value status-err";
     }
   } catch (_) {
     el.textContent = "切断";
     el.className = "value status-err";
-  } finally {
-    clearTimeout(t);
   }
 }
 

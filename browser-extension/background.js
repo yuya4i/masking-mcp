@@ -88,6 +88,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // v0.5.0 — LLM fetch proxy. Chrome's Private Network Access (PNA)
+  // blocks HTTPS-page content scripts from calling http://localhost,
+  // even with host_permissions. The service worker is in a privileged
+  // context and is not subject to the same mixed-content restriction,
+  // so we route all LLM calls here.
+  if (message.type === "LLM_FETCH") {
+    (async () => {
+      const { url, method, body, timeoutMs } = message;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs || 15000);
+      try {
+        const resp = await fetch(url, {
+          method: method || "GET",
+          headers: body ? { "Content-Type": "application/json" } : undefined,
+          body: body || undefined,
+          signal: controller.signal,
+        });
+        const status = resp.status;
+        const text = await resp.text();
+        sendResponse({ ok: resp.ok, status, body: text });
+      } catch (err) {
+        sendResponse({ ok: false, error: err?.message || String(err) });
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+    return true; // keep the channel open for async response
+  }
+
   return false;
 });
 

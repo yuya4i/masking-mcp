@@ -411,16 +411,14 @@
       window.postMessage({ source: TAG_OUT, id, type: "llm-call-result", result: null }, "*");
       return;
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), config.timeoutMs || 15000);
-    try {
-      let resp;
-      if (config.kind === "openai-compat") {
-        resp = await fetch(config.url + "/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
+    // Route the actual fetch through the service worker (background.js)
+    // so Chrome's Private Network Access blocker doesn't reject an
+    // HTTPS-page content script calling http://localhost.
+    const isOpenAi = config.kind === "openai-compat";
+    const url = config.url + (isOpenAi ? "/v1/chat/completions" : "/api/chat");
+    const body = JSON.stringify(
+      isOpenAi
+        ? {
             model: config.model || "default",
             messages: [
               { role: "system", content: system },
@@ -428,18 +426,8 @@
             ],
             stream: false,
             temperature: 0,
-          }),
-        });
-        if (resp.ok) {
-          const j = await resp.json();
-          result = j?.choices?.[0]?.message?.content || null;
-        }
-      } else {
-        resp = await fetch(config.url + "/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
+          }
+        : {
             model: config.model || "qwen3:1.7b",
             messages: [
               { role: "system", content: system },
@@ -447,17 +435,30 @@
             ],
             stream: false,
             options: { temperature: 0 },
-          }),
-        });
-        if (resp.ok) {
-          const j = await resp.json();
-          result = j?.message?.content || null;
-        }
+          }
+    );
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: "LLM_FETCH",
+        url,
+        method: "POST",
+        body,
+        timeoutMs: config.timeoutMs || 15000,
+      });
+      if (resp && resp.ok && resp.body) {
+        const j = JSON.parse(resp.body);
+        result = isOpenAi
+          ? j?.choices?.[0]?.message?.content
+          : j?.message?.content;
+        result = result || null;
+      } else {
+        console.debug(
+          "[mask-mcp] llm call non-ok:",
+          resp && (resp.status || resp.error)
+        );
       }
     } catch (err) {
       console.debug("[mask-mcp] llm call failed:", err?.message || err);
-    } finally {
-      clearTimeout(timer);
     }
     window.postMessage({ source: TAG_OUT, id, type: "llm-call-result", result }, "*");
   }

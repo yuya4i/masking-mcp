@@ -813,5 +813,58 @@
     }
   };
 
-  LOG("injected hooks installed on", window.location.hostname);
+  // --- sendBeacon hook (log only) ----------------------------------------
+  //
+  // Sentry / Amplitude SDKs routinely deliver envelopes via
+  // ``navigator.sendBeacon`` which bypasses fetch+XHR entirely. We
+  // pass the call through unchanged and only LOG provider hits so the
+  // console reveals whether manus chat submission uses this path.
+
+  if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+    const originalSendBeacon = navigator.sendBeacon.bind(navigator);
+    navigator.sendBeacon = function patchedSendBeacon(url, data) {
+      try {
+        const host = new URL(url, location.href).host;
+        if (
+          /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i.test(
+            host
+          )
+        ) {
+          LOG("provider beacon:", url, "bodyType=" + typeof data);
+        }
+      } catch (_) {}
+      return originalSendBeacon(url, data);
+    };
+  }
+
+  // --- WebSocket hook (log only) -----------------------------------------
+  //
+  // manus chat streams may use WebSocket; neither the fetch nor the
+  // XHR hook catches those frames. Diagnostic only — payload is not
+  // modified until we confirm the actual transport.
+
+  if (typeof WebSocket !== "undefined") {
+    const originalWsSend = WebSocket.prototype.send;
+    WebSocket.prototype.send = function patchedWsSend(data) {
+      try {
+        const url = this.url || "";
+        const host = new URL(url, location.href).host;
+        if (
+          /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i.test(
+            host
+          )
+        ) {
+          const size = (data && typeof data.length === "number") ? data.length : 0;
+          LOG("provider ws send:", url, "bodyType=" + typeof data, "size=" + size);
+        }
+      } catch (_) {}
+      return originalWsSend.apply(this, arguments);
+    };
+  }
+
+  LOG(
+    "injected hooks installed on",
+    window.location.hostname,
+    "(fetch, xhr, sendBeacon, ws)"
+  );
 })();

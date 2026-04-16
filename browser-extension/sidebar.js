@@ -162,6 +162,29 @@
       --sev-low: #6b7280;         /* gray-500 */
       --sev-low-bg: #f3f4f6;      /* gray-100 */
     }
+    @media (prefers-color-scheme: dark) {
+      .root {
+        --primary: #818cf8;
+        --primary-hover: #6366f1;
+        --danger: #f87171;
+        --bg: #1f2937;
+        --bg-panel: #111827;
+        --border: #374151;
+        --text: #f9fafb;
+        --text-muted: #9ca3af;
+        --shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+        --row-bg-hover: #374151;
+        --locked-bg: #450a0a;
+        --sev-critical: #f87171;
+        --sev-critical-bg: #450a0a;
+        --sev-high: #fb923c;
+        --sev-high-bg: #431407;
+        --sev-medium: #facc15;
+        --sev-medium-bg: #422006;
+        --sev-low: #9ca3af;
+        --sev-low-bg: #1f2937;
+      }
+    }
     .panel {
       position: relative;
       width: 100%;
@@ -260,7 +283,7 @@
     }
     .sev-tab:hover { background: var(--row-bg-hover); }
     .sev-tab.active { font-weight: 600; color: #fff; }
-    .sev-tab.active[data-sev="all"]      { background: var(--text); border-color: var(--text); }
+    .sev-tab.active[data-sev="all"]      { background: var(--text-muted); border-color: var(--text-muted); }
     .sev-tab.active[data-sev="critical"] { background: var(--sev-critical); border-color: var(--sev-critical); }
     .sev-tab.active[data-sev="high"]     { background: var(--sev-high); border-color: var(--sev-high); }
     .sev-tab.active[data-sev="medium"]   { background: var(--sev-medium); border-color: var(--sev-medium); }
@@ -329,12 +352,29 @@
       padding: 10px 12px;
       cursor: pointer;
       user-select: none;
+      border-left: 4px solid transparent;
+    }
+    .category.cat-sev-critical .category-header {
+      border-left-color: var(--sev-critical);
+      background: var(--sev-critical-bg);
+    }
+    .category.cat-sev-high .category-header {
+      border-left-color: var(--sev-high);
+      background: var(--sev-high-bg);
+    }
+    .category.cat-sev-medium .category-header {
+      border-left-color: var(--sev-medium);
+      background: var(--sev-medium-bg);
+    }
+    .category.cat-sev-low .category-header {
+      border-left-color: var(--sev-low);
+      background: var(--sev-low-bg);
     }
     .category-header:hover {
-      background: var(--row-bg-hover);
+      filter: brightness(0.95);
     }
     .category.is-locked .category-header:hover {
-      background: #fee2e2;
+      filter: brightness(0.92);
     }
     .twisty {
       width: 14px;
@@ -831,22 +871,24 @@
       body.appendChild(bulkBar);
 
       // --- Hold-duration slider ---
-      let lockHoldMs = 3000;
+      let lockHoldMs = 1000;
       const lockHoldLabel = () =>
-        "\ud83d\udd12 長押しで解除 (" + (lockHoldMs / 1000) + "s)";
+        lockHoldMs === 0
+          ? "\ud83d\udd12 クリックで解除"
+          : "\ud83d\udd12 長押しで解除 (" + (lockHoldMs / 1000) + "s)";
       const holdSliderBar = document.createElement("div");
       holdSliderBar.className = "hold-slider-bar";
       const holdLabel = document.createElement("label");
       holdLabel.textContent = "\ud83d\udd12 解除長押し";
       const holdSlider = document.createElement("input");
       holdSlider.type = "range";
-      holdSlider.min = "1";
-      holdSlider.max = "5";
-      holdSlider.step = "0.5";
-      holdSlider.value = "3";
+      holdSlider.min = "0";
+      holdSlider.max = "1.5";
+      holdSlider.step = "0.1";
+      holdSlider.value = "1";
       const holdVal = document.createElement("span");
       holdVal.className = "hold-val";
-      holdVal.textContent = "3s";
+      holdVal.textContent = "1s";
       holdSlider.addEventListener("input", () => {
         lockHoldMs = Math.round(parseFloat(holdSlider.value) * 1000);
         holdVal.textContent = holdSlider.value + "s";
@@ -928,6 +970,7 @@
         // can tell at a glance that a PERSON group is actually critical
         // because it hides an API_KEY.
         const groupSeverity = worstSeverity(items);
+        wrap.classList.add(`cat-sev-${groupSeverity}`);
         const groupPill = document.createElement("span");
         groupPill.className = `sev-pill sev-${groupSeverity}`;
         groupPill.textContent = groupSeverity;
@@ -1204,6 +1247,7 @@
           });
         } else {
           // Long-press: critical = 800ms, locked = slider value (live).
+          // When slider is 0, locked rows get single-click toggle.
           const getHoldMs = () => row.locked ? lockHoldMs : 800;
           let timerId = null;
           let tickId = null;
@@ -1232,11 +1276,7 @@
               /* Safari / older WebViews may throw on setPointerCapture. */
             }
             const ms = getHoldMs();
-            tickId = setInterval(() => {
-              const elapsed = Math.min(ms, Date.now() - startedAt);
-              if (fill) fill.style.width = `${(elapsed / ms) * 100}%`;
-            }, 50);
-            timerId = setTimeout(() => {
+            const doToggle = () => {
               clearTimers();
               if (fill) fill.style.width = "100%";
               const wasLocked = row.locked;
@@ -1248,7 +1288,16 @@
                 setTimeout(() => wrap.classList.remove("unlock-flash"), 600);
               }
               setTimeout(resetFill, 350);
-            }, ms);
+            };
+            if (ms === 0) {
+              doToggle();
+              return;
+            }
+            tickId = setInterval(() => {
+              const elapsed = Math.min(ms, Date.now() - startedAt);
+              if (fill) fill.style.width = `${(elapsed / ms) * 100}%`;
+            }, 50);
+            timerId = setTimeout(doToggle, ms);
           };
           const onUp = () => {
             clearTimers();

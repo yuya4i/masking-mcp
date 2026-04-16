@@ -116,38 +116,11 @@ async function loadUiMode() {
   if (target) target.checked = true;
 }
 
-async function probeGateway() {
-  const el = $("gateway-status");
-  el.textContent = "checking…";
-  el.className = "status-pill status-unknown";
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 1500);
-  try {
-    const resp = await fetch("http://127.0.0.1:8081/health", {
-      signal: controller.signal,
-      cache: "no-store",
-    });
-    if (resp.ok) {
-      el.textContent = "reachable ✓";
-      el.className = "status-pill status-ok";
-    } else {
-      el.textContent = "HTTP " + resp.status;
-      el.className = "status-pill status-warn";
-    }
-  } catch (_) {
-    el.textContent = "unreachable";
-    el.className = "status-pill status-err";
-  } finally {
-    clearTimeout(t);
-  }
-}
-
 document.addEventListener("DOMContentLoaded", () => {
   loadAllowlist();
   loadEnabled();
   loadInteractive();
   loadUiMode();
-  probeGateway();
 
   $("allowlist-add-btn").addEventListener("click", () => {
     const input = $("allowlist-input");

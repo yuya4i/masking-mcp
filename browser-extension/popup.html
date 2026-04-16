@@ -1,31 +1,26 @@
 <!doctype html>
-<!--
-  Popup surface for the Local Mask MCP extension.
-  Kept deliberately minimal: one toggle, three read-only indicators,
-  and a link into the local Swagger UI. No frameworks, no build step.
--->
-<html lang="en">
+<html lang="ja">
   <head>
     <meta charset="utf-8" />
-    <title>Local Mask MCP</title>
+    <title>PII Guard for AI Chats</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <header>
-      <h1>Local Mask MCP</h1>
-      <span id="version">v0.2.0</span>
+      <h1>PII Guard</h1>
+      <span id="version">v1.0.0</span>
     </header>
 
     <section class="row toggle-row">
       <label for="enabled-toggle" class="toggle-label">
-        <span>Masking enabled</span>
+        <span>マスキングを有効化</span>
         <input type="checkbox" id="enabled-toggle" />
       </label>
     </section>
 
     <section class="row toggle-row">
       <label for="interactive-toggle" class="toggle-label">
-        <span>送信前に確認する (インタラクティブ・モード)</span>
+        <span>送信前に確認 (インタラクティブ)</span>
         <input type="checkbox" id="interactive-toggle" />
       </label>
     </section>
@@ -36,34 +31,23 @@
         <legend class="visually-hidden">UI モード</legend>
         <label class="radio-label">
           <input type="radio" name="ui-mode" value="sidebar" id="ui-mode-sidebar" />
-          <span>サイドバー (推奨、カテゴリ別集約表示)</span>
+          <span>サイドバー (推奨)</span>
         </label>
         <label class="radio-label">
           <input type="radio" name="ui-mode" value="modal" id="ui-mode-modal" />
-          <span>モーダル (従来)</span>
+          <span>モーダル</span>
         </label>
       </fieldset>
     </section>
 
     <section class="row">
-      <span class="label">Gateway</span>
-      <span id="gateway-status" class="value status-unknown">checking…</span>
+      <span class="label">エンジン</span>
+      <span class="value status-ok">ローカル ✓</span>
     </section>
 
     <section class="row">
-      <span class="label">Masked on this tab</span>
+      <span class="label">このタブのマスク件数</span>
       <span id="detections-count" class="value">0</span>
-    </section>
-
-    <section class="row autostart-row" id="autostart-hint" hidden>
-      <div class="autostart-copy">
-        <strong>Gateway が見つかりません。</strong>
-        1 度スクリプトを実行すると、次回以降の OS 起動で自動で立ち上がります:
-        <code id="autostart-cmd">bash scripts/install-autostart.sh</code>
-        <a id="autostart-docs"
-           href="https://github.com/yuya4i/masking-mcp#autostart"
-           target="_blank" rel="noopener">詳細 →</a>
-      </div>
     </section>
 
     <section class="row allowlist-quick">
@@ -73,8 +57,8 @@
     </section>
 
     <footer>
-      <a id="open-swagger" href="http://127.0.0.1:8081/v1/api" target="_blank" rel="noopener">
-        Open gateway Swagger UI
+      <a id="privacy-link" href="https://github.com/yuya4i/pii-masking/blob/main/browser-extension/PRIVACY.md" target="_blank" rel="noopener">
+        プライバシーポリシー
       </a>
     </footer>
 

@@ -69,18 +69,19 @@
       </section>
 
       <section class="card">
-        <h2>Gateway</h2>
+        <h2>エンジン</h2>
         <div class="form-row">
-          <span class="form-label">接続先</span>
-          <code class="endpoint">http://127.0.0.1:8081</code>
+          <span class="form-label">動作モード</span>
+          <span class="status-pill status-ok">ローカル (オフライン)</span>
         </div>
         <div class="form-row">
-          <span class="form-label">ステータス</span>
-          <span id="gateway-status" class="status-pill status-unknown">checking…</span>
+          <span class="form-label">バージョン</span>
+          <code class="endpoint" id="engine-version">phase1-1.0.0</code>
         </div>
-        <a class="link" href="http://127.0.0.1:8081/v1/api" target="_blank" rel="noopener">
-          Gateway Swagger UI を開く →
-        </a>
+        <p class="hint" style="margin-top:12px">
+          すべての PII 検出はブラウザ内で完結します。入力テキストや検出結果が
+          外部サーバーへ送信されることはありません。
+        </p>
       </section>
     </main>
 

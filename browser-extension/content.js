@@ -340,7 +340,10 @@
   //                  if unreachable. Expert-mode only.
   async function handleHybridPref(data) {
     const { id } = data;
-    let pref = "auto";
+    // Web Store build: default to standalone (no Docker required).
+    // Power users can opt into "gateway" / "auto" via DevTools but
+    // the shipped UX assumes a self-contained browser-only engine.
+    let pref = "standalone";
     try {
       const stored = await chrome.storage.local.get(["mask_mcp_pref_hybrid"]);
       const v = stored.mask_mcp_pref_hybrid;
@@ -348,7 +351,7 @@
         pref = v;
       }
     } catch (_) {
-      pref = "auto";
+      pref = "standalone";
     }
     window.postMessage(
       {

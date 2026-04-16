@@ -454,7 +454,6 @@
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.04);
     }
     .category.is-locked {
-      background: var(--locked-bg);
       border-color: var(--sev-critical);
     }
 
@@ -1414,12 +1413,15 @@
           wrap.classList.toggle("is-unmasked", !row.masked);
         };
 
+        const baseIcon = isCritical ? "\ud83d\udd11" : "\ud83d\udd0d";
+        const lockIcon = "\ud83d\udd12";
+        const wasOriginallyLocked = row.locked;
+
         const unlockRow = () => {
           row.locked = false;
           checkbox.disabled = false;
-          icon.textContent = isCritical ? "\ud83d\udd11" : "\ud83d\udd0d";
+          icon.textContent = baseIcon;
           wrap.classList.remove("is-locked");
-          // Remove the 🔒 hint entirely — unlocked rows toggle via click.
           const hintEl = wrap.querySelector(".row-lock");
           if (hintEl) hintEl.remove();
           const catEl = wrap.closest(".category");
@@ -1430,6 +1432,11 @@
           if (row.locked) unlockRow();
           row.masked = !!next;
           checkbox.checked = row.masked;
+          // Restore lock icon when re-masking a row that was originally
+          // force-locked. The row stays click-toggleable (no relock).
+          if (wasOriginallyLocked) {
+            icon.textContent = row.masked ? lockIcon : baseIcon;
+          }
           syncAria();
           syncCategoryToggle(row.category);
           updatePreview();

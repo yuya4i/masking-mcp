@@ -163,23 +163,16 @@
       --sev-low-bg: #f3f4f6;      /* gray-100 */
     }
     .panel {
-      position: absolute;
-      top: 0;
-      right: 0;
-      bottom: 0;
+      position: relative;
       width: 100%;
+      height: 100%;
       background: var(--bg-panel);
       border-left: 1px solid var(--border);
       box-shadow: var(--shadow);
       display: flex;
       flex-direction: column;
-      transform: translateX(100%);
-      transition: transform 0.18s ease-out;
       pointer-events: auto;
       overflow: hidden;
-    }
-    .panel.is-open {
-      transform: translateX(0);
     }
     .panel header {
       flex: 0 0 auto;
@@ -760,15 +753,26 @@
     }
 
     return new Promise((resolve) => {
+      // --- Push layout: wrap existing body children in a flex sibling ---
+      // Instead of position:fixed (which overlays), we make <body> a
+      // flex row. Existing content goes into a wrapper (flex:1) and the
+      // sidebar host sits beside it (flex:0 0 auto). This keeps both
+      // in the same document flow so they never overlap.
+      const wrapper = document.createElement("div");
+      wrapper.setAttribute("data-mask-mcp-wrapper", "");
+      wrapper.style.cssText = "flex:1 1 0;min-width:0;overflow:auto;height:100vh;";
+      while (document.body.firstChild) {
+        wrapper.appendChild(document.body.firstChild);
+      }
+      document.body.appendChild(wrapper);
+      document.body.style.cssText += ";display:flex!important;flex-direction:row!important;margin:0!important;overflow:hidden!important;height:100vh!important;";
+
       const host = document.createElement("div");
       host.setAttribute("data-mask-mcp-sidebar", "");
       host.style.all = "initial";
-      host.style.position = "fixed";
-      host.style.top = "0";
-      host.style.right = "0";
-      host.style.bottom = "0";
+      host.style.display = "block";
+      host.style.height = "100vh";
       host.style.zIndex = "2147483647";
-      host.style.pointerEvents = "none";
 
       function sidebarWidth() {
         return Math.min(400, Math.floor(window.innerWidth * 0.45));
@@ -776,7 +780,7 @@
       function applySidebarLayout() {
         const sw = sidebarWidth();
         host.style.width = sw + "px";
-        document.documentElement.style.width = (window.innerWidth - sw) + "px";
+        host.style.minWidth = sw + "px";
       }
       const shadow = host.attachShadow({ mode: "open" });
 
@@ -1444,11 +1448,20 @@
       function cleanup() {
         document.removeEventListener("keydown", onKeyDown, true);
         window.removeEventListener("resize", onResize);
-        const el = document.documentElement;
-        el.style.width = "";
-        el.style.overflowX = "";
-        setTimeout(() => { el.style.transition = ""; }, 250);
         if (host.parentNode) host.parentNode.removeChild(host);
+        // Unwrap: move children back to <body> and remove wrapper.
+        if (wrapper.parentNode === document.body) {
+          while (wrapper.firstChild) {
+            document.body.appendChild(wrapper.firstChild);
+          }
+          wrapper.remove();
+          document.body.style.cssText = document.body.style.cssText
+            .replace(/display:\s*flex\s*!important;?/g, "")
+            .replace(/flex-direction:\s*row\s*!important;?/g, "")
+            .replace(/overflow:\s*hidden\s*!important;?/g, "")
+            .replace(/height:\s*100vh\s*!important;?/g, "")
+            .replace(/margin:\s*0\s*!important;?/g, "");
+        }
       }
 
       function onConfirm() {
@@ -1540,9 +1553,6 @@
       // off-screen at translateX(100%)).
       const onResize = () => applySidebarLayout();
       requestAnimationFrame(() => {
-        panel.classList.add("is-open");
-        document.documentElement.style.transition = "width 0.2s ease";
-        document.documentElement.style.overflowX = "hidden";
         applySidebarLayout();
         window.addEventListener("resize", onResize);
       });

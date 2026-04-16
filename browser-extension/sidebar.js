@@ -634,22 +634,19 @@
         "Liberation Mono", monospace;
       font-size: 12.5px;
       background: transparent;
-      border: 1px dashed var(--danger);
+      border: 1px solid var(--border);
       padding: 1px 6px;
       border-radius: 4px;
       word-break: break-all;
       font-weight: 500;
       color: var(--text-muted);
-      text-decoration: line-through;
-      text-decoration-color: var(--danger);
-      text-decoration-thickness: 1.5px;
+      opacity: 0.65;
       transition: all var(--ease-fast);
     }
     .row.is-unmasked .row-value {
-      border-style: solid;
-      border-color: #22c55e;
+      border-color: var(--text-muted);
       color: var(--text);
-      text-decoration: none;
+      opacity: 1;
       font-weight: 600;
     }
     .row-arrow {
@@ -683,12 +680,9 @@
       transition: all var(--ease-fast);
     }
     .row.is-unmasked .row-placeholder {
-      border-style: dashed;
-      border-color: var(--text-muted);
+      border-color: var(--border);
       color: var(--text-muted);
-      text-decoration: line-through;
-      text-decoration-thickness: 1.5px;
-      opacity: 0.6;
+      opacity: 0.5;
       font-weight: 500;
     }
     .row-line2 {

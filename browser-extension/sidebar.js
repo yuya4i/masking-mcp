@@ -767,9 +767,17 @@
       host.style.top = "0";
       host.style.right = "0";
       host.style.bottom = "0";
-      host.style.width = "400px";
       host.style.zIndex = "2147483647";
       host.style.pointerEvents = "none";
+
+      function sidebarWidth() {
+        return Math.min(400, Math.floor(window.innerWidth * 0.45));
+      }
+      function applySidebarLayout() {
+        const sw = sidebarWidth();
+        host.style.width = sw + "px";
+        document.documentElement.style.width = (window.innerWidth - sw) + "px";
+      }
       const shadow = host.attachShadow({ mode: "open" });
 
       const style = document.createElement("style");
@@ -1435,6 +1443,7 @@
 
       function cleanup() {
         document.removeEventListener("keydown", onKeyDown, true);
+        window.removeEventListener("resize", onResize);
         const el = document.documentElement;
         el.style.width = "";
         el.style.overflowX = "";
@@ -1529,12 +1538,13 @@
       // Trigger the slide-in animation on the next frame so the
       // transition actually fires (initial paint has the panel
       // off-screen at translateX(100%)).
+      const onResize = () => applySidebarLayout();
       requestAnimationFrame(() => {
         panel.classList.add("is-open");
-        const el = document.documentElement;
-        el.style.transition = "width 0.2s ease";
-        el.style.width = "calc(100vw - 400px)";
-        el.style.overflowX = "hidden";
+        document.documentElement.style.transition = "width 0.2s ease";
+        document.documentElement.style.overflowX = "hidden";
+        applySidebarLayout();
+        window.addEventListener("resize", onResize);
       });
 
       // Focus the primary confirm button so Enter immediately

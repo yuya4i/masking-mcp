@@ -255,6 +255,34 @@
          pinned preview above it. */
       padding-bottom: 6px;
     }
+    .sev-tabs {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .sev-tab {
+      flex: 1 1 0;
+      padding: 4px 0;
+      font: inherit;
+      font-size: 11px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--bg-panel);
+      color: var(--text-muted);
+      cursor: pointer;
+      text-align: center;
+      white-space: nowrap;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .sev-tab:hover { background: var(--row-bg-hover); }
+    .sev-tab.active { font-weight: 600; color: #fff; }
+    .sev-tab.active[data-sev="all"]      { background: var(--text); border-color: var(--text); }
+    .sev-tab.active[data-sev="critical"] { background: var(--sev-critical); border-color: var(--sev-critical); }
+    .sev-tab.active[data-sev="high"]     { background: var(--sev-high); border-color: var(--sev-high); }
+    .sev-tab.active[data-sev="medium"]   { background: var(--sev-medium); border-color: var(--sev-medium); }
+    .sev-tab.active[data-sev="low"]      { background: var(--sev-low); border-color: var(--sev-low); }
+
     .bulk-btn {
       flex: 1 1 0;
       padding: 6px 10px;
@@ -773,6 +801,42 @@
       bulkBar.appendChild(deselectAllBtn);
       body.appendChild(bulkBar);
 
+      // --- Severity filter tabs ---
+      const sevTabs = document.createElement("div");
+      sevTabs.className = "sev-tabs";
+      let activeFilter = "all";
+      const SEV_KEYS = ["all", "critical", "high", "medium", "low"];
+      const SEV_LABELS = { all: "All", critical: "Critical", high: "High", medium: "Medium", low: "Low" };
+      for (const key of SEV_KEYS) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "sev-tab" + (key === "all" ? " active" : "");
+        btn.dataset.sev = key;
+        btn.textContent = SEV_LABELS[key];
+        btn.addEventListener("click", () => {
+          activeFilter = key;
+          for (const t of sevTabs.children) t.classList.remove("active");
+          btn.classList.add("active");
+          applySevFilter();
+        });
+        sevTabs.appendChild(btn);
+      }
+      body.appendChild(sevTabs);
+
+      function applySevFilter() {
+        const cats = categoriesWrap.querySelectorAll(".category");
+        for (const cat of cats) {
+          const rows = cat.querySelectorAll(".row");
+          let visibleCount = 0;
+          for (const r of rows) {
+            const show = activeFilter === "all" || r.dataset.severity === activeFilter;
+            r.style.display = show ? "" : "none";
+            if (show) visibleCount++;
+          }
+          cat.style.display = visibleCount > 0 ? "" : "none";
+        }
+      }
+
       // Track the DOM nodes per row/category so toggles can reach the
       // corresponding checkboxes without touching textContent.
       const rowControls = new Map(); // key → { checkbox, row }
@@ -916,6 +980,7 @@
         // rows toggle on a single click/tap.
         const wrap = document.createElement("div");
         wrap.className = `row sev-${row.severity}${row.masked ? "" : " is-unmasked"}`;
+        wrap.dataset.severity = row.severity;
         wrap.setAttribute("role", "switch");
         wrap.setAttribute("tabindex", "0");
         wrap.setAttribute("aria-checked", row.masked ? "true" : "false");
@@ -942,9 +1007,10 @@
         // Long-press progress fill (critical only, absolute-positioned
         // behind the text; width animates 0% → 100% during a hold).
         let fill = null;
-        if (isCritical && !row.locked) {
+        if (isCritical || row.locked) {
           fill = document.createElement("div");
           fill.className = "lp-fill";
+          if (row.locked) fill.style.background = "var(--sev-critical-bg)";
           wrap.appendChild(fill);
         }
 
@@ -1001,7 +1067,7 @@
           const hint = document.createElement("span");
           hint.className = "row-lock";
           hint.textContent = row.locked
-            ? "\ud83d\udd12 ロック中"
+            ? "\ud83d\udd12 長押しで解除 (1.2s)"
             : "\ud83d\udd12 長押しで解除 (800ms)";
           line2.appendChild(hint);
         } else if (row.locked) {
@@ -1010,7 +1076,7 @@
           line2.appendChild(dot2);
           const lock = document.createElement("span");
           lock.className = "row-lock";
-          lock.textContent = "\ud83d\udd12 ロック中";
+          lock.textContent = "\ud83d\udd12 長押しで解除 (1.2s)";
           line2.appendChild(lock);
         }
 
@@ -1023,8 +1089,23 @@
           wrap.classList.toggle("is-unmasked", !row.masked);
         };
 
+        const unlockRow = () => {
+          row.locked = false;
+          checkbox.disabled = false;
+          icon.textContent = isCritical ? "\ud83d\udd11" : "\ud83d\udd0d";
+          wrap.classList.remove("is-locked");
+          const hintEl = wrap.querySelector(".row-lock");
+          if (hintEl) {
+            hintEl.textContent = isCritical
+              ? "\ud83d\udd12 長押しで解除 (800ms)"
+              : "";
+          }
+          const catEl = wrap.closest(".category");
+          if (catEl) catEl.classList.remove("is-locked");
+        };
+
         const setState = (next) => {
-          if (row.locked) return;
+          if (row.locked) unlockRow();
           row.masked = !!next;
           checkbox.checked = row.masked;
           syncAria();
@@ -1032,9 +1113,7 @@
           updatePreview();
         };
 
-        if (row.locked) {
-          // Locked by force_mask_categories: no interaction, stays masked.
-        } else if (!isCritical) {
+        if (!isCritical && !row.locked) {
           // Single click anywhere on the row toggles.
           wrap.addEventListener("click", () => setState(!row.masked));
           wrap.addEventListener("keydown", (event) => {
@@ -1044,9 +1123,8 @@
             }
           });
         } else {
-          // Long-press: press anywhere on the row for 800ms. The fill
-          // overlay animates 0% → 100% width during the hold. Release
-          // before 800ms cancels; held to completion toggles.
+          // Long-press: critical = 800ms, locked = 1200ms.
+          const HOLD_MS = row.locked ? 1200 : 800;
           let timerId = null;
           let tickId = null;
           let startedAt = 0;
@@ -1061,7 +1139,7 @@
             if (tickId !== null) { clearInterval(tickId); tickId = null; }
           };
           const onDown = (event) => {
-            if (row.locked || timerId !== null) return;
+            if (timerId !== null) return;
             if (event.preventDefault) event.preventDefault();
             startedAt = Date.now();
             if (fill) {
@@ -1074,8 +1152,8 @@
               /* Safari / older WebViews may throw on setPointerCapture. */
             }
             tickId = setInterval(() => {
-              const elapsed = Math.min(800, Date.now() - startedAt);
-              if (fill) fill.style.width = `${(elapsed / 800) * 100}%`;
+              const elapsed = Math.min(HOLD_MS, Date.now() - startedAt);
+              if (fill) fill.style.width = `${(elapsed / HOLD_MS) * 100}%`;
             }, 50);
             timerId = setTimeout(() => {
               clearTimers();
@@ -1084,7 +1162,7 @@
               setTimeout(() => wrap.classList.remove("long-press-pulse"), 450);
               setState(!row.masked);
               setTimeout(resetFill, 350);
-            }, 800);
+            }, HOLD_MS);
           };
           const onUp = () => {
             clearTimers();

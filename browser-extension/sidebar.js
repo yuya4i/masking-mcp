@@ -752,6 +752,14 @@
       line-height: 1;
       transition: transform var(--ease-fast);
     }
+    .row-icon.is-llm {
+      filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.55));
+      animation: llm-icon-pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes llm-icon-pulse {
+      0%, 100% { filter: drop-shadow(0 0 2px rgba(168, 85, 247, 0.35)); }
+      50%      { filter: drop-shadow(0 0 7px rgba(168, 85, 247, 0.70)); }
+    }
     .row:hover .row-icon {
       transform: scale(1.1);
     }
@@ -1490,13 +1498,21 @@
         const line1 = document.createElement("div");
         line1.className = "row-line1";
 
+        // Row icon picks the most specific marker:
+        //   🔒 locked (force-masked)
+        //   ✨ LLM-detected (overrides critical/non-critical)
+        //   🔑 critical
+        //   🔍 non-critical
         const icon = document.createElement("span");
         icon.className = "row-icon";
+        if (row.source === "llm") icon.classList.add("is-llm");
         icon.textContent = row.locked
-          ? "\ud83d\udd12"  // 🔒 force-masked
-          : isCritical
-            ? "\ud83d\udd11" // 🔑 critical
-            : "\ud83d\udd0d"; // 🔍 non-critical
+          ? "\ud83d\udd12"          // 🔒 force-masked
+          : row.source === "llm"
+            ? "\u2728"              // ✨ AI-detected
+            : isCritical
+              ? "\ud83d\udd11"      // 🔑 critical
+              : "\ud83d\udd0d";     // 🔍 non-critical
         line1.appendChild(icon);
 
         const value = document.createElement("span");
@@ -1530,7 +1546,8 @@
           const llmBadge = document.createElement("span");
           llmBadge.className = "row-llm-badge";
           llmBadge.textContent = "AI 検出";
-          llmBadge.title = "ローカル LLM が文脈から検出";
+          llmBadge.title = "ローカル LLM が文脈から検出した候補";
+          llmBadge.setAttribute("aria-label", "AI 検出項目");
           line2.appendChild(llmBadge);
         }
 

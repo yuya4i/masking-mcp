@@ -1173,12 +1173,23 @@
       // in the same document flow so they never overlap.
       const wrapper = document.createElement("div");
       wrapper.setAttribute("data-mask-mcp-wrapper", "");
-      wrapper.style.cssText = "flex:1 1 0;min-width:0;overflow:auto;height:100vh;";
+      // ``transform: translateZ(0)`` + ``contain: layout`` together
+      // promote the wrapper into a containing block for its fixed-
+      // position descendants. Without this, ChatGPT / Claude composer
+      // boxes and sticky headers (which use ``position: fixed``)
+      // render relative to the VIEWPORT and extend across the sidebar
+      // area, visually covering our panel. With the wrapper as a
+      // containing block, those fixed elements use the wrapper's
+      // (flex:1, narrower) box so they stay on the left and the
+      // sidebar sits cleanly on the right.
+      wrapper.style.cssText =
+        "flex:1 1 0;min-width:0;overflow:auto;height:100vh;" +
+        "transform:translateZ(0);contain:layout;position:relative;";
       while (document.body.firstChild) {
         wrapper.appendChild(document.body.firstChild);
       }
       document.body.appendChild(wrapper);
-      document.body.style.cssText += ";display:flex!important;flex-direction:row!important;margin:0!important;overflow:hidden!important;height:100vh!important;";
+      document.body.style.cssText += ";display:flex!important;flex-direction:row!important;margin:0!important;overflow:hidden!important;height:100vh!important;width:100vw!important;";
 
       const host = document.createElement("div");
       host.setAttribute("data-mask-mcp-sidebar", "");
@@ -1197,7 +1208,15 @@
       host.style.isolation = "isolate";
 
       function sidebarWidth() {
-        return Math.min(400, Math.floor(window.innerWidth * 0.45));
+        // Target 400px; on narrow viewports shrink to max 50% so
+        // both panes are usable. Never go below 280px (rows + pill
+        // get unreadable). On very small screens (<560px total)
+        // the math yields 50% which is ~280 — still usable.
+        const vw = window.innerWidth;
+        const target = 400;
+        const maxShare = Math.floor(vw * 0.5);
+        const minPx = Math.min(280, Math.floor(vw * 0.5));
+        return Math.max(minPx, Math.min(target, maxShare));
       }
       function applySidebarLayout() {
         const sw = sidebarWidth();

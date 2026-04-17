@@ -472,15 +472,25 @@
         CREDENTIAL: "critical",
         SENSITIVE_FACT: "high",
       };
-      // Build the LLM rows first (they become authoritative).
+      // Build the LLM rows first (they become authoritative). We scan
+      // ALL occurrences of each value in the input so multi-occurrence
+      // surfaces ("田中さんから田中部長に伝言") get every instance
+      // masked rather than just the first.
       const llmRows = [];
       const llmValues = new Set();
       const counters = {};
       for (const ent of llmEnts) {
         const value = typeof ent.text === "string" ? ent.text.trim() : "";
         if (!value || llmValues.has(value)) continue;
-        const start = text.indexOf(value);
-        if (start < 0) continue;
+        const positions = [];
+        let from = 0;
+        while (true) {
+          const idx = text.indexOf(value, from);
+          if (idx < 0) break;
+          positions.push([idx, idx + value.length]);
+          from = idx + value.length;
+        }
+        if (!positions.length) continue;
         const label = String(ent.entity_type || "SENSITIVE_FACT").toUpperCase();
         const category = LABEL_TO_CATEGORY[label] || "OTHER";
         const severity = LABEL_TO_SEVERITY[label] || "medium";
@@ -489,8 +499,8 @@
           value,
           label,
           category,
-          count: 1,
-          positions: [[start, start + value.length]],
+          count: positions.length,
+          positions,
           masked: true,
           placeholder: `<${label}_${counters[label]}>`,
           classification: "contextual",

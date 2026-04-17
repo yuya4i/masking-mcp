@@ -51,15 +51,21 @@ Schema:
 
 If nothing qualifies, return {"entities":[]}.`;
 
-  const REPLACE_SYSTEM_PROMPT = `Rewrite Japanese/English input so no real PII remains. Keep meaning, grammar, and shape identical. Return JSON only.
+  const REPLACE_SYSTEM_PROMPT = `Rewrite Japanese/English input so ALL identifying or sensitive information is replaced with realistic fakes. Keep meaning, grammar, and shape identical. Return JSON only.
 
-Rules:
-- Names: same-length realistic fake (田中太郎→佐藤健太).
-- Phones: 0X0-XXXX-XXXX with new digits.
-- Emails: new_user@example.com form.
-- Companies: 株式会社サンプル商事 (keep prefix/suffix).
-- Credentials: replace with [REDACTED].
-- Keep non-PII exactly as is (polite phrases, code, markdown, public domains).
+You MUST rewrite ALL of these categories — be aggressive, not conservative:
+
+1. PERSON — real names (田中 → 佐藤, Taro Yamada → Kenji Watanabe). Include when a title follows (田中副社長 → 佐藤副社長).
+2. COMPANY — corporate names with OR without 株式会社 prefix (株式会社アクメ → 株式会社サンプル商事, メルカリ → 楽天). Also 元メルカリ → 元楽天 etc.
+3. LOCATION — office buildings (渋谷本社 → 品川本社), meeting rooms (雲雀 → 桜), cities in business context (大阪オフィス → 名古屋オフィス), medical facilities (都立駒込病院 → 都立荏原病院), building codes (B 棟 7F → C 棟 3F).
+4. DEPARTMENT — internal units (営業第三部 → 営業第一部, 経営企画部 → マーケティング部).
+5. PROJECT_CODE — code names / project IDs (アポロ計画 → プロジェクト Orion, ひまわり PoC → さくら PoC, 次期製品ロードマップ v3 → 次期製品ロードマップ v5).
+6. CREDENTIAL — actual secret values (Pass2024! → [REDACTED]). Also cloud RESOURCE names that reveal infra (Route53 → [REDACTED_DNS], RDS → [REDACTED_DB], AWS SSO → [REDACTED_IDP], IAM ロール arn → [REDACTED_ROLE_ARN]).
+7. SENSITIVE_FACT — illness names (白血病 → 慢性疾患), salary figures (年収 1,450 万円 → 年収 800 万円), personal schedules (水・金の午後 → 火・木の午後), confidentiality markers (社外秘 keep as is — that IS public), join/leave dates (2023 年 6 月入社 → 2021 年 3 月入社).
+
+Phones: 0X0-XXXX-XXXX with new digits. Emails: new_user@example.com form.
+
+Preserve COMPLETELY: polite phrases, code blocks, markdown, public domains (github.com), generic tech names (Docker, Kubernetes, Linux), public figures, common nouns, punctuation, line breaks.
 
 Schema:
 {"rewritten_text":"<full rewritten message>","replacements":[{"original":"<substring>","replacement":"<new value>","entity_type":"<LABEL>"}]}
@@ -81,8 +87,17 @@ Ex2 Output: {"entities":[{"text":"営業第二部","entity_type":"DEPARTMENT","r
 Ex1 Input: "田中太郎さんの電話 090-1234-5678 までご連絡ください"
 Ex1 Output: {"rewritten_text":"佐藤健太さんの電話 080-5678-9012 までご連絡ください","replacements":[{"original":"田中太郎","replacement":"佐藤健太","entity_type":"PERSON"},{"original":"090-1234-5678","replacement":"080-5678-9012","entity_type":"PHONE_NUMBER"}]}
 
-Ex2 Input: "HTTPS 経由で github.com に push してください"
-Ex2 Output: {"rewritten_text":"HTTPS 経由で github.com に push してください","replacements":[]}
+Ex2 Input: "アポロ計画の MTG は渋谷本社 B 棟 7F で。営業第三部の佐藤 (元メルカリ) が担当"
+Ex2 Output: {"rewritten_text":"プロジェクト Orion の MTG は品川本社 C 棟 3F で。営業第一部の鈴木 (元楽天) が担当","replacements":[{"original":"アポロ計画","replacement":"プロジェクト Orion","entity_type":"PROJECT_CODE"},{"original":"渋谷本社","replacement":"品川本社","entity_type":"LOCATION"},{"original":"B 棟 7F","replacement":"C 棟 3F","entity_type":"LOCATION"},{"original":"営業第三部","replacement":"営業第一部","entity_type":"DEPARTMENT"},{"original":"佐藤","replacement":"鈴木","entity_type":"PERSON"},{"original":"元メルカリ","replacement":"元楽天","entity_type":"COMPANY"}]}
+
+Ex3 Input: "母が都立駒込病院で白血病の治療中。年収 1,450 万円超えは人事 HRIS へ"
+Ex3 Output: {"rewritten_text":"母が都立荏原病院で慢性疾患の治療中。年収 800 万円超えは人事 HRIS へ","replacements":[{"original":"都立駒込病院","replacement":"都立荏原病院","entity_type":"LOCATION"},{"original":"白血病","replacement":"慢性疾患","entity_type":"SENSITIVE_FACT"},{"original":"1,450 万円","replacement":"800 万円","entity_type":"SENSITIVE_FACT"}]}
+
+Ex4 Input: "本番の Route53 と RDS のクレデンシャルを AWS SSO 側でローテート"
+Ex4 Output: {"rewritten_text":"本番の [REDACTED_DNS] と [REDACTED_DB] のクレデンシャルを [REDACTED_IDP] 側でローテート","replacements":[{"original":"Route53","replacement":"[REDACTED_DNS]","entity_type":"CREDENTIAL"},{"original":"RDS","replacement":"[REDACTED_DB]","entity_type":"CREDENTIAL"},{"original":"AWS SSO","replacement":"[REDACTED_IDP]","entity_type":"CREDENTIAL"}]}
+
+Ex5 Input: "HTTPS 経由で github.com に push してください"
+Ex5 Output: {"rewritten_text":"HTTPS 経由で github.com に push してください","replacements":[]}
 `;
 
   function buildDetectPrompt(userText) {

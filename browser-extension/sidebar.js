@@ -1634,7 +1634,8 @@
 
         const count = document.createElement("span");
         count.className = "row-count";
-        count.textContent = `${row.count}件`;
+        count.textContent = `出現回数 ${row.count}回`;
+        count.title = `この値が入力テキスト中に ${row.count} 回出現`;
         line2.appendChild(count);
 
         if (row.source === "llm") {

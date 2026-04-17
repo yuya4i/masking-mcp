@@ -1742,25 +1742,27 @@
         // one-click because adding protection is always safe.
         const requiresHold = () => row.locked || (isCritical && row.masked);
 
-        if (!requiresHold()) {
-          // Click / tap toggles. Re-checks requiresHold() on every
-          // tap so a newly-unmasked critical row goes back to
-          // one-click when masked=false, and back to long-press
-          // when masked=true again.
-          const clickHandler = () => {
-            if (requiresHold()) return; // gesture takes over below
+        // ALWAYS attach the click / keyboard toggle. requiresHold()
+        // is evaluated at event time, so:
+        //   - critical row + masked       → requiresHold()=true,
+        //                                   click is no-op (hold only)
+        //   - critical row + unmasked     → requiresHold()=false,
+        //                                   click re-masks in one tap
+        //   - locked row + unlocked later → requiresHold()=false,
+        //                                   click toggles normally
+        const clickHandler = () => {
+          if (requiresHold()) return; // gesture takes over below
+          setState(!row.masked);
+        };
+        wrap.addEventListener("click", clickHandler);
+        wrap.addEventListener("keydown", (event) => {
+          if (requiresHold()) return;
+          if (event.key === " " || event.key === "Enter") {
+            event.preventDefault();
             setState(!row.masked);
-          };
-          wrap.addEventListener("click", clickHandler);
-          wrap.addEventListener("keydown", (event) => {
-            if (requiresHold()) return;
-            if (event.key === " " || event.key === "Enter") {
-              event.preventDefault();
-              setState(!row.masked);
-            }
-          });
-        }
-        if (requiresHold() || isCritical) {
+          }
+        });
+        if (row.locked || isCritical) {
           // Long-press with slider duration. Active for locked rows
           // AND for critical rows (enforced via requiresHold inside
           // onDown to avoid triggering when a critical row has

@@ -912,6 +912,105 @@
   // never imports from the sidebar global (the sidebar may legitimately
   // be missing if the user picked ``uiMode: "modal"`` and only
   // review-modal.js was loaded).
+  // Post-process LLM replace-mode output so every distinct original
+  // value gets a UNIQUE numbered tag (<name_1>, <name_2>, <company_1>, …).
+  // This is what makes restoration possible later: the extension can
+  // map <name_3> → "田中副社長" unambiguously because the mapping is
+  // 1:1, not 1:N. The same surface text reused within one message
+  // keeps the same tag so references stay consistent.
+  //
+  // Strategy:
+  //   1. Walk LLM.replacements in order, derive a base tag ("name",
+  //      "company", …) from each replacement string ("<name>" or
+  //      entity_type lowercase).
+  //   2. Assign <base_N> where N is 1-based per-base counter; same
+  //      original gets the same tag.
+  //   3. Rebuild rewritten_text by locating every occurrence of
+  //      every tagged original in the source text and splicing in
+  //      its tag. Longest-first greedy to avoid clobbering longer
+  //      matches that contain shorter ones.
+  function applyUniqueTagsToReplace(originalText, replacements) {
+    const BASE_FROM_LABEL = {
+      PERSON: "name",
+      COMPANY: "company",
+      LOCATION: "location",
+      DEPARTMENT: "department",
+      PROJECT_CODE: "project",
+      CREDENTIAL: "credential",
+      SENSITIVE_FACT: "fact",
+      PHONE_NUMBER: "phone",
+      EMAIL_ADDRESS: "email",
+    };
+    const tagByOriginal = new Map();
+    const counters = {};
+    for (const r of replacements) {
+      const orig = typeof r?.original === "string" ? r.original.trim() : "";
+      if (!orig || tagByOriginal.has(orig)) continue;
+      // Prefer the LLM-picked base tag (e.g. <hospital> inside
+      // <hospital> or "元<company>"), but fall back to the label
+      // mapping if the replacement wasn't a recognizable tag.
+      let base;
+      const tagMatch = String(r.replacement || "").match(
+        /<([a-z][a-z_]*?)(?:_\d+)?>/i
+      );
+      if (tagMatch) {
+        base = tagMatch[1].toLowerCase();
+      } else {
+        base =
+          BASE_FROM_LABEL[String(r.entity_type || "").toUpperCase()] ||
+          "masked";
+      }
+      counters[base] = (counters[base] || 0) + 1;
+      tagByOriginal.set(orig, `<${base}_${counters[base]}>`);
+    }
+    // Rebuild rewritten_text — match every tagged original against
+    // the source, resolve overlaps by longest-first, splice tags in.
+    const hits = [];
+    for (const orig of tagByOriginal.keys()) {
+      let from = 0;
+      while (true) {
+        const idx = originalText.indexOf(orig, from);
+        if (idx < 0) break;
+        hits.push({ start: idx, end: idx + orig.length, orig });
+        from = idx + orig.length;
+      }
+    }
+    hits.sort((a, b) => {
+      if (a.start !== b.start) return a.start - b.start;
+      return b.end - b.start - (a.end - a.start);
+    });
+    const chosen = [];
+    let lastEnd = -1;
+    for (const h of hits) {
+      if (h.start >= lastEnd) {
+        chosen.push(h);
+        lastEnd = h.end;
+      }
+    }
+    let out = "";
+    let cursor = 0;
+    for (const h of chosen) {
+      out += originalText.slice(cursor, h.start);
+      out += tagByOriginal.get(h.orig);
+      cursor = h.end;
+    }
+    out += originalText.slice(cursor);
+
+    const uniqueReplacements = [];
+    const seen = new Set();
+    for (const r of replacements) {
+      const orig = typeof r?.original === "string" ? r.original.trim() : "";
+      if (!orig || seen.has(orig)) continue;
+      seen.add(orig);
+      uniqueReplacements.push({
+        original: orig,
+        replacement: tagByOriginal.get(orig),
+        entity_type: r.entity_type,
+      });
+    }
+    return { rewritten_text: out, replacements: uniqueReplacements };
+  }
+
   function applyTriples(originalText, triples) {
     if (!triples || triples.length === 0) return originalText;
     const numberFor = buildNumberer(originalText, triples);
@@ -967,10 +1066,17 @@
               out.rewritten_text.length > 0 &&
               out.rewritten_text !== text
             ) {
-              rewritten.push(out.rewritten_text);
-              replacementSets.push(
+              // Normalize to unique <tag_N> numbered placeholders so
+              // every distinct original maps to exactly one tag (and
+              // every occurrence of that original gets the same tag).
+              // Without this, the LLM's "<name>" for everyone makes
+              // the mapping 1:N and un-restorable.
+              const normalized = applyUniqueTagsToReplace(
+                text,
                 Array.isArray(out.replacements) ? out.replacements : [],
               );
+              rewritten.push(normalized.rewritten_text);
+              replacementSets.push(normalized.replacements);
             } else {
               allLlmSucceeded = false;
               break;

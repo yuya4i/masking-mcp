@@ -1041,87 +1041,70 @@
     }
     LOG(`${adapter.name}: ${inputs.length} input string(s) to mask`);
 
-    // v0.5.0 — AI replace mode. When enabled the LLM rewrites the
-    // message body end-to-end; we skip the regex/review pipeline for
-    // those inputs and substitute the LLM output directly. Falls back
-    // to the regex path when LLM returns nothing usable.
+    // v0.5.0 — AI replace mode. The LLM rewrites each input into
+    // <tag_N> placeholders. We open the review sidebar IMMEDIATELY
+    // with an overlay, run the LLM as opts.llmPending, then display
+    // the rewritten rows for user confirmation. No page-center
+    // overlay — everything happens inside the sidebar.
     try {
       const cfgResp = await request("llm-config", {});
       const cfg = cfgResp && cfgResp.config;
       if (cfg && cfg.mode === "replace") {
-        const rewritten = [];
-        const replacementSets = [];
-        let allLlmSucceeded = true;
-        // Show the center overlay while the LLM rewrites, then close
-        // it before opening the review sidebar so the user can
-        // confirm which replacements to apply.
-        const sb = NS.sidebar;
-        if (sb && sb.showReplaceOverlay) sb.showReplaceOverlay();
-        try {
-          for (const text of inputs) {
-            const out = await llmAugment(text, "replace");
-            if (
-              out &&
-              typeof out.rewritten_text === "string" &&
-              out.rewritten_text.length > 0 &&
-              out.rewritten_text !== text
-            ) {
-              // Normalize to unique <tag_N> numbered placeholders so
-              // every distinct original maps to exactly one tag (and
-              // every occurrence of that original gets the same tag).
-              // Without this, the LLM's "<name>" for everyone makes
-              // the mapping 1:N and un-restorable.
-              const normalized = applyUniqueTagsToReplace(
-                text,
-                Array.isArray(out.replacements) ? out.replacements : [],
-              );
-              rewritten.push(normalized.rewritten_text);
-              replacementSets.push(normalized.replacements);
-            } else {
-              allLlmSucceeded = false;
-              break;
+        const sidebarNS = NS.sidebar;
+        const wantReview =
+          NS.settings && NS.settings.interactive !== false;
+        if (wantReview && sidebarNS && inputs.length > 0) {
+          const LBL2CAT = {
+            PERSON: "PERSON",
+            COMPANY: "ORGANIZATION",
+            LOCATION: "LOCATION",
+            DEPARTMENT: "OTHER",
+            PROJECT_CODE: "OTHER",
+            CREDENTIAL: "CREDENTIAL",
+            SENSITIVE_FACT: "OTHER",
+            EMAIL_ADDRESS: "CONTACT",
+            PHONE_NUMBER: "CONTACT",
+          };
+          const LBL2SEV = {
+            PERSON: "critical",
+            COMPANY: "critical",
+            LOCATION: "high",
+            DEPARTMENT: "medium",
+            PROJECT_CODE: "medium",
+            CREDENTIAL: "critical",
+            SENSITIVE_FACT: "high",
+            EMAIL_ADDRESS: "critical",
+            PHONE_NUMBER: "high",
+          };
+          const text0 = inputs[0];
+          // Closure holds the rewritten texts + whether LLM succeeded
+          // for every input. Populated by the llmPending promise; read
+          // after sidebar.show returns.
+          const replaceResult = { rewritten: [], ok: true };
+          const llmPromise = (async () => {
+            for (const text of inputs) {
+              const out = await llmAugment(text, "replace");
+              if (
+                out &&
+                typeof out.rewritten_text === "string" &&
+                out.rewritten_text.length > 0 &&
+                out.rewritten_text !== text
+              ) {
+                const normalized = applyUniqueTagsToReplace(
+                  text,
+                  Array.isArray(out.replacements) ? out.replacements : [],
+                );
+                replaceResult.rewritten.push(normalized.rewritten_text);
+                if (text === text0) replaceResult.replacements0 = normalized.replacements;
+              } else {
+                replaceResult.ok = false;
+                break;
+              }
             }
-          }
-        } finally {
-          if (sb && sb.hideReplaceOverlay) sb.hideReplaceOverlay();
-        }
-        if (allLlmSucceeded && rewritten.length === inputs.length) {
-          // Before forwarding the rewritten text, open the review
-          // sidebar showing each replacement as a row. User confirms
-          // → use rewritten_text; cancels → abort. This keeps the
-          // "sidebar always shows when LLM is ON" promise.
-          const sidebarNS = NS.sidebar;
-          const wantReview =
-            NS.settings && NS.settings.interactive !== false;
-          if (wantReview && sidebarNS && inputs.length > 0) {
-            // Build a synthetic aggregated response from the first
-            // input's replacements. (Multi-input chat payloads are
-            // rare — if they occur we review the first one only and
-            // trust the rest.)
-            const LBL2CAT = {
-              PERSON: "PERSON",
-              COMPANY: "ORGANIZATION",
-              LOCATION: "LOCATION",
-              DEPARTMENT: "OTHER",
-              PROJECT_CODE: "OTHER",
-              CREDENTIAL: "CREDENTIAL",
-              SENSITIVE_FACT: "OTHER",
-              EMAIL_ADDRESS: "CONTACT",
-              PHONE_NUMBER: "CONTACT",
-            };
-            const LBL2SEV = {
-              PERSON: "critical",
-              COMPANY: "critical",
-              LOCATION: "high",
-              DEPARTMENT: "medium",
-              PROJECT_CODE: "medium",
-              CREDENTIAL: "critical",
-              SENSITIVE_FACT: "high",
-              EMAIL_ADDRESS: "critical",
-              PHONE_NUMBER: "high",
-            };
-            const text0 = inputs[0];
-            const reps0 = replacementSets[0] || [];
+            // Build synthetic aggregated for the first input so the
+            // sidebar can render the rows. Multi-input bodies trust
+            // the first one's review.
+            const reps0 = replaceResult.replacements0 || [];
             const rows = [];
             for (const r of reps0) {
               const orig = typeof r.original === "string" ? r.original : "";
@@ -1142,23 +1125,44 @@
                 source: "llm",
               });
             }
-            if (rows.length > 0) {
-              const syntheticAgg = {
-                original_text: text0,
-                aggregated: rows,
-                audit_id: "",
-                force_masked_categories: [],
-              };
-              const decision = await sidebarNS.show(syntheticAgg, text0);
-              if (!decision.accepted) {
-                throw new Error("mask-mcp: user cancelled review");
-              }
-            }
+            return {
+              original_text: text0,
+              aggregated: rows,
+              audit_id: "",
+              force_masked_categories: [],
+              _llmStatus: replaceResult.ok && rows.length > 0
+                ? "ok_entities"
+                : replaceResult.ok
+                  ? "ok_empty"
+                  : "failed",
+            };
+          })();
+
+          // Open sidebar with empty initial data + the pending
+          // promise. The in-sidebar overlay shows "AI 置換中…" until
+          // llmPromise resolves with the rewritten rows.
+          const emptyAgg = {
+            original_text: text0,
+            aggregated: [],
+            audit_id: "",
+            force_masked_categories: [],
+          };
+          const decision = await sidebarNS.show(emptyAgg, text0, {
+            llmPending: llmPromise,
+            mode: "replace",
+          });
+          if (!decision.accepted) {
+            throw new Error("mask-mcp: user cancelled review");
           }
-          LOG(`${adapter.name}: LLM replace mode substituted ${inputs.length} input(s)`);
-          return { changed: true, body: adapter.replaceInputs(bodyJson, rewritten) };
+          if (replaceResult.ok && replaceResult.rewritten.length === inputs.length) {
+            LOG(`${adapter.name}: LLM replace mode substituted ${inputs.length} input(s)`);
+            return {
+              changed: true,
+              body: adapter.replaceInputs(bodyJson, replaceResult.rewritten),
+            };
+          }
+          LOG(`${adapter.name}: LLM replace partial/failed; falling back to regex path`);
         }
-        LOG(`${adapter.name}: LLM replace partial/failed; falling back to regex path`);
       }
     } catch (err) {
       if (err && err.message && err.message.includes("mask-mcp: user cancelled")) {
@@ -1220,9 +1224,10 @@
           const llmPromise = mergeLlmDetect(aggResp, text);
           decision = await sidebar.show(aggResp, text, {
             llmPending: llmPromise,
+            mode: "detect",
           });
         } else if (initialAgg.length > 0) {
-          decision = await sidebar.show(aggResp, text);
+          decision = await sidebar.show(aggResp, text, { mode: "regex" });
         } else {
           // Neither regex nor LLM has anything for us — forward.
           masked.push(text);

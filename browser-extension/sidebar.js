@@ -241,6 +241,34 @@
       letter-spacing: 0.025em;
     }
 
+    .mode-pill {
+      flex: 0 0 auto;
+      margin-left: auto;
+      margin-right: 4px;
+      padding: 3px 10px;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      border-radius: 10px;
+      white-space: nowrap;
+      line-height: 1.35;
+    }
+    .mode-pill.mode-replace {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.18), rgba(99, 102, 241, 0.18));
+      color: #a855f7;
+      border: 1px solid rgba(168, 85, 247, 0.42);
+    }
+    .mode-pill.mode-detect {
+      background: rgba(59, 130, 246, 0.14);
+      color: #3b82f6;
+      border: 1px solid rgba(59, 130, 246, 0.36);
+    }
+    .mode-pill.mode-regex {
+      background: rgba(100, 116, 139, 0.14);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
     .close-btn {
       background: transparent;
       border: none;
@@ -1222,12 +1250,32 @@
       const title = document.createElement("h2");
       title.id = "mcp-sb-title";
       title.textContent = "マスク対象の確認";
+
+      // Mode indicator pill — reflects the active detection flow so
+      // the user knows whether regex alone, regex+LLM, or AI-replace
+      // is driving this review.
+      const modeLabel = (() => {
+        const m = opts.mode;
+        if (m === "replace") return "AI 置換 (実験的)";
+        if (m === "detect")  return "検出補助 (Regex + AI)";
+        return "Regex のみ";
+      })();
+      const modeCls = (() => {
+        if (opts.mode === "replace") return "mode-replace";
+        if (opts.mode === "detect")  return "mode-detect";
+        return "mode-regex";
+      })();
+      const modePill = document.createElement("span");
+      modePill.className = "mode-pill " + modeCls;
+      modePill.textContent = modeLabel;
+
       const closeBtn = document.createElement("button");
       closeBtn.type = "button";
       closeBtn.className = "close-btn";
       closeBtn.setAttribute("aria-label", "閉じる");
       closeBtn.textContent = "\u00d7"; // ×
       header.appendChild(title);
+      header.appendChild(modePill);
       header.appendChild(closeBtn);
 
       const body = document.createElement("div");
@@ -1618,17 +1666,37 @@
           updatePreview();
         };
 
-        if (!row.locked) {
-          // Unlocked rows (all severities): single click toggles.
-          wrap.addEventListener("click", () => setState(!row.masked));
+        // Long-press is required when EITHER:
+        //   - the row is force-locked (force_masked_categories), OR
+        //   - the row is critical severity AND currently masked
+        //     (i.e. the user is trying to UNMASK a critical value).
+        // Re-masking a critical row (masked=false → true) stays
+        // one-click because adding protection is always safe.
+        const requiresHold = () => row.locked || (isCritical && row.masked);
+
+        if (!requiresHold()) {
+          // Click / tap toggles. Re-checks requiresHold() on every
+          // tap so a newly-unmasked critical row goes back to
+          // one-click when masked=false, and back to long-press
+          // when masked=true again.
+          const clickHandler = () => {
+            if (requiresHold()) return; // gesture takes over below
+            setState(!row.masked);
+          };
+          wrap.addEventListener("click", clickHandler);
           wrap.addEventListener("keydown", (event) => {
+            if (requiresHold()) return;
             if (event.key === " " || event.key === "Enter") {
               event.preventDefault();
               setState(!row.masked);
             }
           });
-        } else {
-          // Locked rows only: long-press with slider duration.
+        }
+        if (requiresHold() || isCritical) {
+          // Long-press with slider duration. Active for locked rows
+          // AND for critical rows (enforced via requiresHold inside
+          // onDown to avoid triggering when a critical row has
+          // already been unmasked).
           const getHoldMs = () => lockHoldMs;
           let timerId = null;
           let tickId = null;
@@ -1645,12 +1713,11 @@
           };
           const onDown = (event) => {
             if (timerId !== null) return;
-            // After unlock the row behaves like any other row —
-            // single click toggles without the long-press gate.
-            if (!row.locked) {
-              if (event.preventDefault) event.preventDefault();
-              setState(!row.masked);
-              return;
+            // If neither locked nor a to-be-unmasked critical row,
+            // the click path handles this row. Long-press is only
+            // needed in those two cases.
+            if (!requiresHold()) {
+              return; // let the click listener handle it
             }
             if (event.preventDefault) event.preventDefault();
             startedAt = Date.now();
@@ -1915,11 +1982,14 @@
         ring.appendChild(r2);
         const label = document.createElement("div");
         label.className = "llm-overlay-label";
-        label.textContent = "\u2728 AI 分析中\u2026";
+        label.textContent =
+          opts.mode === "replace" ? "\u2728 AI 置換中\u2026" : "\u2728 AI 分析中\u2026";
         const sub = document.createElement("div");
         sub.className = "llm-overlay-sub";
         sub.textContent =
-          "ローカル LLM が文脈から追加候補を検出しています。完了次第、一覧に反映されます。";
+          opts.mode === "replace"
+            ? "ローカル LLM が送信内容を <tag> プレースホルダーに書き換えています。"
+            : "ローカル LLM が文脈から追加候補を検出しています。完了次第、一覧に反映されます。";
         root.appendChild(ring);
         root.appendChild(label);
         root.appendChild(sub);

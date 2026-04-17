@@ -56,7 +56,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (stored.localLlmMode !== "detect" && stored.localLlmMode !== "replace") {
     patch.localLlmMode = "detect";
   }
-  if (typeof stored.localLlmTimeoutMs !== "number") patch.localLlmTimeoutMs = 15000;
+  if (typeof stored.localLlmTimeoutMs !== "number") patch.localLlmTimeoutMs = 30000;
   if (Object.keys(patch).length > 0) {
     await chrome.storage.local.set(patch);
   }
@@ -137,7 +137,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs || 15000);
+      const timer = setTimeout(() => controller.abort(), timeoutMs || 30000);
       try {
         const resp = await fetch(requested.toString(), {
           method: method || "GET",

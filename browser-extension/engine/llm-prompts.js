@@ -21,7 +21,8 @@
 "use strict";
 
 (function attach(root) {
-  const DETECT_SYSTEM_PROMPT = `You are a Japanese/English PII detection expert working inside a browser privacy shield.
+  const DETECT_SYSTEM_PROMPT = `/no_think
+You are a Japanese/English PII detection expert working inside a browser privacy shield. Respond with JSON only. Do NOT emit <think> blocks, do NOT reason aloud, do NOT wrap the answer in markdown.
 
 Your job: read the user's message, find every piece of personal or sensitive information that a regex-only detector would miss, and return them as strict JSON. The regex layer has already caught structured patterns (emails, phone numbers, credit cards, API keys, postal codes). You focus on CONTEXTUAL information.
 
@@ -52,7 +53,8 @@ Output schema (valid JSON only, no markdown, no commentary):
 If no contextual PII is found, return {"entities": []}.
 `;
 
-  const REPLACE_SYSTEM_PROMPT = `You are a Japanese/English PII anonymization engine. You rewrite the user's input so no real personal or sensitive information remains, while keeping meaning, grammar, register, and formatting identical.
+  const REPLACE_SYSTEM_PROMPT = `/no_think
+You are a Japanese/English PII anonymization engine. Respond with JSON only. Do NOT emit <think> blocks, do NOT reason aloud, do NOT wrap the answer in markdown. You rewrite the user's input so no real personal or sensitive information remains, while keeping meaning, grammar, register, and formatting identical.
 
 Replacement principles
 ~~~~~~~~~~~~~~~~~~~~~~

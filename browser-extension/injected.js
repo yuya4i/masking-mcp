@@ -275,10 +275,23 @@
       const raw = callResp && callResp.result;
       if (!raw || typeof raw !== "string") return null;
       // The LLM sometimes wraps JSON in ```json fences despite instructions.
-      const cleaned = raw
+      // Qwen3 / Deepseek-R1 / other "thinking" models wrap reasoning
+      // in <think>...</think> before the actual answer. Strip those
+      // blocks (including multi-line, including unclosed in case the
+      // model truncated). Also strip ```json fences.
+      let cleaned = raw
+        .replace(/<think>[\s\S]*?<\/think>/gi, "")
+        .replace(/<think>[\s\S]*$/i, "")
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/\s*```$/i, "")
         .trim();
+      // Some models leave a leading narrative before JSON. Find the
+      // first `{` and last `}` and parse that substring.
+      const firstBrace = cleaned.indexOf("{");
+      const lastBrace = cleaned.lastIndexOf("}");
+      if (firstBrace > 0 && lastBrace > firstBrace) {
+        cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+      }
       let parsed;
       try {
         parsed = JSON.parse(cleaned);
@@ -979,8 +992,15 @@
         // as "send failed — try again" which is the correct UX.
         return Promise.reject(err);
       }
-      WARN("fetch hook error; falling back to original:", err?.message || err);
-      return originalFetch(input, init);
+      // [SECURITY] Fail-closed: if masking pipeline threw an unexpected
+      // error we refuse the send rather than silently passing the
+      // original (PII-bearing) body through. The AI service sees a
+      // network error and the user sees the retry-prompt — the correct
+      // UX for a privacy-critical tool.
+      WARN("fetch hook error; ABORTING request (fail-closed):", err?.message || err);
+      return Promise.reject(
+        new TypeError("PII Guard: masking pipeline error; request aborted")
+      );
     }
   };
 
@@ -1046,13 +1066,18 @@
             try { xhr.abort(); } catch (_) { /* noop */ }
             return;
           }
-          WARN("XHR hook error; falling back to original:", err?.message || err);
-          originalXhrSend.apply(xhr, args);
+          // [SECURITY] Fail-closed: abort the XHR so the original
+          // body never reaches the network. Chat UIs surface this as
+          // a send error.
+          WARN("XHR hook error; ABORTING (fail-closed):", err?.message || err);
+          try { xhr.abort(); } catch (_) { /* noop */ }
         }
       })();
     } catch (err) {
-      WARN("XHR send hook setup failed:", err?.message || err);
-      return originalXhrSend.apply(this, arguments);
+      // [SECURITY] Outer setup error — also fail closed.
+      WARN("XHR send hook setup failed; ABORTING:", err?.message || err);
+      try { this.abort(); } catch (_) { /* noop */ }
+      return;
     }
   };
 
@@ -1073,7 +1098,14 @@
             host
           )
         ) {
-          LOG("provider beacon:", redactUrl(url), "bodyType=" + typeof data);
+          // [SECURITY] Fail-closed sendBeacon: provider-host beacons
+          // bypass fetch/XHR hooks entirely. Analytics payloads from
+          // chat UIs can embed user text (draft buffers, error
+          // reports). Refuse the beacon unconditionally — the return
+          // value of false signals the page that delivery failed,
+          // which chat apps gracefully ignore.
+          LOG("provider beacon BLOCKED:", redactUrl(url), "bodyType=" + typeof data);
+          return false;
         }
       } catch (_) {}
       return originalSendBeacon(url, data);
@@ -1211,11 +1243,14 @@
                   LOG(err.message, "— WS frame dropped");
                   return;
                 }
+                // [SECURITY] Fail-closed: drop the frame instead of
+                // forwarding the original. The WS stays open so the
+                // session survives; the chat UI treats this as a
+                // missing ack and typically re-prompts.
                 WARN(
-                  "WS hook error; falling back to original:",
+                  "WS hook error; DROPPING frame (fail-closed):",
                   err?.message || err
                 );
-                originalWsSend.apply(ws, args);
               }
             })();
             }

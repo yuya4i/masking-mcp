@@ -75,16 +75,24 @@ BUILTIN_PATTERNS: dict[str, list[tuple[str, str]]] = {
         ),
     ],
     # --- 会社名 (Company names) ---
+    # char class を [カタカナ + CJK 漢字 + 半角英数 + 社名記号] に限定し、
+    # ひらがな助詞 (の / から / で …) で必ず break させる。
+    # "株式会社アクメの田中部長から連絡" が "株式会社アクメ" で止まる。
+    # Unicode ranges:
+    #   \u30A0-\u30FF : カタカナ (含む 小書き・ー)
+    #   \u4E00-\u9FFF : CJK 統合漢字
+    #   \uFF66-\uFF9F : 半角カタカナ
     "COMPANY": [
         (
             "COMPANY",
             r"(?:株式会社|有限会社|合同会社|一般社団法人|一般財団法人"
-            r"|NPO法人|学校法人|医療法人)\s*[^\s、。,]{1,20}",
+            r"|NPO法人|学校法人|医療法人)\s*"
+            r"[\u30A0-\u30FF\u4E00-\u9FFF\uFF66-\uFF9FA-Za-z0-9\u30FB\uFF65\-＆&]{1,20}",
         ),
         (
             "COMPANY",
-            r"[^\s、。,]{1,20}"
-            r"(?:株式会社|有限会社|合同会社|Inc\.|Corp\.|Ltd\.|LLC|Co\.,?\s*Ltd\.)",
+            r"[\u30A0-\u30FF\u4E00-\u9FFF\uFF66-\uFF9FA-Za-z0-9\u30FB\uFF65\-＆&]{1,20}"
+            r"(?:株式会社|有限会社|合同会社|㈱|㈲|Inc\.|Corp\.|Ltd\.|LLC|Co\.,?\s*Ltd\.)",
         ),
     ],
     # --- IP アドレス ---

@@ -2431,124 +2431,16 @@
     loadingHost = null;
   }
 
-  // --- Replace-mode overlay (full-viewport center) ---------------------
-  // Replace mode never opens the review sidebar (LLM rewrites the text
-  // and we forward it directly), but the user still wants visual
-  // feedback while the model is thinking. This overlay reuses the
-  // same double-ring spinner + label as the detect-mode in-sidebar
-  // overlay, but renders as a page-level fixed element.
-  let replaceOverlayHost = null;
-  function showReplaceOverlay(label, sub) {
-    if (replaceOverlayHost) {
-      const lbl = replaceOverlayHost.shadowRoot.querySelector(".label");
-      if (lbl) lbl.textContent = label || "AI 置換中…";
-      return;
-    }
-    replaceOverlayHost = document.createElement("div");
-    replaceOverlayHost.setAttribute("data-mask-mcp-replace", "");
-    replaceOverlayHost.style.cssText =
-      "all:initial;position:fixed;inset:0;z-index:2147483646;pointer-events:none";
-    const shadow = replaceOverlayHost.attachShadow({ mode: "open" });
-    const style = document.createElement("style");
-    style.textContent = `
-      .wrap {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 14px;
-        padding: 28px 36px;
-        background: rgba(17, 24, 39, 0.92);
-        color: #f9fafb;
-        border-radius: 16px;
-        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.22);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-        animation: fade-in 0.2s ease-out;
-      }
-      .ring {
-        position: relative;
-        width: 56px;
-        height: 56px;
-      }
-      .spin {
-        position: absolute;
-        inset: 0;
-        border: 3px solid rgba(139, 92, 246, 0.2);
-        border-top-color: #a855f7;
-        border-right-color: #6366f1;
-        border-radius: 50%;
-        animation: spin 0.9s linear infinite;
-      }
-      .spin.inner {
-        inset: 8px;
-        border-width: 2px;
-        border-top-color: #6366f1;
-        border-right-color: transparent;
-        border-bottom-color: transparent;
-        border-left-color: #a855f7;
-        animation-duration: 1.3s;
-        animation-direction: reverse;
-        opacity: 0.7;
-      }
-      .label {
-        font-size: 15px;
-        font-weight: 700;
-        letter-spacing: 0.02em;
-      }
-      .sub {
-        font-size: 11.5px;
-        color: rgba(249, 250, 251, 0.7);
-        max-width: 240px;
-        text-align: center;
-        line-height: 1.5;
-      }
-      @keyframes spin { to { transform: rotate(360deg); } }
-      @keyframes fade-in {
-        from { opacity: 0; transform: translate(-50%, -46%); }
-        to   { opacity: 1; transform: translate(-50%, -50%); }
-      }
-    `;
-    shadow.appendChild(style);
-    const wrap = document.createElement("div");
-    wrap.className = "wrap";
-    const ring = document.createElement("div");
-    ring.className = "ring";
-    const s1 = document.createElement("div");
-    s1.className = "spin";
-    const s2 = document.createElement("div");
-    s2.className = "spin inner";
-    ring.appendChild(s1);
-    ring.appendChild(s2);
-    const txt = document.createElement("div");
-    txt.className = "label";
-    txt.textContent = label || "\u2728 AI 置換中\u2026";
-    const sb = document.createElement("div");
-    sb.className = "sub";
-    sb.textContent =
-      sub || "ローカル LLM が送信内容を安全な代替値に書き換えています。";
-    wrap.appendChild(ring);
-    wrap.appendChild(txt);
-    wrap.appendChild(sb);
-    shadow.appendChild(wrap);
-    document.body.appendChild(replaceOverlayHost);
-  }
-  function hideReplaceOverlay() {
-    if (!replaceOverlayHost) return;
-    try { replaceOverlayHost.remove(); } catch (_) {}
-    replaceOverlayHost = null;
-  }
+  // Replace mode no longer needs a separate page-center overlay —
+  // the in-sidebar .llm-overlay handles both detect and replace
+  // modes via sidebar.show({ mode, llmPending }). The previous
+  // showReplaceOverlay / hideReplaceOverlay functions were dead
+  // after commit b3a0ab9 and were removed for clarity.
 
   NS.sidebar = {
     show,
     applyMasks,
     showLoading,
     hideLoading,
-    showReplaceOverlay,
-    hideReplaceOverlay,
   };
 })();

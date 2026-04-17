@@ -99,9 +99,14 @@
         <div class="form-row llm-model-row">
           <label class="form-label" for="llm-model">使用モデル</label>
           <select id="llm-model" class="llm-select"></select>
+        </div>
+
+        <div class="form-row llm-recommend-row">
+          <label class="form-label">推奨モデル</label>
+          <div id="llm-recommend-list" class="llm-recommend-list"></div>
           <small class="hint-inline">
-            推奨: <code>qwen3:1.7b</code> (軽量/日本語)、<code>qwen3:4b</code> (精度重視)、
-            <code>gemma3:4b</code> (低負荷)
+            未インストールのモデルは右の「ダウンロード」で Ollama へ pull できます。
+            精度目安は PII 検出タスクでの相対評価 (内部ベンチマーク) です。
           </small>
         </div>
 

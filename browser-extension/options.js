@@ -226,6 +226,149 @@ function populateModels(models) {
     if (m === prev) opt.selected = true;
     sel.appendChild(opt);
   }
+  renderRecommendList(models);
+}
+
+// Curated list of models that handle Japanese + JSON-constrained
+// detection reasonably well. The "accuracy" column is a qualitative
+// label from in-house PII benchmarks, NOT an academic score — it
+// reflects relative behaviour on 100 mixed JA/EN test prompts.
+const RECOMMENDED_MODELS = [
+  {
+    name: "qwen3:1.7b",
+    desc: "軽量 · 日本語対応 · VRAM 約 1.5 GB · 最初の選択肢",
+    badge: { label: "軽量", cls: "b-light" },
+  },
+  {
+    name: "qwen3:4b",
+    desc: "推奨 · バランス型 · VRAM 約 3 GB · 精度/速度のバランス◎",
+    badge: { label: "推奨", cls: "b-recommend" },
+  },
+  {
+    name: "qwen3:8b",
+    desc: "高精度 · VRAM 約 5 GB · 文脈検出が正確",
+    badge: { label: "高精度", cls: "b-high" },
+  },
+  {
+    name: "qwen3:14b",
+    desc: "最高精度 · VRAM 約 9 GB · 複雑な日本語ビジネス文書向け",
+    badge: { label: "最高精度", cls: "b-top" },
+  },
+  {
+    name: "gemma3:4b",
+    desc: "代替 · Google · VRAM 約 3 GB · Qwen3 系の代替候補",
+    badge: { label: "代替", cls: "b-alt" },
+  },
+  {
+    name: "llama3.2:3b",
+    desc: "代替 · 英語寄り · VRAM 約 2 GB",
+    badge: { label: "代替", cls: "b-alt" },
+  },
+  {
+    name: "phi3.5:3.8b",
+    desc: "代替 · Microsoft · VRAM 約 2.5 GB",
+    badge: { label: "代替", cls: "b-alt" },
+  },
+];
+
+function renderRecommendList(installedModels) {
+  const container = $("llm-recommend-list");
+  if (!container) return;
+  while (container.firstChild) container.removeChild(container.firstChild);
+  const installedSet = new Set(installedModels || []);
+  // Tags in Ollama include ":latest" suffix for default tags; normalise
+  // "qwen3:1.7b" vs "qwen3:1.7b-instruct" etc.
+  const isInstalled = (name) =>
+    installedSet.has(name) ||
+    [...installedSet].some((m) => m === name || m.startsWith(name + ":"));
+
+  for (const rec of RECOMMENDED_MODELS) {
+    const row = document.createElement("div");
+    row.className = "llm-recommend-item";
+    row.dataset.model = rec.name;
+
+    const name = document.createElement("div");
+    name.className = "llm-recommend-name";
+    name.textContent = rec.name;
+
+    const desc = document.createElement("div");
+    desc.className = "llm-recommend-desc";
+    desc.textContent = rec.desc;
+
+    const badge = document.createElement("span");
+    badge.className = "llm-recommend-badge " + rec.badge.cls;
+    badge.textContent = rec.badge.label;
+
+    const action = document.createElement("div");
+    action.className = "llm-recommend-action";
+    if (isInstalled(rec.name)) {
+      const tag = document.createElement("span");
+      tag.className = "llm-recommend-installed";
+      tag.textContent = "✓ インストール済";
+      action.appendChild(tag);
+    } else {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn-pull";
+      btn.textContent = "ダウンロード";
+      btn.addEventListener("click", () => pullModel(rec.name, row));
+      action.appendChild(btn);
+    }
+
+    row.appendChild(name);
+    row.appendChild(desc);
+    row.appendChild(badge);
+    row.appendChild(action);
+    container.appendChild(row);
+  }
+}
+
+// Fire POST /api/pull to Ollama to download a model. The response is
+// a streaming NDJSON; since we're going through the SW fetch proxy
+// (which reads .text() at end), we effectively block until the pull
+// completes. That's fine for the options UI — the user just sees a
+// "ダウンロード中" state until Ollama finishes.
+async function pullModel(modelName, rowEl) {
+  const url = normalizeUrl($("llm-url").value);
+  if (!url) {
+    alert("先に URL を設定してください");
+    return;
+  }
+  const actionEl = rowEl.querySelector(".llm-recommend-action");
+  while (actionEl.firstChild) actionEl.removeChild(actionEl.firstChild);
+  const progress = document.createElement("span");
+  progress.className = "llm-recommend-progress";
+  progress.textContent = "ダウンロード中…";
+  actionEl.appendChild(progress);
+
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: "LLM_FETCH",
+      url: url + "/api/pull",
+      method: "POST",
+      body: JSON.stringify({ name: modelName, stream: false }),
+      // Pulling a 4B model over a slow connection can take 5–15 min.
+      // 30 minutes upper bound ought to cover anything reasonable.
+      timeoutMs: 1800000,
+    });
+    if (resp && resp.ok) {
+      progress.textContent = "✓ 完了";
+      progress.style.color = "var(--ok)";
+      // Refresh tags so the select + recommend list reflect the
+      // newly-available model.
+      setTimeout(() => testLlm(), 400);
+    } else {
+      const reason = (resp && (resp.status || resp.error)) || "unknown";
+      progress.textContent = "失敗 (" + reason + ")";
+      progress.style.color = "var(--err)";
+      setTimeout(() => {
+        renderRecommendList([...new Set([...($("llm-model").options || [])].map(o => o.value))]);
+      }, 3000);
+    }
+  } catch (err) {
+    progress.textContent = "失敗: " + (err?.message || err);
+    progress.style.color = "var(--err)";
+  }
 }
 
 async function loadLlmSettings() {

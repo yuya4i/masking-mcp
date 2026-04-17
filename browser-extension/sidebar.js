@@ -672,6 +672,19 @@
     .row.sev-low      { border-left-color: var(--sev-low); }
     .row.is-unmasked  { opacity: 0.55; background: var(--bg); border-right: 4px solid #22c55e; }
 
+    /* Stagger-in animation applied when rows are first rendered after
+       an LLM augmentation completes. Each row gets its animation-delay
+       set inline (80ms * index) by renderRow(), giving the visual
+       impression that detections are arriving sequentially. */
+    .row.row-staggered {
+      opacity: 0;
+      transform: translateX(12px);
+      animation: row-stagger-in 0.32s ease-out forwards;
+    }
+    @keyframes row-stagger-in {
+      to { opacity: 1; transform: translateX(0); }
+    }
+
     .row.long-press-pulse {
       animation: lp-pulse 0.45s ease-out;
     }
@@ -1767,7 +1780,9 @@
       // each time the LLM augmentation completes so newly-detected
       // entities appear in the open sidebar. User intent (masked/
       // unmasked per value) is preserved across rebuilds.
-      function applyAggregated(aggArr) {
+      function applyAggregated(aggArr, opts) {
+        opts = opts || {};
+        const stagger = !!opts.stagger;
         const preserved = new Map();
         for (const r of rows) preserved.set(r.value, r.masked);
 
@@ -1813,6 +1828,17 @@
         }
         applySevFilter();
         updatePreview();
+
+        // Stagger-in animation: each .row gets an 80ms-incrementing
+        // delay so detections appear sequentially. Only done when
+        // opts.stagger === true (i.e. the post-LLM rebuild path).
+        if (stagger) {
+          const rowEls = categoriesWrap.querySelectorAll(".row");
+          rowEls.forEach((el, i) => {
+            el.classList.add("row-staggered");
+            el.style.animationDelay = i * 80 + "ms";
+          });
+        }
       }
 
       // Initial paint: if LLM augmentation is pending we hold off on
@@ -1913,15 +1939,23 @@
               forcedCategories.add(String(c));
             }
           }
-          applyAggregated(nextAgg);
-          revealChrome();
-          dismissLlmOverlay();
           const failed =
             hadException ||
             (updated && updated._llmStatus === "failed");
-          if (failed) {
-            showLlmErrorToast();
-          }
+          // Stagger is only meaningful when we have a successful LLM
+          // result with entities to reveal. For 0-result / failed
+          // paths we just paint everything at once and dismiss.
+          const rowsInAgg = Array.isArray(nextAgg) ? nextAgg.length : 0;
+          const shouldStagger = !failed && rowsInAgg > 0;
+          applyAggregated(nextAgg, { stagger: shouldStagger });
+          revealChrome();
+          // When staggering, keep the overlay up until the last row
+          // has finished its 320ms fade-in. Otherwise dismiss now.
+          const lastRowEnd = shouldStagger ? rowsInAgg * 80 + 320 : 0;
+          setTimeout(() => {
+            dismissLlmOverlay();
+            if (failed) showLlmErrorToast();
+          }, lastRowEnd);
         };
 
         llmPending

@@ -352,3 +352,82 @@ main {
   border: 1px solid var(--border);
 }
 .status-pill.status-checking { background: rgba(79, 70, 229, 0.12); color: var(--accent); }
+
+/* --- Recommended models panel --- */
+.llm-recommend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.llm-recommend-item {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.5fr) 1fr minmax(70px, auto) minmax(130px, auto);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card-bg);
+}
+.llm-recommend-item:last-child { border-bottom: 0; }
+.llm-recommend-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+}
+.llm-recommend-desc {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.llm-recommend-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 10px;
+  white-space: nowrap;
+  text-align: center;
+}
+.llm-recommend-badge.b-recommend { background: rgba(22, 163, 74, 0.15); color: #16a34a; }
+.llm-recommend-badge.b-light     { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+.llm-recommend-badge.b-high      { background: rgba(168, 85, 247, 0.18); color: #a855f7; }
+.llm-recommend-badge.b-top       { background: rgba(217, 119, 6, 0.18); color: #d97706; }
+.llm-recommend-badge.b-alt       { background: rgba(100, 116, 139, 0.20); color: var(--muted); }
+.llm-recommend-action {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.llm-recommend-action .btn-pull {
+  padding: 5px 12px;
+  font-size: 11.5px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.12s ease;
+}
+.llm-recommend-action .btn-pull:hover:not(:disabled) { background: var(--accent-hover); }
+.llm-recommend-action .btn-pull:disabled {
+  background: var(--border);
+  color: var(--muted);
+  cursor: default;
+}
+.llm-recommend-installed {
+  font-size: 10.5px;
+  color: var(--ok);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.llm-recommend-progress {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}

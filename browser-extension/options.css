@@ -456,3 +456,23 @@ main {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: nowrap;
 }
+.llm-recommend-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+  max-width: 220px;
+}
+.llm-recommend-progress-bar {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.llm-recommend-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #6366f1, #a855f7);
+  transition: width 0.24s ease-out;
+  border-radius: 3px;
+}

@@ -347,51 +347,118 @@ function renderRecommendList(installedModels) {
   }
 }
 
-// Fire POST /api/pull to Ollama to download a model. The response is
-// a streaming NDJSON; since we're going through the SW fetch proxy
-// (which reads .text() at end), we effectively block until the pull
-// completes. That's fine for the options UI — the user just sees a
-// "ダウンロード中" state until Ollama finishes.
+// Pull a model from Ollama via streaming NDJSON, so the UI can
+// display real-time progress (percentage + size). The options page
+// runs in a chrome-extension:// context — unlike content scripts
+// on HTTPS sites, it's NOT subject to Private Network Access, so
+// we can fetch http://localhost:11434 directly without going
+// through the service worker proxy.
 async function pullModel(modelName, rowEl) {
-  const url = normalizeUrl($("llm-url").value);
-  if (!url) {
+  const baseUrl = normalizeUrl($("llm-url").value);
+  if (!baseUrl) {
     alert("先に URL を設定してください");
     return;
   }
   const actionEl = rowEl.querySelector(".llm-recommend-action");
   while (actionEl.firstChild) actionEl.removeChild(actionEl.firstChild);
-  const progress = document.createElement("span");
-  progress.className = "llm-recommend-progress";
-  progress.textContent = "ダウンロード中…";
-  actionEl.appendChild(progress);
+
+  const progressWrap = document.createElement("div");
+  progressWrap.className = "llm-recommend-progress-wrap";
+  const progressBar = document.createElement("div");
+  progressBar.className = "llm-recommend-progress-bar";
+  const progressFill = document.createElement("div");
+  progressFill.className = "llm-recommend-progress-fill";
+  progressBar.appendChild(progressFill);
+  const progressText = document.createElement("span");
+  progressText.className = "llm-recommend-progress";
+  progressText.textContent = "開始中…";
+  progressWrap.appendChild(progressBar);
+  progressWrap.appendChild(progressText);
+  actionEl.appendChild(progressWrap);
+
+  const humanBytes = (n) => {
+    if (!Number.isFinite(n)) return "";
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + " GB";
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + " MB";
+    if (n >= 1e3) return (n / 1e3).toFixed(0) + " KB";
+    return n + " B";
+  };
 
   try {
-    const resp = await chrome.runtime.sendMessage({
-      type: "LLM_FETCH",
-      url: url + "/api/pull",
+    const resp = await fetch(baseUrl + "/api/pull", {
       method: "POST",
-      body: JSON.stringify({ name: modelName, stream: false }),
-      // Pulling a 4B model over a slow connection can take 5–15 min.
-      // 30 minutes upper bound ought to cover anything reasonable.
-      timeoutMs: 1800000,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: modelName, stream: true }),
     });
-    if (resp && resp.ok) {
-      progress.textContent = "✓ 完了";
-      progress.style.color = "var(--ok)";
-      // Refresh tags so the select + recommend list reflect the
-      // newly-available model.
-      setTimeout(() => testLlm(), 400);
-    } else {
-      const reason = (resp && (resp.status || resp.error)) || "unknown";
-      progress.textContent = "失敗 (" + reason + ")";
-      progress.style.color = "var(--err)";
-      setTimeout(() => {
-        renderRecommendList([...new Set([...($("llm-model").options || [])].map(o => o.value))]);
-      }, 3000);
+    if (!resp.ok || !resp.body) {
+      throw new Error(`${resp.status} ${resp.statusText}`);
     }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let success = false;
+    // Track overall progress by keeping the largest total/completed
+    // we've seen — Ollama emits progress per-layer, so the latest
+    // event is the most informative.
+    let lastTotal = 0;
+    let lastCompleted = 0;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let newlineIdx;
+      while ((newlineIdx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, newlineIdx).trim();
+        buffer = buffer.slice(newlineIdx + 1);
+        if (!line) continue;
+        let ev;
+        try {
+          ev = JSON.parse(line);
+        } catch (_) {
+          continue;
+        }
+        if (ev.error) {
+          throw new Error(ev.error);
+        }
+        const status = String(ev.status || "");
+        const total = Number(ev.total) || 0;
+        const completed = Number(ev.completed) || 0;
+        if (total > lastTotal) lastTotal = total;
+        if (completed > lastCompleted) lastCompleted = completed;
+        if (status === "success") {
+          success = true;
+          progressFill.style.width = "100%";
+          progressText.textContent = "✓ ダウンロード完了";
+          progressText.style.color = "var(--ok)";
+          break;
+        }
+        if (total > 0 && completed > 0) {
+          const pct = Math.min(100, Math.round((completed / total) * 100));
+          progressFill.style.width = pct + "%";
+          progressText.textContent = `${pct}% (${humanBytes(completed)} / ${humanBytes(total)})`;
+        } else {
+          // Meta phases: "pulling manifest" / "verifying" / "writing
+          // manifest" / "removing any unused layers".
+          progressText.textContent = status || "ダウンロード中…";
+        }
+      }
+      if (success) break;
+    }
+    if (!success) {
+      throw new Error("unexpected end of stream");
+    }
+    // Refresh tags → updates dropdown + flips this row to
+    // "✓ インストール済".
+    setTimeout(() => testLlm(), 600);
   } catch (err) {
-    progress.textContent = "失敗: " + (err?.message || err);
-    progress.style.color = "var(--err)";
+    progressFill.style.background = "var(--err)";
+    progressText.textContent = "失敗: " + (err?.message || err);
+    progressText.style.color = "var(--err)";
+    // Re-render the row after 4s so the ダウンロード button comes back.
+    setTimeout(() => {
+      const currentModels = [...($("llm-model").options || [])].map((o) => o.value);
+      renderRecommendList(currentModels);
+    }, 4000);
   }
 }
 

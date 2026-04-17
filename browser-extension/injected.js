@@ -951,11 +951,11 @@
       const cfg = cfgResp && cfgResp.config;
       if (cfg && cfg.mode === "replace") {
         const rewritten = [];
+        const replacementSets = [];
         let allLlmSucceeded = true;
-        // Show a page-level centered overlay while the LLM rewrites
-        // inputs. Replace mode never opens the review sidebar (we
-        // forward the rewritten text directly), so this is the
-        // user's only feedback that something is happening.
+        // Show the center overlay while the LLM rewrites, then close
+        // it before opening the review sidebar so the user can
+        // confirm which replacements to apply.
         const sb = NS.sidebar;
         if (sb && sb.showReplaceOverlay) sb.showReplaceOverlay();
         try {
@@ -968,6 +968,9 @@
               out.rewritten_text !== text
             ) {
               rewritten.push(out.rewritten_text);
+              replacementSets.push(
+                Array.isArray(out.replacements) ? out.replacements : [],
+              );
             } else {
               allLlmSucceeded = false;
               break;
@@ -977,12 +980,84 @@
           if (sb && sb.hideReplaceOverlay) sb.hideReplaceOverlay();
         }
         if (allLlmSucceeded && rewritten.length === inputs.length) {
+          // Before forwarding the rewritten text, open the review
+          // sidebar showing each replacement as a row. User confirms
+          // → use rewritten_text; cancels → abort. This keeps the
+          // "sidebar always shows when LLM is ON" promise.
+          const sidebarNS = NS.sidebar;
+          const wantReview =
+            NS.settings && NS.settings.interactive !== false;
+          if (wantReview && sidebarNS && inputs.length > 0) {
+            // Build a synthetic aggregated response from the first
+            // input's replacements. (Multi-input chat payloads are
+            // rare — if they occur we review the first one only and
+            // trust the rest.)
+            const LBL2CAT = {
+              PERSON: "PERSON",
+              COMPANY: "ORGANIZATION",
+              LOCATION: "LOCATION",
+              DEPARTMENT: "OTHER",
+              PROJECT_CODE: "OTHER",
+              CREDENTIAL: "CREDENTIAL",
+              SENSITIVE_FACT: "OTHER",
+              EMAIL_ADDRESS: "CONTACT",
+              PHONE_NUMBER: "CONTACT",
+            };
+            const LBL2SEV = {
+              PERSON: "critical",
+              COMPANY: "critical",
+              LOCATION: "high",
+              DEPARTMENT: "medium",
+              PROJECT_CODE: "medium",
+              CREDENTIAL: "critical",
+              SENSITIVE_FACT: "high",
+              EMAIL_ADDRESS: "critical",
+              PHONE_NUMBER: "high",
+            };
+            const text0 = inputs[0];
+            const reps0 = replacementSets[0] || [];
+            const rows = [];
+            for (const r of reps0) {
+              const orig = typeof r.original === "string" ? r.original : "";
+              if (!orig) continue;
+              const start = text0.indexOf(orig);
+              if (start < 0) continue;
+              const label = String(r.entity_type || "SENSITIVE_FACT").toUpperCase();
+              rows.push({
+                value: orig,
+                label,
+                category: LBL2CAT[label] || "OTHER",
+                count: 1,
+                positions: [[start, start + orig.length]],
+                masked: true,
+                placeholder: String(r.replacement || `<${label}>`),
+                classification: "contextual",
+                severity: LBL2SEV[label] || "medium",
+                source: "llm",
+              });
+            }
+            if (rows.length > 0) {
+              const syntheticAgg = {
+                original_text: text0,
+                aggregated: rows,
+                audit_id: "",
+                force_masked_categories: [],
+              };
+              const decision = await sidebarNS.show(syntheticAgg, text0);
+              if (!decision.accepted) {
+                throw new Error("mask-mcp: user cancelled review");
+              }
+            }
+          }
           LOG(`${adapter.name}: LLM replace mode substituted ${inputs.length} input(s)`);
           return { changed: true, body: adapter.replaceInputs(bodyJson, rewritten) };
         }
         LOG(`${adapter.name}: LLM replace partial/failed; falling back to regex path`);
       }
     } catch (err) {
+      if (err && err.message && err.message.includes("mask-mcp: user cancelled")) {
+        throw err;
+      }
       WARN("llm replace path failed; falling back to regex:", err?.message || err);
     }
 

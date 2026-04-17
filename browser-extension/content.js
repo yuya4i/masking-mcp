@@ -394,7 +394,7 @@
           model: stored.localLlmModel || "",
           mode: stored.localLlmMode === "replace" ? "replace" : "detect",
           kind: stored.localLlmKind === "openai-compat" ? "openai-compat" : "ollama",
-          timeoutMs: Number(stored.localLlmTimeoutMs) || 60000,
+          timeoutMs: Number(stored.localLlmTimeoutMs) || 120000,
         };
       }
     } catch (_) {}
@@ -416,6 +416,11 @@
     // HTTPS-page content script calling http://localhost.
     const isOpenAi = config.kind === "openai-compat";
     const url = config.url + (isOpenAi ? "/v1/chat/completions" : "/api/chat");
+    // Ollama's `format: "json"` engages a JSON-schema grammar
+    // constraint that FORCES valid JSON out of any model — including
+    // Qwen3 thinking variants that would otherwise fill the response
+    // with <think>…</think>. num_predict caps generation at ~1k
+    // tokens so the model can't think forever.
     const body = JSON.stringify(
       isOpenAi
         ? {
@@ -426,6 +431,8 @@
             ],
             stream: false,
             temperature: 0,
+            response_format: { type: "json_object" },
+            max_tokens: 1024,
           }
         : {
             model: config.model || "qwen3:1.7b",
@@ -434,7 +441,11 @@
               { role: "user", content: user },
             ],
             stream: false,
-            options: { temperature: 0 },
+            format: "json",
+            options: {
+              temperature: 0,
+              num_predict: 1024,
+            },
           }
     );
     // Retry loop for Ollama cold-start. A 9B/8B model can take 30–60s

@@ -141,22 +141,36 @@ async function swFetch(url, timeoutMs) {
       method: "GET",
       timeoutMs: timeoutMs || 4000,
     });
-    if (resp && resp.ok && resp.body) return JSON.parse(resp.body);
-  } catch (_) {}
-  return null;
+    return resp || null;
+  } catch (_) {
+    return null;
+  }
 }
 
 async function probeLlm(url) {
-  if (!url) return null;
-  const tags = await swFetch(url + "/api/tags", 4000);
-  if (tags && Array.isArray(tags.models)) {
-    return { ok: true, kind: "ollama", models: tags.models.map((m) => m.name) };
+  if (!url) return { ok: false, reason: "no-url" };
+  const tagsResp = await swFetch(url + "/api/tags", 4000);
+  if (tagsResp && tagsResp.ok && tagsResp.body) {
+    try {
+      const tags = JSON.parse(tagsResp.body);
+      if (Array.isArray(tags.models)) {
+        return { ok: true, kind: "ollama", models: tags.models.map((m) => m.name) };
+      }
+    } catch (_) {}
   }
-  const oai = await swFetch(url + "/v1/models", 4000);
-  if (oai && Array.isArray(oai.data)) {
-    return { ok: true, kind: "openai-compat", models: oai.data.map((m) => m.id) };
+  if (tagsResp && tagsResp.status === 403) {
+    return { ok: false, reason: "cors", status: 403 };
   }
-  return { ok: false };
+  const oaiResp = await swFetch(url + "/v1/models", 4000);
+  if (oaiResp && oaiResp.ok && oaiResp.body) {
+    try {
+      const oai = JSON.parse(oaiResp.body);
+      if (Array.isArray(oai.data)) {
+        return { ok: true, kind: "openai-compat", models: oai.data.map((m) => m.id) };
+      }
+    } catch (_) {}
+  }
+  return { ok: false, reason: "unreachable", status: tagsResp && tagsResp.status };
 }
 
 async function testLlm() {
@@ -172,8 +186,28 @@ async function testLlm() {
     setLlmStatus("ok", `接続 OK (${result.kind}, ${result.models.length} モデル)`);
     populateModels(result.models);
     await chrome.storage.local.set({ localLlmUrl: url, localLlmKind: result.kind });
+  } else if (result && result.reason === "cors") {
+    setLlmStatus("err", "CORS 拒否 — OLLAMA_ORIGINS 設定が必要");
+    alert(
+      "Ollama サーバーが 403 を返しました。CORS 設定が原因です。\n\n" +
+        "解決方法 (いずれか):\n\n" +
+        "  1. ollama バイナリで起動:\n" +
+        "     OLLAMA_ORIGINS='*' ollama serve\n\n" +
+        "  2. Docker で起動中:\n" +
+        "     docker stop ollama && \\\n" +
+        "     docker run -d --name ollama -e OLLAMA_ORIGINS='*' \\\n" +
+        "       -p 11434:11434 -v ollama:/root/.ollama ollama/ollama\n\n" +
+        "  3. systemd で起動中:\n" +
+        "     sudo systemctl edit ollama\n" +
+        "     → [Service] Environment=\"OLLAMA_ORIGINS=*\"\n" +
+        "     sudo systemctl restart ollama\n\n" +
+        "設定後にこの画面をリロードして再度「接続確認」を押してください。"
+    );
   } else {
-    setLlmStatus("err", "接続失敗");
+    setLlmStatus(
+      "err",
+      `接続失敗 (${(result && result.status) || "no-response"})`
+    );
   }
 }
 

@@ -451,10 +451,18 @@
           ? j?.choices?.[0]?.message?.content
           : j?.message?.content;
         result = result || null;
+      } else if (resp && resp.status === 403) {
+        console.warn(
+          "[mask-mcp] Ollama returned 403 (CORS). Set OLLAMA_ORIGINS=" +
+            "chrome-extension://* or restart ollama with " +
+            "OLLAMA_ORIGINS=* env. Docker: `docker run -e OLLAMA_ORIGINS=* ...` " +
+            "or `docker exec ollama sh -c 'export OLLAMA_ORIGINS=*'` then restart."
+        );
       } else {
         console.debug(
           "[mask-mcp] llm call non-ok:",
-          resp && (resp.status || resp.error)
+          resp && (resp.status || resp.error),
+          resp && resp.body && resp.body.slice(0, 200)
         );
       }
     } catch (err) {

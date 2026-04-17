@@ -416,11 +416,16 @@
     // HTTPS-page content script calling http://localhost.
     const isOpenAi = config.kind === "openai-compat";
     const url = config.url + (isOpenAi ? "/v1/chat/completions" : "/api/chat");
-    // Ollama's `format: "json"` engages a JSON-schema grammar
-    // constraint that FORCES valid JSON out of any model — including
-    // Qwen3 thinking variants that would otherwise fill the response
-    // with <think>…</think>. num_predict caps generation at ~1k
-    // tokens so the model can't think forever.
+    // Ollama request needs THREE things for thinking-capable models
+    // (Qwen3 family, Deepseek-R1, etc.) to emit visible tokens:
+    //   1. think: false        — disables the built-in reasoning trace.
+    //      Without this, the model burns the entire num_predict budget
+    //      on internal <think>…</think> tokens that Ollama hides from
+    //      the .message.content field, leaving content = "" at the end.
+    //   2. format: "json"      — grammar-constrains the output to valid
+    //      JSON so we don't need to strip markdown fences.
+    //   3. num_predict: 2048   — enough for a 30-entity detect response
+    //      without blowing the context window.
     const body = JSON.stringify(
       isOpenAi
         ? {
@@ -432,7 +437,7 @@
             stream: false,
             temperature: 0,
             response_format: { type: "json_object" },
-            max_tokens: 1024,
+            max_tokens: 2048,
           }
         : {
             model: config.model || "qwen3:1.7b",
@@ -441,10 +446,11 @@
               { role: "user", content: user },
             ],
             stream: false,
+            think: false,
             format: "json",
             options: {
               temperature: 0,
-              num_predict: 1024,
+              num_predict: 2048,
             },
           }
     );

@@ -699,9 +699,10 @@
     .row.sev-medium   { border-left-color: var(--sev-medium); }
     .row.sev-low      { border-left-color: var(--sev-low); }
     /* Unmasked row = green right-border marker only. Previously the
-       row itself had ``opacity: 0.55`` which combined with child
-       opacity to produce a flicker when hovering an unmasked row.
-       Child elements carry their own opacity / color changes. */
+       row itself had a 0.55 opacity which combined with child opacity
+       to produce a flicker when hovering an unmasked row. Children
+       carry their own opacity / color changes.
+       NB: no backticks inside this CSS template literal. */
     .row.is-unmasked  { background: var(--bg); border-right: 4px solid #22c55e; }
 
     /* Stagger-in animation applied when rows are first rendered after
@@ -817,10 +818,11 @@
       font-weight: 500;
       color: var(--text-muted);
       opacity: 0.75;
-      /* Specific properties only — ``transition: all`` was animating
+      /* Specific properties only — "transition: all" was animating
          layout-related things (font-weight) which caused a visible
          flicker whenever hover / is-unmasked / any parent opacity
-         changed together. */
+         changed together.
+         NB: no backticks inside this CSS template literal. */
       transition: color var(--ease-fast), border-color var(--ease-fast),
         opacity var(--ease-fast);
     }

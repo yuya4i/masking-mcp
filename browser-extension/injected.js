@@ -545,16 +545,17 @@
 
   const claudeAdapter = {
     name: "claude",
-    // Only fire on explicit SEND endpoints — not every /api/* POST.
-    // Claude.ai chat send URLs end with one of these path segments:
-    //   /completion                — main send
-    //   /append_message            — legacy user append
-    //   /retry_completion          — retry last assistant response
-    //   /chat_conversations        — create new conversation (1st send)
-    // Rename/feedback/star/title sub-paths are intentionally excluded.
+    // Match any URL that contains a SEND path segment anywhere, then
+    // explicitly exclude sub-operations that are POSTs but don't carry
+    // user-typed chat text (rename, feedback, star, etc.). The final
+    // gate is extractInputs(): if the body has no ``messages[].content``
+    // or ``prompt``, processBody early-returns without firing any UI.
     match: (url) =>
       /(^https?:\/\/claude\.(ai|com)|\.claude\.com)/.test(url) &&
-      /\/(?:completion|append_message|retry_completion|chat_conversations)(?:\?[^/]*)?(?:#[^/]*)?$/.test(
+      /\/(?:completion|append_message|retry_completion|chat_conversations)(?=[/?#]|$)/.test(
+        url
+      ) &&
+      !/\/(?:title|feedback|star|archive|share|export|leave|rename|latest|preview)(?=[/?#]|$)/.test(
         url
       ),
     extractInputs(body) {
@@ -603,13 +604,14 @@
 
   const chatgptAdapter = {
     name: "chatgpt",
-    // ChatGPT's chat send goes to `/backend-api/conversation` (POST).
-    // Rename/title/share/feedback POSTs live under longer sub-paths
-    // like `/backend-api/conversation/{id}/title`; we exclude those
-    // by anchoring on the path ending.
+    // ChatGPT's chat send is `POST /backend-api/conversation` (or the
+    // `/backend-api/f/conversation` moderation variant). Any longer
+    // sub-path like `.../{id}/title` or `.../{id}/feedback` is NOT a
+    // send. We allow optional query/hash, and rely on extractInputs
+    // as the final gate.
     match: (url) =>
       /(chatgpt\.com|chat\.openai\.com)/.test(url) &&
-      /\/backend-api\/conversation(?:\?[^/]*)?(?:#[^/]*)?$/.test(url),
+      /\/backend-api\/(?:f\/)?conversation(?:\?[^#]*)?(?:#.*)?$/.test(url),
     extractInputs(body) {
       const out = [];
       if (Array.isArray(body?.messages)) {
@@ -699,16 +701,20 @@
   // out static assets and telemetry.
   const manusAdapter = {
     name: "manus",
-    // Narrow to SEND-intent path segments. The previous regex matched
-    // any `/api/` POST, which included polling / state-sync / file
-    // listing and produced continuous hook activity. We keep only the
-    // verbs that semantically mean "user is sending content".
+    // Keep a broad SEND-intent regex with exclusions for non-chat
+    // sub-paths. Manus's API surface shifts often (butterfly-effect
+    // vs manus.im) and the bulk of their chat traffic is over the
+    // Socket.IO WebSocket, so the fetch/XHR matcher here is a safety
+    // net only. extractInputs is the authoritative gate.
     match: (url) =>
       /(manus\.im|butterfly-effect\.dev)/i.test(url) &&
       !/(sentry|amplitude|analytics|telemetry|segment\.io|datadog|newrelic)/i.test(
         url
       ) &&
-      /\/(?:submit|send|message|messages|completion|chat|rpc)(?:\?[^/]*)?(?:#[^/]*)?$/i.test(
+      /\/(?:submit|send|message|messages|completion|chat|rpc|prompt|task|agent|conversation|conversations)(?=[/?#]|$)/i.test(
+        url
+      ) &&
+      !/\/(?:files?|list|search|feedback|metrics|status|health|heartbeat|preview|thumbnail|avatar|upload)(?=[/?#]|$)/i.test(
         url
       ),
     extractInputs(body) {

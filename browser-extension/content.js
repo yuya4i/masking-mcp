@@ -437,36 +437,65 @@
             options: { temperature: 0 },
           }
     );
-    try {
-      const resp = await chrome.runtime.sendMessage({
-        type: "LLM_FETCH",
-        url,
-        method: "POST",
-        body,
-        timeoutMs: config.timeoutMs || 60000,
-      });
-      if (resp && resp.ok && resp.body) {
-        const j = JSON.parse(resp.body);
-        result = isOpenAi
-          ? j?.choices?.[0]?.message?.content
-          : j?.message?.content;
-        result = result || null;
-      } else if (resp && resp.status === 403) {
-        console.warn(
-          "[mask-mcp] Ollama returned 403 (CORS). Set OLLAMA_ORIGINS=" +
-            "chrome-extension://* or restart ollama with " +
-            "OLLAMA_ORIGINS=* env. Docker: `docker run -e OLLAMA_ORIGINS=* ...` " +
-            "or `docker exec ollama sh -c 'export OLLAMA_ORIGINS=*'` then restart."
-        );
-      } else {
-        console.debug(
-          "[mask-mcp] llm call non-ok:",
-          resp && (resp.status || resp.error),
-          resp && resp.body && resp.body.slice(0, 200)
-        );
+    // Retry loop for Ollama cold-start. A 9B/8B model can take 30–60s
+    // to load into VRAM on first invocation and Ollama returns
+    //   500 {"error":"unexpected server status: llm server loading model"}
+    // (or a 503) during that window. The body comes back fast, so we
+    // can retry cheaply without waiting for the full timeout. We only
+    // retry on "loading model" responses — 403 CORS and hard errors
+    // bail immediately.
+    const MAX_ATTEMPTS = 6;
+    const RETRY_DELAY_MS = 3000;
+    let lastResp = null;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        const resp = await chrome.runtime.sendMessage({
+          type: "LLM_FETCH",
+          url,
+          method: "POST",
+          body,
+          timeoutMs: config.timeoutMs || 60000,
+        });
+        lastResp = resp;
+        if (resp && resp.ok && resp.body) {
+          const j = JSON.parse(resp.body);
+          result = isOpenAi
+            ? j?.choices?.[0]?.message?.content
+            : j?.message?.content;
+          result = result || null;
+          break;
+        }
+        const warming =
+          resp &&
+          (resp.status === 500 || resp.status === 503) &&
+          typeof resp.body === "string" &&
+          /loading model|model is still loading|server loading/i.test(resp.body);
+        if (warming && attempt < MAX_ATTEMPTS - 1) {
+          console.debug(
+            `[mask-mcp] llm warming up (attempt ${attempt + 1}/${MAX_ATTEMPTS}), waiting ${RETRY_DELAY_MS}ms…`
+          );
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
+        if (resp && resp.status === 403) {
+          console.warn(
+            "[mask-mcp] Ollama returned 403 (CORS). Set OLLAMA_ORIGINS=" +
+              "chrome-extension://* or restart ollama with " +
+              "OLLAMA_ORIGINS=* env. Docker: `docker run -e OLLAMA_ORIGINS=* ...` " +
+              "or `docker exec ollama sh -c 'export OLLAMA_ORIGINS=*'` then restart."
+          );
+        } else {
+          console.debug(
+            "[mask-mcp] llm call non-ok:",
+            resp && (resp.status || resp.error),
+            resp && resp.body && resp.body.slice(0, 200)
+          );
+        }
+        break;
+      } catch (err) {
+        console.debug("[mask-mcp] llm call failed:", err?.message || err);
+        break;
       }
-    } catch (err) {
-      console.debug("[mask-mcp] llm call failed:", err?.message || err);
     }
     window.postMessage({ source: TAG_OUT, id, type: "llm-call-result", result }, "*");
   }

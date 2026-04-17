@@ -385,13 +385,12 @@
         return aggResp;
       }
       LOG(`llm detect: querying ${cfg.kind} model="${cfg.model || "(default)"}"`);
-      NS.sidebar && NS.sidebar.showLoading && NS.sidebar.showLoading("LLM 分析中…");
-      let out;
-      try {
-        out = await llmAugment(text, "detect");
-      } finally {
-        NS.sidebar && NS.sidebar.hideLoading && NS.sidebar.hideLoading();
-      }
+      // No showLoading() here — the sidebar's centered overlay is now
+      // the sole LLM progress indicator when regex found ≥1 entity and
+      // we opened the sidebar in parallel. For the zero-regex path
+      // (sidebar can't be opened yet) we stay silent rather than
+      // flashing a top-right pill before any UI is visible.
+      const out = await llmAugment(text, "detect");
       let llmEnts = (out && Array.isArray(out.entities)) ? out.entities : [];
       if (!llmEnts.length) {
         LOG("llm detect: 0 entities returned; keeping regex/morphology only");

@@ -771,11 +771,12 @@
     .row-line1 {
       display: grid;
       /* 4-column grid that stays consistent across every row so the
-         "value → placeholder" pairs form vertical columns:
-           [ icon ] [ 変更前 value ] [ → ] [ 変更後 placeholder ]
+         "value arrow placeholder" pairs form vertical columns:
+           [ icon ] [ 変更前 value ] [ arrow ] [ 変更後 placeholder ]
          The two data columns share the remaining space 50/50.
-         ``minmax(0, 1fr)`` is the trick that lets text-overflow:
-         ellipsis work inside grid cells. */
+         minmax(0, 1fr) on each data column is the trick that lets
+         text-overflow: ellipsis work inside grid cells.
+         NB: absolutely no backticks inside this CSS template. */
       grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
       column-gap: 8px;
       align-items: center;

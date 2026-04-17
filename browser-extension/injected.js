@@ -1076,6 +1076,14 @@
   async function processBody(adapter, bodyJson, url) {
     const inputs = adapter.extractInputs(bodyJson);
     if (!inputs.length) {
+      // Log once per adapter/URL so when a site adds a new body shape
+      // that extractInputs doesn't recognise, the user can paste this
+      // log line back to us for fixing.
+      logOnce(
+        `${adapter.name}: adapter matched but body had no user text —`
+          + " keys: " + Object.keys(bodyJson || {}).slice(0, 8).join(","),
+        url,
+      );
       return { changed: false, body: bodyJson };
     }
     LOG(`${adapter.name}: ${inputs.length} input string(s) to mask`);
@@ -1353,12 +1361,21 @@
         return originalFetch(input, init);
       }
       const adapter = pickAdapter(url);
+      // Diagnostic: when ANY claude.ai / chatgpt / gemini / manus
+      // host POSTs, log once-per-unique URL so users can debug
+      // "sidebar never opens" by checking what endpoint the chat
+      // app actually hits. The log says whether the adapter matched
+      // or not. Deduped so chat polling doesn't flood the console.
+      try {
+        const h = new URL(url, location.href).host;
+        if (/(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i.test(h)) {
+          logOnce(
+            adapter ? "provider POST (adapter matched):" : "provider POST (NO adapter match):",
+            url,
+          );
+        }
+      } catch (_) {}
       if (!adapter) {
-        // No diagnostic log — unmatched POSTs are the common case on
-        // any page (analytics, feature flags, autosave, etc.) and we
-        // don't want the console to fill with noise while the user
-        // is just browsing. If you need to debug a missed adapter,
-        // turn on verbose logging via window.__localMaskMCP.debug.
         return originalFetch(input, init);
       }
       if (!(await isEnabled())) {
@@ -1428,6 +1445,17 @@
         return originalXhrSend.apply(this, arguments);
       }
       const adapter = pickAdapter(url);
+      // Diagnostic (deduped) for provider-host POSTs regardless of
+      // adapter match, mirrors the fetch hook.
+      try {
+        const h = new URL(url, location.href).host;
+        if (/(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i.test(h)) {
+          logOnce(
+            adapter ? "provider XHR (adapter matched):" : "provider XHR (NO adapter match):",
+            url,
+          );
+        }
+      } catch (_) {}
       if (!adapter) {
         return originalXhrSend.apply(this, arguments);
       }

@@ -584,23 +584,34 @@
 
   const claudeAdapter = {
     name: "claude",
-    // Match any URL that contains a SEND path segment anywhere, then
-    // explicitly exclude sub-operations that are POSTs but don't carry
-    // user-typed chat text (rename, feedback, star, etc.). The final
-    // gate is extractInputs(): if the body has no ``messages[].content``
-    // or ``prompt``, processBody early-returns without firing any UI.
+    // Matches Claude.ai + *.claude.com. We allow any URL that contains
+    // one of the known SEND verbs (completion, append_message,
+    // retry_completion, chat_conversations, send_message, messages,
+    // send) so projects / artifact / v2 API endpoints are covered as
+    // they roll out. The deny-list removes POSTs that carry no user
+    // text (rename, feedback, share, etc.). The final authoritative
+    // gate is extractInputs(): if the body has no messages[].content
+    // / prompt / text, processBody early-returns without UI.
     match: (url) =>
       /(^https?:\/\/claude\.(ai|com)|\.claude\.com)/.test(url) &&
-      /\/(?:completion|append_message|retry_completion|chat_conversations)(?=[/?#]|$)/.test(
+      /\/(?:completion|append_message|retry_completion|chat_conversations|send_message|messages|send)(?=[/?#]|$)/.test(
         url
       ) &&
-      !/\/(?:title|feedback|star|archive|share|export|leave|rename|latest|preview)(?=[/?#]|$)/.test(
+      !/\/(?:title|feedback|star|archive|share|export|leave|rename|latest|preview|render_status|count|stream_events|usage|analytics|telemetry|ratings)(?=[/?#]|$)/.test(
         url
       ),
     extractInputs(body) {
       const out = [];
+      // Legacy "prompt" field (still used by /append_message).
       if (typeof body?.prompt === "string" && body.prompt.trim()) {
         out.push(body.prompt);
+      }
+      // Top-level "text" / "query" / "message" fields used by newer
+      // send_message variants.
+      for (const k of ["text", "query", "message"]) {
+        if (typeof body?.[k] === "string" && body[k].trim()) {
+          out.push(body[k]);
+        }
       }
       if (Array.isArray(body?.messages)) {
         for (const m of body.messages) {
@@ -615,6 +626,16 @@
           }
         }
       }
+      // Some Claude endpoints wrap the user content under
+      // "parent_message_uuid" + "content": [{type, text}]. Treat
+      // top-level content[] the same way.
+      if (Array.isArray(body?.content)) {
+        for (const p of body.content) {
+          if (p?.type === "text" && typeof p.text === "string" && p.text.trim()) {
+            out.push(p.text);
+          }
+        }
+      }
       return out;
     },
     replaceInputs(body, masked) {
@@ -623,6 +644,11 @@
       const clone = JSON.parse(JSON.stringify(body));
       if (typeof clone?.prompt === "string" && clone.prompt.trim()) {
         clone.prompt = next(clone.prompt);
+      }
+      for (const k of ["text", "query", "message"]) {
+        if (typeof clone?.[k] === "string" && clone[k].trim()) {
+          clone[k] = next(clone[k]);
+        }
       }
       if (Array.isArray(clone?.messages)) {
         for (const m of clone.messages) {
@@ -634,6 +660,13 @@
                 p.text = next(p.text);
               }
             }
+          }
+        }
+      }
+      if (Array.isArray(clone?.content)) {
+        for (const p of clone.content) {
+          if (p?.type === "text" && typeof p.text === "string" && p.text.trim()) {
+            p.text = next(p.text);
           }
         }
       }

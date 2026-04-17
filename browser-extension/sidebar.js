@@ -698,7 +698,11 @@
     .row.sev-high     { border-left-color: var(--sev-high); }
     .row.sev-medium   { border-left-color: var(--sev-medium); }
     .row.sev-low      { border-left-color: var(--sev-low); }
-    .row.is-unmasked  { opacity: 0.55; background: var(--bg); border-right: 4px solid #22c55e; }
+    /* Unmasked row = green right-border marker only. Previously the
+       row itself had ``opacity: 0.55`` which combined with child
+       opacity to produce a flicker when hovering an unmasked row.
+       Child elements carry their own opacity / color changes. */
+    .row.is-unmasked  { background: var(--bg); border-right: 4px solid #22c55e; }
 
     /* Stagger-in animation applied when rows are first rendered after
        an LLM augmentation completes. Each row gets its animation-delay
@@ -812,8 +816,13 @@
       border-radius: 4px;
       font-weight: 500;
       color: var(--text-muted);
-      opacity: 0.65;
-      transition: all var(--ease-fast);
+      opacity: 0.75;
+      /* Specific properties only — ``transition: all`` was animating
+         layout-related things (font-weight) which caused a visible
+         flicker whenever hover / is-unmasked / any parent opacity
+         changed together. */
+      transition: color var(--ease-fast), border-color var(--ease-fast),
+        opacity var(--ease-fast);
     }
     .row.is-unmasked .row-value {
       border-color: var(--text-muted);
@@ -853,7 +862,8 @@
       padding: 1px 6px;
       border-radius: 4px;
       font-weight: 600;
-      transition: all var(--ease-fast);
+      transition: color var(--ease-fast), border-color var(--ease-fast),
+        opacity var(--ease-fast);
     }
     .row.is-unmasked .row-placeholder {
       border-color: var(--border);

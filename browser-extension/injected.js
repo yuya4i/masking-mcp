@@ -1345,7 +1345,7 @@
 
   window.fetch = async function maskedFetch(input, init) {
     try {
-      const url =
+      const rawUrl =
         typeof input === "string"
           ? input
           : input && typeof input.url === "string"
@@ -1359,6 +1359,16 @@
       // so we don't even bother running adapter matchers for them.
       if (method.toUpperCase() !== "POST") {
         return originalFetch(input, init);
+      }
+      // Resolve relative URLs (e.g. fetch("/api/...")) to absolute
+      // BEFORE adapter matching. Without this, claude.ai's SPA — which
+      // uses relative paths like ``/api/organizations/.../completion``
+      // — never matched the ^https?://claude.(ai|com)/ anchor.
+      let url = rawUrl;
+      try {
+        url = new URL(rawUrl, location.href).toString();
+      } catch (_) {
+        // Malformed URL → keep the raw string; adapter will just miss.
       }
       const adapter = pickAdapter(url);
       // Diagnostic: when ANY claude.ai / chatgpt / gemini / manus
@@ -1437,13 +1447,18 @@
   XMLHttpRequest.prototype.send = function patchedSend(body) {
     try {
       const method = (this._maskMcpMethod || "GET").toUpperCase();
-      const url = this._maskMcpUrl || "";
+      const rawUrl = this._maskMcpUrl || "";
       // Fast path: only intercept POSTs with a string body. GET polling
       // and binary uploads fall through silently — we never log non-send
       // activity to keep the console quiet.
       if (method !== "POST" || typeof body !== "string") {
         return originalXhrSend.apply(this, arguments);
       }
+      // Resolve relative URL → absolute before adapter matching.
+      let url = rawUrl;
+      try {
+        url = new URL(rawUrl, location.href).toString();
+      } catch (_) {}
       const adapter = pickAdapter(url);
       // Diagnostic (deduped) for provider-host POSTs regardless of
       // adapter match, mirrors the fetch hook.

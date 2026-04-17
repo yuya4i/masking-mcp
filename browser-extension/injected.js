@@ -387,9 +387,67 @@
       } finally {
         NS.sidebar && NS.sidebar.hideLoading && NS.sidebar.hideLoading();
       }
-      const llmEnts = (out && Array.isArray(out.entities)) ? out.entities : [];
+      let llmEnts = (out && Array.isArray(out.entities)) ? out.entities : [];
       if (!llmEnts.length) {
         LOG("llm detect: 0 entities returned; keeping regex/morphology only");
+        return aggResp;
+      }
+      // Post-filter: drop common false positives even if the LLM
+      // labeled them. This is a safety net against an over-eager
+      // model that flags job titles, generic IT terms, or polite
+      // phrases.
+      const LLM_DENYLIST = new Set([
+        // Job titles / roles
+        "エンジニア", "インフラエンジニア", "プログラマー", "デザイナー",
+        "マネージャー", "リーダー", "部長", "課長", "社長", "CTO", "CEO",
+        "PM", "PL", "アルバイト", "正社員", "フリーランス", "コンサルタント",
+        // IT common nouns (words, not actual values)
+        "パスワード", "アクセスキー", "APIキー", "API キー", "トークン",
+        "認証情報", "秘密鍵", "公開鍵", "ハッシュ", "セッション",
+        "Cookie", "JWT", "OAuth", "SSH", "SSL", "HTTPS", "HTTP",
+        "JSON", "YAML", "CSS", "SQL", "Database", "API", "REST", "GraphQL",
+        // Generic business terms
+        "プロジェクト", "会議", "ミーティング", "タスク", "チケット",
+        "レポート", "ドキュメント", "データ", "システム", "サーバー",
+        "クライアント", "ユーザー", "メンバー", "チーム", "部署", "組織",
+        "営業", "経理", "開発", "人事", "総務",
+        // Public orgs / technical tools
+        "政府", "省庁", "警察", "国税庁", "GitHub", "Docker", "Kubernetes",
+        "AWS", "GCP", "Azure",
+      ]);
+      const LLM_DENY_REGEX = [
+        /^エンジニア$/, /エンジニア$/,          // all "…エンジニア"
+        /^(?:パス|アクセス)(?:ワード|キー)$/,  // パスワード, アクセスキー
+        /^.+(?:部長|課長|係長|主任|取締役|社長)$/, // 何々部長 etc.
+      ];
+      const filtered = llmEnts.filter((e) => {
+        const v = (e && e.text) || "";
+        if (typeof v !== "string" || !v.trim()) return false;
+        if (LLM_DENYLIST.has(v)) {
+          LOG(`llm detect: dropped false positive "${v}" (denylist)`);
+          return false;
+        }
+        if (LLM_DENY_REGEX.some((re) => re.test(v))) {
+          LOG(`llm detect: dropped false positive "${v}" (pattern)`);
+          return false;
+        }
+        // Short surfaces that are pure hiragana are almost always
+        // particles / polite phrases mis-tagged.
+        if (v.length <= 3 && /^[ぁ-ん]+$/.test(v)) {
+          LOG(`llm detect: dropped short hiragana "${v}"`);
+          return false;
+        }
+        return true;
+      });
+      if (filtered.length !== llmEnts.length) {
+        LOG(
+          `llm detect: filtered ${llmEnts.length - filtered.length} ` +
+            `false positives, ${filtered.length} kept`
+        );
+      }
+      llmEnts = filtered;
+      if (!llmEnts.length) {
+        LOG("llm detect: all LLM entities filtered out; keeping regex only");
         return aggResp;
       }
       const LABEL_TO_CATEGORY = {

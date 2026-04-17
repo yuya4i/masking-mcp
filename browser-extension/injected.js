@@ -952,24 +952,29 @@
       if (cfg && cfg.mode === "replace") {
         const rewritten = [];
         let allLlmSucceeded = true;
-        // No top-right pill here — replace mode now shares the same
-        // sidebar overlay UX as detect mode. The overlay opens when
-        // processBody falls through to the detect/sanitize path (or
-        // when replace succeeds and we skip straight to substitution
-        // without any UI at all).
-        for (const text of inputs) {
-          const out = await llmAugment(text, "replace");
-          if (
-            out &&
-            typeof out.rewritten_text === "string" &&
-            out.rewritten_text.length > 0 &&
-            out.rewritten_text !== text
-          ) {
-            rewritten.push(out.rewritten_text);
-          } else {
-            allLlmSucceeded = false;
-            break;
+        // Show a page-level centered overlay while the LLM rewrites
+        // inputs. Replace mode never opens the review sidebar (we
+        // forward the rewritten text directly), so this is the
+        // user's only feedback that something is happening.
+        const sb = NS.sidebar;
+        if (sb && sb.showReplaceOverlay) sb.showReplaceOverlay();
+        try {
+          for (const text of inputs) {
+            const out = await llmAugment(text, "replace");
+            if (
+              out &&
+              typeof out.rewritten_text === "string" &&
+              out.rewritten_text.length > 0 &&
+              out.rewritten_text !== text
+            ) {
+              rewritten.push(out.rewritten_text);
+            } else {
+              allLlmSucceeded = false;
+              break;
+            }
           }
+        } finally {
+          if (sb && sb.hideReplaceOverlay) sb.hideReplaceOverlay();
         }
         if (allLlmSucceeded && rewritten.length === inputs.length) {
           LOG(`${adapter.name}: LLM replace mode substituted ${inputs.length} input(s)`);

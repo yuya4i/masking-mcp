@@ -473,15 +473,102 @@ Planning spec: `plans/feat-ui-masking-control-layer-2026-04-15.md`.
     `プロジェクト` / `メンバー` default-blocklist drops, custom
     `東京` override, empty-blocklist regression).
 
-- [ ] **feat/ollama-analyzer** (Phase 3) — `OllamaAnalyzer`
-  implementing the `Analyzer` Protocol. Ollama runs on host, gateway
-  reaches it via `host.docker.internal` or a network bridge. New
-  RuntimeConfig field `enable_llm_analyzer: bool = false`.
-  Depends on: phase1 (gateway side endpoint), Ollama installed.
+- [x] **feat/ollama-analyzer** — superseded by **Milestone 9
+  (feat/local-llm-proxy-v0.5.0, merged `c2f4ac7`)**. The gateway-
+  side Analyzer Protocol implementation is no longer required
+  because the v0.5.0 design moved LLM execution entirely into the
+  browser extension (no gateway round-trip, users keep all text
+  inside their own machine / LAN).
 
-- [ ] **chore/chrome-web-store-prep** (Phase 4) — icons, store
-  description, privacy policy, minimum host_permissions scope for
-  public review. Depends on: phase1 + phase2.
+- [x] **chore/chrome-web-store-prep** — shipped as **v0.4.0 /
+  manifest v1.0.0**. Icons, screenshots, privacy policy, store
+  descriptions in `browser-extension/{PRIVACY,STORE,STORE_DESCRIPTION}.md`
+  and `docs/privacy-policy.md`.
+
+---
+
+## Milestone 9 — Local-LLM proxy (v0.5.0)
+
+Goal: **add context-aware PII detection and AI replacement without
+ever leaving the user's device**. The browser extension talks
+directly to a user-configured Ollama / LM Studio / llama.cpp
+endpoint via the service worker, so only regex / Sudachi were not
+enough alone.
+
+Shipped in a single squash merge (main `c2f4ac7`) bundling 57
+commits. Full changelog in `browser-extension/CHANGELOG.md` under
+`## 0.5.0`.
+
+- [x] **Phase 1 — options UI + storage defaults** (`60e555c`).
+  `localLlmEnabled / localLlmUrl / localLlmMode / localLlmModel /
+  localLlmTimeoutMs / localLlmKind` keys; options page: URL input
+  + 接続確認 button probing `/api/tags` + `/v1/models`, mode
+  select, timeout input, experimental badge.
+
+- [x] **Phase 2 — surrogates + prompts + SW proxy** (`086ebf6`,
+  `1d2d948`). `browser-extension/engine/surrogates.js` (RFC 5737
+  IPs, xorshift32, djb2-seeded deterministic fakes).
+  `browser-extension/engine/llm-prompts.js` (detect + replace
+  system prompts, few-shot examples). `background.js` `LLM_FETCH`
+  handler with sender-id + host-lock validation.
+
+- [x] **Phase 3 — merge authority + denylist** (`c0f945c`,
+  `6333819`, `6f77d2b`). `mergeLlmDetect()` in injected.js: LLM
+  labels override regex on same surface, regex kept as safety
+  net for structured PII the LLM missed. `LLM_DENYLIST` +
+  `LLM_DENY_REGEX` post-filter removes job titles / credential
+  type names / polite phrases / common tech.
+
+- [x] **Phase 4 — cold-start + retry resilience** (`542e252`,
+  `6e9429f`, `6c4b49c`, `ddd84c2`). `think: false` +
+  `format: "json"` + `num_predict: 2048` in every Ollama
+  request. Retry budget: 6× warming-up on `500/503 "loading
+  model"` + 2× on `AbortError`. Inner bridge timeout =
+  `cfg.timeoutMs × 3 + 30s`. `_llmStatus` field distinguishes
+  "failed" / "ok_empty" / "ok_entities".
+
+- [x] **Phase 5 — UX consolidation** (commits from `7584634`
+  onwards). In-sidebar centered overlay, row stagger-in,
+  ✨ AI-detected icon, purple `AI 検出` badge, mode pill in
+  header, chat-pane shrink with `contain: layout`, final row
+  interaction matrix (long-press only on critical+masked,
+  everything else one-tap), 4-column grid alignment,
+  `出現回数 N回` label, lock icons restricted to category
+  headers.
+
+- [x] **Phase 6 — model management UI** (`b9b626e`, `80f4747`,
+  `a897cb0`, `d9918ca`). Recommended-models panel with
+  on-disk + VRAM chips and badges. Streaming `POST /api/pull`
+  with live progress bar. `DELETE /api/delete` with
+  confirm dialog.
+
+- [x] **Phase 7 — `<tag_N>` placeholder output** (`b54d98a`,
+  `ed3b9d3`). Replace mode now emits lowercase angle-bracket
+  tags (`<name_1>`, `<company_2>`, `<hospital_1>`) instead of
+  realistic fakes. `applyUniqueTagsToReplace` guarantees 1:1
+  restorable mapping.
+
+- [x] **Phase 8 — detection coverage** (`b076485`). Vendor-
+  specific API-key regex for ~25 services (OpenAI, Anthropic,
+  Notion, GitHub, Slack, AWS, Stripe, etc.), PEM private key
+  blocks, JWT, Bearer headers. Mirrored across
+  `browser-extension/engine/patterns.js` and
+  `src/app/services/analyzers/presets.py`.
+
+### Milestone 9 follow-ups (open)
+
+- [ ] **feat/response-restore** — when the AI service replies, walk
+  the streaming response and substitute `<name_1>` → `田中` etc.
+  back from the in-session tag map. Would close the loop so users
+  see the AI's output against their original data. Blocked on
+  streaming SSE interception, which is explicitly Phase-N scope.
+- [ ] **feat/llm-model-warmup** — auto-fire a lightweight
+  `/api/generate` on options-page "接続確認" success so the first
+  real query doesn't hit cold-start. Optional UX polish.
+- [ ] **feat/store-v1.1** — graduate v0.5.0 into a Web Store
+  release once the replace mode is out of "実験的" status. Requires
+  Chrome Web Store reviewer guidance on how to declare user-
+  configured local-LLM fetches in the privacy form.
 
 ---
 

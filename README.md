@@ -17,6 +17,23 @@
 
 **使用技術スタック**: Python 3.11 + FastAPI (async) / Pydantic v2 / uv (frozen lockfile) を Docker Compose で包み、Microsoft Presidio + SudachiPy + 正規表現プリセット ~40 種で PII 検出、`pytesseract` で PDF OCR、`FastMCP` で Claude Desktop 等へ MCP stdio を提供。ブラウザ側は Chrome MV3 拡張 (Shadow DOM サイドバー) + オプションで Ollama / LM Studio / llama.cpp 経由のローカル LLM (Qwen3 推奨)。
 
+![Python 3.11](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
+![Pydantic v2](https://img.shields.io/badge/Pydantic-v2-E92063?logo=pydantic&logoColor=white)
+![uv](https://img.shields.io/badge/uv-0.11-DE5FE9?logo=python&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Presidio](https://img.shields.io/badge/Presidio-MS-5E5CE6)
+![SudachiPy](https://img.shields.io/badge/SudachiPy-core-E60012)
+![pytesseract](https://img.shields.io/badge/pytesseract-OCR-4B5563)
+![FastMCP](https://img.shields.io/badge/FastMCP-stdio-7C3AED)
+![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4?logo=googlechrome&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-local--LLM-000000?logo=ollama&logoColor=white)
+![Qwen3](https://img.shields.io/badge/Qwen3-1.7b%20%2F%204b-615CED)
+![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)
+![Ruff](https://img.shields.io/badge/lint-Ruff-D7FF64?logo=ruff&logoColor=black)
+
+**使用技術スタック**: Python 3.11 + FastAPI (async) / Pydantic v2 / uv (frozen lockfile) を Docker Compose で包み、Microsoft Presidio + SudachiPy + 正規表現プリセット ~40 種で PII 検出、`pytesseract` で PDF OCR、`FastMCP` で Claude Desktop 等へ MCP stdio を提供。ブラウザ側は Chrome MV3 拡張 (Shadow DOM サイドバー) + オプションで Ollama / LM Studio / llama.cpp 経由のローカル LLM (Qwen3 推奨)。
+
 `pii-masking` は、生成AIへ送信する前にローカルPC上で個人情報を検出・マスクするための軽量ゲートウェイ + Chrome 拡張機能です。MCP対応クライアント向けのツール提供と、OpenAI、Claude、Manus、その他プロバイダ向けのローカルHTTPプロキシ、ブラウザ UI 上の対話的レビュー機能を統合しています。
 
 > **リポジトリ名の変遷**: `local-mask-mcp` → `mask-mcp` → `pii-masking`。Git remote の旧 URL (`masking-mcp.git`) は新しい URL (`pii-masking.git`) に redirect されます。

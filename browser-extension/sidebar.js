@@ -1222,7 +1222,29 @@
         const sw = sidebarWidth();
         host.style.width = sw + "px";
         host.style.minWidth = sw + "px";
+        host.style.maxWidth = sw + "px";
+        host.style.flex = `0 0 ${sw}px`;
+        // Give wrapper an EXPLICIT pixel width (calc) so chat frames
+        // that declare width: 100vw can't override flex:1 and overflow
+        // past the sidebar boundary. The chat becomes exactly
+        // (100vw - sw)px wide, sidebar is sw px wide, total = 100vw.
+        wrapper.style.width = `calc(100vw - ${sw}px)`;
+        wrapper.style.maxWidth = `calc(100vw - ${sw}px)`;
+        wrapper.style.flex = "1 1 auto";
+        // Keep a CSS custom property + global style rule so any chat
+        // child that uses `width: 100vw` or `right: 0` with
+        // `position: fixed` gets rewritten to respect the narrower
+        // viewport. See globalLayoutStyle below.
+        globalLayoutStyle.textContent =
+          ":root{--mmcp-sidebar-w:" + sw + "px}" +
+          "[data-mask-mcp-wrapper] *{max-width:100%!important}" +
+          "[data-mask-mcp-wrapper]{contain:layout}";
       }
+      // Style element INSIDE document (not shadow DOM) so its rules
+      // reach chat-app descendants. Content set by applySidebarLayout.
+      const globalLayoutStyle = document.createElement("style");
+      globalLayoutStyle.setAttribute("data-mask-mcp-layout", "");
+      document.head.appendChild(globalLayoutStyle);
       const shadow = host.attachShadow({ mode: "open" });
 
       const style = document.createElement("style");
@@ -2202,6 +2224,9 @@
         window.removeEventListener("resize", onResize);
         window.removeEventListener("mask-mcp:settings-updated", onSettingsUpdated);
         if (host.parentNode) host.parentNode.removeChild(host);
+        if (globalLayoutStyle.parentNode) {
+          globalLayoutStyle.parentNode.removeChild(globalLayoutStyle);
+        }
         // Unwrap: move children back to <body> and remove wrapper.
         if (wrapper.parentNode === document.body) {
           while (wrapper.firstChild) {
@@ -2213,7 +2238,8 @@
             .replace(/flex-direction:\s*row\s*!important;?/g, "")
             .replace(/overflow:\s*hidden\s*!important;?/g, "")
             .replace(/height:\s*100vh\s*!important;?/g, "")
-            .replace(/margin:\s*0\s*!important;?/g, "");
+            .replace(/margin:\s*0\s*!important;?/g, "")
+            .replace(/width:\s*100vw\s*!important;?/g, "");
         }
       }
 

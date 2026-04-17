@@ -275,13 +275,51 @@
       const raw = callResp && callResp.result;
       if (!raw || typeof raw !== "string") return null;
       // The LLM sometimes wraps JSON in ```json fences despite instructions.
-      const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      const cleaned = raw
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
+      let parsed;
       try {
-        return JSON.parse(cleaned);
+        parsed = JSON.parse(cleaned);
       } catch (_) {
         LOG("llm response not JSON; ignoring");
         return null;
       }
+      // [MEDIUM] Strict schema validation — a prompt-injected response
+      // that returns free-form text or unexpected fields must be
+      // rejected so the regex pipeline stays authoritative.
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        LOG("llm response not object; ignoring");
+        return null;
+      }
+      if (mode === "detect") {
+        if (!Array.isArray(parsed.entities)) {
+          LOG("llm detect response missing entities[]; ignoring");
+          return null;
+        }
+        parsed.entities = parsed.entities.filter(
+          (e) =>
+            e &&
+            typeof e === "object" &&
+            typeof e.text === "string" &&
+            e.text.trim().length > 0 &&
+            e.text.length < 500 &&
+            typeof e.entity_type === "string"
+        );
+        return parsed;
+      }
+      if (mode === "replace") {
+        if (
+          typeof parsed.rewritten_text !== "string" ||
+          parsed.rewritten_text.length === 0
+        ) {
+          LOG("llm replace response missing rewritten_text; ignoring");
+          return null;
+        }
+        return parsed;
+      }
+      return parsed;
     } catch (err) {
       WARN("llmAugment failed:", err?.message || err);
       return null;
@@ -728,29 +766,32 @@
       const cfgResp = await request("llm-config", {});
       const cfg = cfgResp && cfgResp.config;
       if (cfg && cfg.mode === "replace") {
-        const surrogates = NS.engine && NS.engine.surrogates;
+        // [HIGH] Fix partial-success leak: if ANY input failed to get
+        // an LLM rewrite, abort the entire LLM replace path and let
+        // the regex pipeline below handle everything. Previously a
+        // mixed [llm_rewrite, raw_text] could be returned which
+        // leaked PII on the inputs LLM refused / timed out.
         const rewritten = [];
-        let anyLlmChange = false;
+        let allLlmSucceeded = true;
         for (const text of inputs) {
           const out = await llmAugment(text, "replace");
-          if (out && typeof out.rewritten_text === "string" && out.rewritten_text !== text) {
+          if (
+            out &&
+            typeof out.rewritten_text === "string" &&
+            out.rewritten_text.length > 0 &&
+            out.rewritten_text !== text
+          ) {
             rewritten.push(out.rewritten_text);
-            anyLlmChange = true;
           } else {
-            // Surrogate fallback: walk regex detections and swap to
-            // type-preserving fakes so even without LLM the page gets
-            // "natural" replacements instead of <PHONE_1> tokens.
-            if (surrogates && surrogates.surrogateFor) {
-              rewritten.push(text);
-            } else {
-              rewritten.push(text);
-            }
+            allLlmSucceeded = false;
+            break;
           }
         }
-        if (anyLlmChange) {
+        if (allLlmSucceeded && rewritten.length === inputs.length) {
           LOG(`${adapter.name}: LLM replace mode substituted ${inputs.length} input(s)`);
           return { changed: true, body: adapter.replaceInputs(bodyJson, rewritten) };
         }
+        LOG(`${adapter.name}: LLM replace partial/failed; falling back to regex path`);
       }
     } catch (err) {
       WARN("llm replace path failed; falling back to regex:", err?.message || err);

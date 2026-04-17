@@ -1,5 +1,129 @@
 # Changelog
 
+## 0.5.0 — Local-LLM proxy + context-aware detection (2026-04-18)
+
+End-to-end local-LLM augmentation. The extension can now route
+outbound PII text through a user-configured Ollama / LM Studio /
+llama.cpp server for contextual detection or tag-based
+replacement. All traffic stays on the user's machine or LAN —
+no extension author involvement.
+
+### Highlights
+
+- **Three operation modes** selectable in `options.html`:
+    * `Regex のみ` — original v0.4 behaviour
+    * `検出補助 (Regex + AI)` — LLM augments regex/Sudachi; entities
+      with the same surface are replaced by LLM-labelled versions
+    * `AI 置換 (実験的)` — LLM rewrites the full message into
+      `<tag_N>` placeholders; outbound payload never contains the
+      original text
+- **Mode pill** in the sidebar header so the active dispatch is
+  always visible at a glance.
+- **Unique numbered tags** (`applyUniqueTagsToReplace` in
+  injected.js): same surface → same tag, distinct values →
+  distinct numbers. 1:1 mapping preserved for a future
+  "restore tags in AI response" feature.
+- **Model management panel**: 7 curated models with on-disk +
+  VRAM chips, badges (軽量 / 推奨 / 高精度 / 最高精度 / 代替),
+  one-click **ダウンロード** (streaming NDJSON with progress bar)
+  and **削除** (`DELETE /api/delete`).
+
+### Architecture
+
+- Service worker proxy for every LLM call — bypasses Chrome's
+  Private Network Access block and enforces sender-id + host-lock
+  so the SW can't be repurposed as a generic proxy.
+- `think: false` + `format: "json"` + `num_predict: 2048` in every
+  Ollama request so Qwen3 thinking variants emit visible JSON.
+- Two-tier retry budget: 6× warming-up on `500/503 "loading model"`,
+  2× on AbortError.
+- Inner bridge timeout = `cfg.timeoutMs × 3 + 30s` so the
+  postMessage bridge outlives the SW retry loop.
+- `_llmStatus` field (`failed` / `ok_empty` / `ok_entities`) lets
+  the sidebar distinguish "LLM returned nothing" from "LLM never
+  responded".
+
+### UX
+
+- In-sidebar centered overlay (not a top-right pill) for both
+  analyze and replace paths, with double-ring pulsing spinner.
+- Row stagger-in on reveal (80 ms × index).
+- ✨ sparkle icon + purple `AI 検出` badge on LLM-detected rows.
+- Final row interaction rules: long-press **only** on critical
+  rows currently masked; everything else (incl. locked
+  force-masked) is one-tap.
+- Chat pane shrinks via `transform: translateZ(0)` +
+  `contain: layout` on the wrapper so `position: fixed` composers
+  respect the sidebar's reservation — always side-by-side,
+  never covered.
+- 4-column grid on each row — value / arrow / placeholder line
+  up vertically across every entry. `text-overflow: ellipsis`
+  on long values with `title` tooltip.
+- `出現回数 N回` instead of `N件` for per-row counts.
+- 🔒 lock icon only on category headers (not every row).
+- Sidebar host gets `position: relative` + `z-index: 2147483647`
+  + `isolation: isolate` so no chat CSS can overlay the panel.
+
+### Detection
+
+- Vendor-specific API-key regex coverage: OpenAI (`sk-proj-` /
+  `sk-ant-` / etc.), Anthropic, Notion (`ntn_` + legacy
+  `secret_`), GitHub (`ghp_` / `gho_` / `github_pat_`), Slack
+  (`xox[baprs]-`), Google (`AIza…` / `ya29.`), AWS
+  (`AKIA/ASIA/…`), Stripe, Twilio, SendGrid, Groq, Replicate,
+  Tavily, GitLab (`glpat-`), Mailgun, npm, Fireworks, Airtable,
+  Linear, Figma, Discord, Cloudflare, JWT, Bearer headers, PEM
+  private key blocks.
+- COMPANY char class tightened to katakana + CJK + latin so
+  hiragana particles break the match ("株式会社アクメの田中部長"
+  no longer captures the whole phrase).
+- LLM denylist (job titles / credential-type names / polite
+  phrases / common tech) runs as a post-filter so Qwen3
+  over-detection is neutralised client-side.
+
+### Security
+
+- Fail-closed on replace mode (any LLM failure aborts the entire
+  outbound request).
+- Fail-open on detect mode (LLM timeout → regex-only sidebar
+  with an error toast).
+- Main branch protection enabled (PR required, linear history,
+  no force-push / deletion, conversation resolution).
+
+### Known limits
+
+- 9B thinking models take 20–60 s on cold start; the retry loop
+  covers this transparently.
+- Gemini Bard-frontend `f.req` framing remains detect-only;
+  rewriting it back is out of scope until the framing is round-
+  trip safe.
+
+## 0.4.0 — v1.0.0 Chrome Web Store build (2026-04-15)
+
+Stabilization pass between 0.3.0 and the 0.5.0 local-LLM work.
+Shipped as the v1.0.0 Web Store submission under
+`manifest.name = "PII Guard"`.
+
+- Sidebar modernised — glass header, category cards, segment-
+  control severity tabs, gradient primary button, micro-
+  animations.
+- Theme auto-sync to host background (luminance < 0.5 activates
+  dark palette).
+- Hold-duration slider 0 s – 1.5 s for force-masked categories.
+- Before/After arrow visualisation with reverse-arrow + green
+  right-border marker for unmasked rows.
+- Per-row 除外 button writes directly to
+  `chrome.storage.local.maskAllowlist`; other open tabs
+  auto-unmask matching rows on the fly via CustomEvent
+  `mask-mcp:settings-updated`.
+- Options page — allowlist CRUD + JSON import/export.
+- Socket.IO / manus.im WebSocket hook for chats that bypass
+  fetch/XHR.
+- Chrome Web Store submission package: icons, screenshots,
+  `PRIVACY.md`, `STORE.md`, `STORE_DESCRIPTION.md`.
+- Fail-closed on masking-pipeline error (rejected fetch instead
+  of silent pass-through).
+
 ## 0.3.0 — Severity colors + long-press critical guard (2026-04-15)
 
 Wave C of Milestone 7/8 — frontend + backend half of the new

@@ -1,29 +1,39 @@
-# Privacy Policy — Local Mask MCP (PII Guard)
+# Privacy Policy — PII Guard (formerly Local Mask MCP)
 
-**Last updated:** 2026-04-15
+**Last updated:** 2026-04-18 (updated for v0.5.0 local-LLM integration)
 
 ## Summary (English)
 
-Local Mask MCP is a browser extension that detects and masks personal
+PII Guard is a browser extension that detects and masks personal
 information (PII) in the text you send to AI chat services — Claude,
 ChatGPT, Gemini, Manus — **before** that text leaves your browser.
 
-We collect nothing. We send nothing anywhere. Every byte of processing
-happens on your own computer.
+By default we collect nothing and transmit nothing. Every byte of
+processing happens on your own computer.
+
+**Optional local-LLM augmentation (v0.5.0+)**: If *you* explicitly
+enable it in the options page and enter a server URL, the extension
+will POST text to **that user-configured server only** — typically an
+Ollama / LM Studio / llama.cpp instance on your own machine or LAN.
+This data still never reaches the extension author or any third
+party, and the service worker enforces a host-lock so the URL
+cannot be repurposed as a generic proxy.
 
 ---
 
 ## 要約 (日本語)
 
-Local Mask MCP は、Claude / ChatGPT / Gemini / Manus などの AI チャット
+PII Guard は、Claude / ChatGPT / Gemini / Manus などの AI チャット
 サービスに送信するテキストを、ブラウザから外部に出る**前**にブラウザ上で
 検出・マスクする拡張機能です。
 
-- **送信データ: なし** — すべての処理はお客様のブラウザ内で完結します。
-- **収集データ: なし** — 拡張機能は外部サーバーに何も送りません。
-- **保存データ: ローカルブラウザストレージのみ** — 設定 (マスクの
-  有効/無効、対応サイト別の挙動など) だけを `chrome.storage.local` に
-  保存します。テキスト本文や検出結果は保存しません。
+- **既定では送信データなし** — すべての処理はお客様のブラウザ内で完結。
+- **v0.5.0+: ユーザーが自発的に有効化した場合のみ** — オプション画面で
+  指定した**ローカル/LAN 上の LLM サーバー** (例: `http://localhost:11434`)
+  にテキストを POST。拡張機能の開発者や第三者には届きません。
+- **収集データなし** — 拡張機能は開発者が運営するサーバーに何も送りません。
+- **保存データ: ローカルブラウザストレージのみ** — 設定だけを
+  `chrome.storage.local` に保存。テキスト本文や検出結果は保存しません。
 
 ---
 
@@ -49,7 +59,14 @@ Local Mask MCP persists a small number of user preferences to
 | `enabled` | Global on/off toggle for the extension |
 | `interactive` | Whether the review UI appears before sending |
 | `uiMode` | `"sidebar"` (default) or `"modal"` review experience |
+| `maskAllowlist` | Strings the user has marked "never mask" |
 | `mask_mcp_pref_hybrid` | `"auto"` (default) / `"standalone"` / `"gateway"` |
+| `localLlmEnabled` *(v0.5.0+)* | `true` only if the user opted in to local-LLM augmentation. Default `false` |
+| `localLlmUrl` *(v0.5.0+)* | The user-entered LLM server URL. Empty means no LLM traffic |
+| `localLlmModel` *(v0.5.0+)* | Model name, e.g. `qwen3:4b` |
+| `localLlmMode` *(v0.5.0+)* | `"detect"` (augment regex) or `"replace"` (tag-based rewrite) |
+| `localLlmTimeoutMs` *(v0.5.0+)* | Timeout in ms (default 120000) |
+| `localLlmKind` *(v0.5.0+)* | `"ollama"` or `"openai-compat"` API shape |
 
 `chrome.storage.local` data stays in your browser profile; it is not
 synced to Google or transmitted anywhere by the extension.
@@ -75,26 +92,66 @@ voluntarily on your own machine. It binds to the loopback address
 choose not to run it, the extension uses its built-in JavaScript engine
 instead.
 
-## 4. Third-party sharing
+## 4. Optional local-LLM augmentation (v0.5.0+)
+
+From v0.5.0, the extension can talk to a **user-configured local
+or LAN LLM server** (Ollama, LM Studio, llama.cpp, …) for
+context-aware detection and tag-based replacement. This is the
+**only** outbound traffic the extension ever initiates, and all of
+the following conditions hold:
+
+- **Opt-in.** `localLlmEnabled` is `false` by default. The feature
+  is dormant until you enable the toggle on the options page.
+- **User-specified destination.** The server URL comes from the
+  `localLlmUrl` field you enter. No URL, no traffic.
+- **Service-worker host-lock.** Every LLM fetch is routed through
+  the extension's service worker (`background.js`), which compares
+  the requested host + protocol against the stored `localLlmUrl`
+  and rejects anything that doesn't match exactly. The SW cannot
+  be repurposed as a generic HTTP proxy.
+- **Sender-id validation.** The SW rejects any message whose
+  `sender.id !== chrome.runtime.id`, so other Chrome extensions
+  cannot smuggle their own URLs through PII Guard.
+- **No extension-author involvement.** Your text goes to the
+  server *you* pointed at. It does not pass through, copy to, or
+  get logged by any infrastructure we operate.
+- **Disable cleanly.** Flipping the options toggle off, clearing
+  `localLlmUrl`, or uninstalling the extension all immediately
+  stop any further LLM traffic.
+
+What is sent: the text of the chat message you are about to send,
+plus an internal system prompt instructing the LLM to return
+`{entities: [...]}` (detect mode) or `{rewritten_text, replacements}`
+(replace mode).
+
+What is **not** sent: page URLs, cookies, tab information, your
+account identifiers, or any content from other tabs.
+
+## 5. Third-party sharing
 
 None. We do not sell, share, license, rent, or otherwise disclose any
 information to anyone.
 
-## 5. Host permissions
+## 6. Host permissions
 
 The extension requests `host_permissions` only for the AI chat sites it
-supports:
+supports plus the user-configured local LLM endpoint:
 
 - `https://claude.ai/*` / `https://*.claude.com/*`
 - `https://chatgpt.com/*` / `https://*.openai.com/*`
 - `https://gemini.google.com/*`
 - `https://*.manus.im/*`
 - `http://127.0.0.1:8081/*` (loopback only, for the optional local gateway)
+- `http://*/*` *(v0.5.0-dev build only)* — needed because
+  users can point `localLlmUrl` at any LAN address like
+  `http://192.168.1.12:11434`. The service worker host-lock
+  described in §4 restricts actual traffic to the user's saved URL
+  at runtime.
 
-These are the sites where PII masking actually needs to run. The
-extension does not request `<all_urls>` or any broader access.
+The extension does not request `<all_urls>` or any broader access
+than the above.
 
-## 6. Your rights and choices
+## 7. Your rights and choices
 
 - **Disable any time.** Toggle the extension off from the popup, or
   uninstall it from `chrome://extensions`.
@@ -107,20 +164,20 @@ extension does not request `<all_urls>` or any broader access.
 - **No account.** There is no registration, no login, no account to
   create or delete.
 
-## 7. Children's privacy
+## 8. Children's privacy
 
 The extension does not intentionally collect or process data from
 users under 13. Because we collect no data at all, there is no child-
 specific data flow to address.
 
-## 8. Changes to this policy
+## 9. Changes to this policy
 
 If this policy changes, the updated version will be published in the
 same repository. The "Last updated" date at the top reflects the most
 recent revision. Because there is no data to collect, changes will
 generally be clarifications rather than scope expansions.
 
-## 9. Contact
+## 10. Contact
 
 Questions, concerns, or false-positive reports:
 

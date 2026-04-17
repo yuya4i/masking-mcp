@@ -359,10 +359,14 @@
     }
   }
 
-  // Merge LLM-detected contextual entities into the regex aggregated
-  // response. Skips LLM entirely when config is missing or mode is
-  // not "detect". Deduplicates by surface text so regex wins on
-  // overlap. Returns the (possibly augmented) aggResp.
+  // Merge LLM-detected contextual entities with the regex aggregated
+  // response. When LLM is connected (mode === "detect"), the LLM is
+  // treated as the primary authority: any entity LLM flagged
+  // REPLACES the regex/morphology entry for the same surface text
+  // (label, category, severity all come from LLM). Entities regex
+  // found but LLM did not are kept as a safety-net supplement so
+  // structured PII (email, credit card, phone number) is never
+  // silently dropped. Skips LLM entirely when config is missing.
   async function mergeLlmDetect(aggResp, text) {
     try {
       const cfgResp = await request("llm-config", {});
@@ -384,10 +388,10 @@
         NS.sidebar && NS.sidebar.hideLoading && NS.sidebar.hideLoading();
       }
       const llmEnts = (out && Array.isArray(out.entities)) ? out.entities : [];
-      if (!llmEnts.length) return aggResp;
-      const existing = new Set(
-        (aggResp.aggregated || []).map((a) => String(a.value))
-      );
+      if (!llmEnts.length) {
+        LOG("llm detect: 0 entities returned; keeping regex/morphology only");
+        return aggResp;
+      }
       const LABEL_TO_CATEGORY = {
         PERSON: "PERSON",
         COMPANY: "ORGANIZATION",
@@ -406,18 +410,20 @@
         CREDENTIAL: "critical",
         SENSITIVE_FACT: "high",
       };
-      let added = 0;
+      // Build the LLM rows first (they become authoritative).
+      const llmRows = [];
+      const llmValues = new Set();
       const counters = {};
       for (const ent of llmEnts) {
         const value = typeof ent.text === "string" ? ent.text.trim() : "";
-        if (!value || existing.has(value)) continue;
+        if (!value || llmValues.has(value)) continue;
         const start = text.indexOf(value);
         if (start < 0) continue;
         const label = String(ent.entity_type || "SENSITIVE_FACT").toUpperCase();
         const category = LABEL_TO_CATEGORY[label] || "OTHER";
         const severity = LABEL_TO_SEVERITY[label] || "medium";
         counters[label] = (counters[label] || 0) + 1;
-        aggResp.aggregated.push({
+        llmRows.push({
           value,
           label,
           category,
@@ -429,10 +435,23 @@
           severity,
           source: "llm",
         });
-        existing.add(value);
-        added++;
+        llmValues.add(value);
       }
-      if (added > 0) LOG(`mergeLlmDetect: +${added} entities from LLM`);
+      // Keep regex rows ONLY when LLM didn't already flag that surface.
+      // This gives LLM final say on label/severity while retaining
+      // structured regex detections (email, credit card, etc.) that
+      // LLM might not have surfaced.
+      const keptRegex = (aggResp.aggregated || []).filter(
+        (a) => !llmValues.has(String(a.value))
+      );
+      const replaced = (aggResp.aggregated || []).length - keptRegex.length;
+      // LLM rows come first in the aggregated list so the sidebar
+      // shows them at the top of their severity tab.
+      aggResp.aggregated = [...llmRows, ...keptRegex];
+      LOG(
+        `llm detect merge: +${llmRows.length} llm entities, ` +
+          `+${keptRegex.length} regex kept, ${replaced} regex overridden by LLM`
+      );
       return aggResp;
     } catch (err) {
       WARN("mergeLlmDetect failed:", err?.message || err);

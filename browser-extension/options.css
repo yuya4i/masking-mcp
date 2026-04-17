@@ -317,6 +317,7 @@ main {
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
 }
 .llm-select {
+  width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -324,9 +325,14 @@ main {
   color: var(--fg);
   font: inherit;
   font-size: 13px;
-  max-width: 360px;
 }
-.llm-mode-select { max-width: 240px; }
+.llm-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+/* 動作モードだけは選択肢が短いので narrower なまま */
+.llm-mode-select { max-width: 260px; }
 .llm-number {
   width: 140px;
   padding: 6px 10px;

@@ -1897,34 +1897,36 @@
         llmOverlay = buildLlmOverlay();
         body.appendChild(llmOverlay);
 
-        llmPending
-          .then((updated) => {
-            const nextAgg =
-              updated && Array.isArray(updated.aggregated)
-                ? updated.aggregated
-                : aggregated;
-            // The server may have added new force_masked_categories
-            // after LLM analysis; refresh the in-scope set so new
-            // rows render with the correct locked state.
-            if (updated && Array.isArray(updated.force_masked_categories)) {
-              forcedCategories.clear();
-              for (const c of updated.force_masked_categories) {
-                forcedCategories.add(String(c));
-              }
+        // mergeLlmDetect resolves in ALL paths (success, 0-entity,
+        // timeout) — the `.catch` branch here is a safety net for
+        // unexpected programming errors, not for LLM failure. We
+        // detect LLM failure by inspecting the returned aggResp's
+        // _llmStatus field set by injected.js.
+        const finishLlm = (updated, hadException) => {
+          const nextAgg =
+            updated && Array.isArray(updated.aggregated)
+              ? updated.aggregated
+              : aggregated;
+          if (updated && Array.isArray(updated.force_masked_categories)) {
+            forcedCategories.clear();
+            for (const c of updated.force_masked_categories) {
+              forcedCategories.add(String(c));
             }
-            applyAggregated(nextAgg);
-            revealChrome();
-            dismissLlmOverlay();
-          })
-          .catch(() => {
-            // LLM failed — fall back to the regex-only list so the
-            // user isn't left with an empty sidebar, and surface a
-            // top-banner toast explaining what happened.
-            applyAggregated(aggregated);
-            revealChrome();
-            dismissLlmOverlay();
+          }
+          applyAggregated(nextAgg);
+          revealChrome();
+          dismissLlmOverlay();
+          const failed =
+            hadException ||
+            (updated && updated._llmStatus === "failed");
+          if (failed) {
             showLlmErrorToast();
-          });
+          }
+        };
+
+        llmPending
+          .then((updated) => finishLlm(updated, false))
+          .catch(() => finishLlm(null, true));
       }
 
       // Bulk-uncheck gate for the critical tier. Returns ``true`` if

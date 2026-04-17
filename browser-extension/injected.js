@@ -126,19 +126,22 @@
     entry.resolve(data);
   });
 
-  function request(type, extra) {
+  function request(type, extra, timeoutMs) {
     const id = `mcp-${++sequence}-${Date.now()}`;
     return new Promise((resolve) => {
       pending.set(id, { resolve });
       window.postMessage({ source: TAG_IN, id, type, ...extra }, "*");
       // Safety timeout — the content script should always reply;
-      // this guards against a broken extension install.
+      // this guards against a broken extension install. For most
+      // request types 5s is plenty, but LLM calls against 9B+
+      // thinking models can take 30–120s (model load + inference),
+      // so callers override with their own budget + a small buffer.
       setTimeout(() => {
         if (pending.has(id)) {
           pending.delete(id);
           resolve(null);
         }
-      }, 5000);
+      }, typeof timeoutMs === "number" && timeoutMs > 0 ? timeoutMs : 5000);
     });
   }
 
@@ -287,7 +290,16 @@
       const build =
         mode === "replace" ? prompts.buildReplacePrompt : prompts.buildDetectPrompt;
       const { system, user } = build(text);
-      const callResp = await request("llm-call", { system, user, config: cfg });
+      // Give the inner bridge a window equal to the LLM fetch timeout
+      // plus a 15s buffer for SW round-trip + retry delays. Without
+      // this the page-side Promise resolves to null at 5s while the
+      // SW is still waiting on Ollama.
+      const innerBudget = (cfg.timeoutMs || 60000) + 15000;
+      const callResp = await request(
+        "llm-call",
+        { system, user, config: cfg },
+        innerBudget,
+      );
       const raw = callResp && callResp.result;
       if (!raw || typeof raw !== "string") {
         LOG(`llm ${mode}: no response (timeout / network / CORS)`);
@@ -392,10 +404,19 @@
       // flashing a top-right pill before any UI is visible.
       const out = await llmAugment(text, "detect");
       let llmEnts = (out && Array.isArray(out.entities)) ? out.entities : [];
+      // Distinguish three outcomes so the sidebar can render
+      // appropriate feedback:
+      //   "failed"       — LLM did not respond (timeout / CORS / network)
+      //   "ok_empty"     — LLM answered, but with no entities
+      //   "ok_entities"  — LLM answered with at least one entity
       if (!llmEnts.length) {
-        LOG("llm detect: 0 entities returned; keeping regex/morphology only");
+        aggResp._llmStatus = out === null ? "failed" : "ok_empty";
+        LOG(
+          `llm detect: ${aggResp._llmStatus} — keeping regex/morphology only`,
+        );
         return aggResp;
       }
+      aggResp._llmStatus = "ok_entities";
       // Post-filter: drop common false positives even if the LLM
       // labeled them. This is a safety net against an over-eager
       // model that flags job titles, generic IT terms, or polite

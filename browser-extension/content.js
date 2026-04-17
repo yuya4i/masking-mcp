@@ -444,19 +444,26 @@
     // can retry cheaply without waiting for the full timeout. We only
     // retry on "loading model" responses — 403 CORS and hard errors
     // bail immediately.
-    const MAX_ATTEMPTS = 6;
-    const RETRY_DELAY_MS = 3000;
-    let lastResp = null;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    // Retry budget — split by cause. Cold-start 500/503 "loading
+    // model" answers come back fast, so we can poll cheaply. Timeouts
+    // (AbortError) are genuine inference stalls — we allow a small
+    // number of re-runs so 9B thinking models that exceed one timeout
+    // window still get a second chance after the KV cache is warm.
+    const WARMUP_MAX = 6;      // 500/503 loading-model retries
+    const WARMUP_DELAY_MS = 3000;
+    const TIMEOUT_MAX = 2;     // AbortError retries (inference too slow)
+    const TIMEOUT_DELAY_MS = 2000;
+    let warmupTries = 0;
+    let timeoutTries = 0;
+    while (true) {
       try {
         const resp = await chrome.runtime.sendMessage({
           type: "LLM_FETCH",
           url,
           method: "POST",
           body,
-          timeoutMs: config.timeoutMs || 60000,
+          timeoutMs: config.timeoutMs || 120000,
         });
-        lastResp = resp;
         if (resp && resp.ok && resp.body) {
           const j = JSON.parse(resp.body);
           result = isOpenAi
@@ -470,11 +477,26 @@
           (resp.status === 500 || resp.status === 503) &&
           typeof resp.body === "string" &&
           /loading model|model is still loading|server loading/i.test(resp.body);
-        if (warming && attempt < MAX_ATTEMPTS - 1) {
+        if (warming && warmupTries < WARMUP_MAX) {
+          warmupTries++;
           console.debug(
-            `[mask-mcp] llm warming up (attempt ${attempt + 1}/${MAX_ATTEMPTS}), waiting ${RETRY_DELAY_MS}ms…`
+            `[mask-mcp] llm warming up (${warmupTries}/${WARMUP_MAX}), waiting ${WARMUP_DELAY_MS}ms…`
           );
-          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          await new Promise((r) => setTimeout(r, WARMUP_DELAY_MS));
+          continue;
+        }
+        // SW-side fetch abort surfaces as { ok:false, error:"signal is
+        // aborted without reason" } (or similar). Treat this the same
+        // as a JS-side AbortError — allow a couple of re-runs.
+        const abortLike =
+          resp && !resp.ok && typeof resp.error === "string" &&
+          /abort|aborted|AbortError/i.test(resp.error);
+        if (abortLike && timeoutTries < TIMEOUT_MAX) {
+          timeoutTries++;
+          console.debug(
+            `[mask-mcp] llm inference timeout (${timeoutTries}/${TIMEOUT_MAX}), retrying…`
+          );
+          await new Promise((r) => setTimeout(r, TIMEOUT_DELAY_MS));
           continue;
         }
         if (resp && resp.status === 403) {
@@ -493,6 +515,15 @@
         }
         break;
       } catch (err) {
+        const isAbort = err && err.name === "AbortError";
+        if (isAbort && timeoutTries < TIMEOUT_MAX) {
+          timeoutTries++;
+          console.debug(
+            `[mask-mcp] llm inference timeout (${timeoutTries}/${TIMEOUT_MAX}), retrying…`
+          );
+          await new Promise((r) => setTimeout(r, TIMEOUT_DELAY_MS));
+          continue;
+        }
         console.debug("[mask-mcp] llm call failed:", err?.message || err);
         break;
       }

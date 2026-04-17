@@ -348,7 +348,13 @@
       const cfgResp = await request("llm-config", {});
       const cfg = cfgResp && cfgResp.config;
       if (!cfg || cfg.mode !== "detect") return aggResp;
-      const out = await llmAugment(text, "detect");
+      NS.sidebar && NS.sidebar.showLoading && NS.sidebar.showLoading("LLM 分析中…");
+      let out;
+      try {
+        out = await llmAugment(text, "detect");
+      } finally {
+        NS.sidebar && NS.sidebar.hideLoading && NS.sidebar.hideLoading();
+      }
       const llmEnts = (out && Array.isArray(out.entities)) ? out.entities : [];
       if (!llmEnts.length) return aggResp;
       const existing = new Set(
@@ -779,26 +785,26 @@
       const cfgResp = await request("llm-config", {});
       const cfg = cfgResp && cfgResp.config;
       if (cfg && cfg.mode === "replace") {
-        // [HIGH] Fix partial-success leak: if ANY input failed to get
-        // an LLM rewrite, abort the entire LLM replace path and let
-        // the regex pipeline below handle everything. Previously a
-        // mixed [llm_rewrite, raw_text] could be returned which
-        // leaked PII on the inputs LLM refused / timed out.
         const rewritten = [];
         let allLlmSucceeded = true;
-        for (const text of inputs) {
-          const out = await llmAugment(text, "replace");
-          if (
-            out &&
-            typeof out.rewritten_text === "string" &&
-            out.rewritten_text.length > 0 &&
-            out.rewritten_text !== text
-          ) {
-            rewritten.push(out.rewritten_text);
-          } else {
-            allLlmSucceeded = false;
-            break;
+        NS.sidebar && NS.sidebar.showLoading && NS.sidebar.showLoading("AI 置換中…");
+        try {
+          for (const text of inputs) {
+            const out = await llmAugment(text, "replace");
+            if (
+              out &&
+              typeof out.rewritten_text === "string" &&
+              out.rewritten_text.length > 0 &&
+              out.rewritten_text !== text
+            ) {
+              rewritten.push(out.rewritten_text);
+            } else {
+              allLlmSucceeded = false;
+              break;
+            }
           }
+        } finally {
+          NS.sidebar && NS.sidebar.hideLoading && NS.sidebar.hideLoading();
         }
         if (allLlmSucceeded && rewritten.length === inputs.length) {
           LOG(`${adapter.name}: LLM replace mode substituted ${inputs.length} input(s)`);

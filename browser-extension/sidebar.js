@@ -1881,5 +1881,74 @@
     });
   }
 
-  NS.sidebar = { show, applyMasks };
+  // --- Loading indicator (LLM 分析中) ----------------------------------
+  // A tiny always-on-top spinner pinned to the top-right edge while
+  // the LLM is being queried. Independent of the main review sidebar
+  // so the user sees activity the moment a query starts, even if the
+  // main sidebar hasn't rendered yet.
+  let loadingHost = null;
+  function showLoading(label) {
+    if (loadingHost) {
+      const lbl = loadingHost.shadowRoot.querySelector(".label");
+      if (lbl) lbl.textContent = label || "LLM 分析中…";
+      return;
+    }
+    loadingHost = document.createElement("div");
+    loadingHost.setAttribute("data-mask-mcp-loader", "");
+    loadingHost.style.cssText =
+      "all:initial;position:fixed;top:16px;right:16px;z-index:2147483647;pointer-events:none";
+    const shadow = loadingHost.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = `
+      .pill {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px 10px 14px;
+        background: rgba(17, 24, 39, 0.92);
+        color: #f9fafb;
+        border-radius: 999px;
+        font: 500 13px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        letter-spacing: 0.01em;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.18);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        animation: fade-in 0.18s ease-out;
+      }
+      .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.22);
+        border-top-color: #a855f7;
+        border-right-color: #6366f1;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      .label { white-space: nowrap; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes fade-in {
+        from { opacity: 0; transform: translateY(-6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+    `;
+    shadow.appendChild(style);
+    const pill = document.createElement("div");
+    pill.className = "pill";
+    const spin = document.createElement("div");
+    spin.className = "spinner";
+    const txt = document.createElement("span");
+    txt.className = "label";
+    txt.textContent = label || "LLM 分析中…";
+    pill.appendChild(spin);
+    pill.appendChild(txt);
+    shadow.appendChild(pill);
+    document.body.appendChild(loadingHost);
+  }
+  function hideLoading() {
+    if (!loadingHost) return;
+    try { loadingHost.remove(); } catch (_) {}
+    loadingHost = null;
+  }
+
+  NS.sidebar = { show, applyMasks, showLoading, hideLoading };
 })();

@@ -1815,15 +1815,34 @@
         updatePreview();
       }
 
-      applyAggregated(aggregated);
+      // Initial paint: if LLM augmentation is pending we hold off on
+      // painting any rows until it resolves — otherwise the user sees
+      // a transient "regex-only" masking list that then shuffles as
+      // the LLM adds/overrides entries. When llmPending is null we
+      // paint the regex-only results immediately as before.
+      if (!llmPending) {
+        applyAggregated(aggregated);
+      }
 
       // --- LLM pending: centered overlay -------------------------------
-      // Instead of a thin banner, we show a prominent centered spinner
-      // with a label inside .body while the LLM augmentation runs. The
-      // overlay has pointer-events: none, so regex rows underneath
-      // remain interactive. On resolve we fade it out and rebuild rows.
+      // While the LLM augmentation runs the sidebar shows ONLY the
+      // centered overlay — no rows, no preview, no bulk buttons — so
+      // the user isn't given a partial "regex-only" list that will
+      // be rewritten a moment later. Supporting chrome (bulk-bar /
+      // slider / sev-tabs / preview) is hidden until the overlay
+      // dismisses; on error we reveal the regex-only fallback.
       // On failure we replace it with a compact top-positioned toast
       // that auto-hides after 4s (regex results stay in place).
+      // Supporting UI that should be hidden while we show the overlay.
+      // Collected once here so reveal() can flip them back on atomically.
+      const chromeToHide = [bulkBar, holdSliderBar, sevTabs, previewSection];
+      function hideChrome() {
+        for (const el of chromeToHide) el.style.display = "none";
+      }
+      function revealChrome() {
+        for (const el of chromeToHide) el.style.display = "";
+      }
+
       let llmOverlay = null;
       function buildLlmOverlay() {
         const root = document.createElement("div");
@@ -1874,6 +1893,7 @@
       }
 
       if (llmPending) {
+        hideChrome();
         llmOverlay = buildLlmOverlay();
         body.appendChild(llmOverlay);
 
@@ -1893,9 +1913,15 @@
               }
             }
             applyAggregated(nextAgg);
+            revealChrome();
             dismissLlmOverlay();
           })
           .catch(() => {
+            // LLM failed — fall back to the regex-only list so the
+            // user isn't left with an empty sidebar, and surface a
+            // top-banner toast explaining what happened.
+            applyAggregated(aggregated);
+            revealChrome();
             dismissLlmOverlay();
             showLlmErrorToast();
           });

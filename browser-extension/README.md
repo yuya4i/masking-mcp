@@ -1,9 +1,21 @@
-# Local Mask MCP — Browser Extension (Phase 1)
+# PII Guard — Browser Extension
 
 Chrome MV3 extension that masks PII in outbound AI-service traffic
 before it leaves the browser. Targets Claude.ai, ChatGPT, Gemini,
-and Manus. Requires the `local-mask-mcp` gateway running at
-`http://127.0.0.1:8081`.
+and Manus.
+
+Runs in **three operation modes** depending on what back-ends you
+point it at:
+
+| Mode | Detection source | Extra infra |
+|---|---|---|
+| Standalone | In-browser regex + 形態素 (ts-sudachi) | None |
+| Gateway | standalone + FastAPI gateway (Presidio / Sudachi) | `make up` (`127.0.0.1:8081`) |
+| Local-LLM (v0.5.0+) | standalone + Ollama / LM Studio / llama.cpp | Ollama daemon on `127.0.0.1:11434` (LAN OK) |
+
+The dev build shipped on `feat/local-llm-proxy-v0.5.0` is
+`v1.1.0 / 0.5.0-dev` — **not** the current Web-Store build
+(`v1.0.0 / PII Guard`). Local-LLM mode is opt-in and experimental.
 
 ## Install (developer mode)
 
@@ -50,6 +62,112 @@ Claude.ai is the primary target. The other three use best-effort
 adapters; if you hit a missed case, the `console.debug` logs in
 devtools will show `[mask-mcp]` entries tagged with the adapter
 name — grep for those when reporting adapter bugs.
+
+## Local-LLM proxy (v0.5.0+, experimental)
+
+With a local Ollama / LM Studio / llama.cpp server you can add
+**context-aware PII detection** on top of regex + Sudachi. The LLM
+never leaves your machine (or LAN), and when enabled its output
+takes authority over the heuristic detectors for any surface text
+both paths surface — regex becomes a safety net for structured PII
+(email / credit card / phone) the LLM missed.
+
+### Enable
+
+`options.html` → **ローカル LLM 連携** section:
+
+| Field | Default | Notes |
+|---|---|---|
+| LLM 補助検出を有効化 | off | master switch |
+| エンドポイント URL | — | e.g. `http://localhost:11434` (Ollama) or `http://192.168.1.12:1234` (LM Studio) |
+| 使用モデル | — | auto-populated from `/api/tags` or `/v1/models` after 接続確認 |
+| 動作モード | `検出補助 (regex + LLM)` | `AI 置換 (実験的)` rewrites the full text via LLM |
+| タイムアウト (ms) | `60000` | cold-start 9B models need ≥30s; max `180000` |
+
+Recommended models (日本語向け, 軽量):
+
+- `qwen3:1.7b` — fastest, decent accuracy
+- `qwen3:4b` — default recommendation, 4GB VRAM
+- `gemma3:4b` — low-memory alternative
+
+### Required Ollama configuration
+
+Ollama rejects cross-origin requests by default and will return
+**HTTP 403** to the extension. You must set `OLLAMA_ORIGINS='*'`
+(or whitelist `chrome-extension://*`) before the extension can
+connect. The options-page 接続確認 button detects this and shows
+the exact remediation command.
+
+```bash
+# Docker
+docker run -d --name ollama --gpus all \
+  -e OLLAMA_HOST='0.0.0.0:11434' \
+  -e OLLAMA_ORIGINS='*' \
+  -p 11434:11434 \
+  -v ollama:/root/.ollama \
+  --restart unless-stopped \
+  ollama/ollama:latest
+
+# systemd
+sudo systemctl edit ollama
+# [Service]
+# Environment="OLLAMA_ORIGINS=*"
+sudo systemctl restart ollama
+
+# Plain binary
+OLLAMA_ORIGINS='*' ollama serve
+```
+
+### Architecture — why the service worker?
+
+Content scripts run inside the host page (e.g. `https://claude.ai`)
+and Chrome's **Private Network Access** policy blocks HTTPS pages
+from fetching `http://localhost` / LAN IPs. The service worker is
+privileged and PNA-exempt, so every LLM call is routed:
+
+```text
+page world (injected.js)
+  → window.postMessage → content.js
+  → chrome.runtime.sendMessage({type:"LLM_FETCH", url, method, body, timeoutMs})
+  → background.js (service worker)
+     ├─ validate sender.id === chrome.runtime.id   (no foreign extensions)
+     ├─ validate url.host === storage.localLlmUrl  (host-lock)
+     └─ fetch(url, …)
+  → response → chrome.runtime message → content.js → postMessage → injected.js
+```
+
+The SW will **refuse** any host that does not match the saved
+`localLlmUrl` — it cannot be repurposed as a general proxy.
+
+### Detection flow when LLM is enabled
+
+1. `sanitize/aggregated` returns regex + Sudachi entities.
+2. If ≥1 entity found, the sidebar opens **immediately** with the
+   regex snapshot and an inline *LLM 分析中…* banner.
+3. `mergeLlmDetect()` runs in parallel, asking the LLM
+   (`/no_think` instruction for Qwen3 families, `<think>` blocks
+   stripped from the response, JSON-only output enforced by the
+   system prompt and post-parse validation).
+4. LLM output is filtered through a denylist (job titles, credential
+   type-names, polite particles, short hiragana) to kill common
+   false positives.
+5. Surviving LLM rows replace any regex rows with the same surface
+   (LLM gets final say on label / severity / category). Untouched
+   regex rows stay as safety net.
+6. The sidebar re-renders. User masked/unmasked choices on the
+   initial regex rows are preserved across the rebuild.
+7. On LLM failure (timeout / 403 / network) the banner switches to
+   an error style and auto-hides after 4s; regex-only detections
+   stay in place — **fail-open on augmentation**, not on masking.
+
+### Replace mode (`AI 置換`)
+
+Instead of surfacing entities for review, the LLM rewrites the
+whole input with surrogate values (type-preserving fake emails,
+RFC 5737 test IPs, etc.). Runs in a **fail-closed** loop: if
+*any* input fails validation, the entire outbound request is
+aborted rather than leaking partial content. Still experimental —
+detection mode is the recommended default.
 
 ## Interactive review mode
 
@@ -119,6 +237,19 @@ and the request endpoint differ:
   リーク / `confidential` / `leak`) cannot be unchecked.
 * **Live preview** at the bottom shows the final `<TAG>`-style
   output as you toggle. Pure client-side, no extra fetches.
+* **LLM 分析中 banner** (v0.5.0+) — when local-LLM augmentation is
+  enabled and regex returned ≥1 entity, the sidebar opens
+  instantly with the regex snapshot and shows a gradient banner
+  at the top while the LLM thinks. When the LLM resolves, rows
+  are re-rendered with LLM-authoritative labels and any new
+  entities LLM found. Your mask/unmask choices on the regex rows
+  are preserved across the re-render. On timeout or 403 the
+  banner flips to an error style and auto-hides after 4s —
+  regex-only detections stay in place.
+* **Top-right spinner pill** — a small always-on-top pill
+  (`✨ LLM 分析中…`) pinned outside the sidebar frame. Appears
+  even if the sidebar isn't open yet (regex returned 0 entities,
+  waiting for the LLM to decide whether anything needs masking).
 
 ### モーダルモード (従来)
 
@@ -224,27 +355,56 @@ Keyboard:
   badge but do not rewrite it back, so Gemini submissions are
   detected-only until the Bard framing is safe to round-trip.
 - No TLS interception. All masking happens in-browser.
+- **LLM cold start** — first query after daemon start can take
+  20–40s on 4B+ models. The 60s default timeout covers this; bump
+  to 120–180s on slower hardware (CPU inference).
+- **Qwen3 think blocks** — models in the Qwen3 family wrap output
+  in `<think>…</think>`. The parser strips these and extracts the
+  first `{…}`-bounded JSON object; non-JSON replies are dropped.
+- **No TLS interception of LLM traffic** — Ollama is expected to
+  run on `http://` (loopback / LAN). Pointing the extension at
+  `https://` with a self-signed cert is unsupported.
+- **Replace mode is experimental** — failures are fail-closed
+  (request aborted) rather than fail-open. If you get repeated
+  "LLM 置換失敗" errors in the popup, switch back to `検出補助`.
 
 ## Uninstall
 
-`chrome://extensions` → find "Local Mask MCP — PII Guard" → Remove.
+`chrome://extensions` → find "PII Guard" (or "PII Guard (dev —
+local LLM)" for the v0.5.0-dev build) → Remove.
 
 ## Files
 
 ```
 browser-extension/
-  manifest.json      MV3 manifest (host_permissions, scripts, icons)
-  content.js         Isolated-world bridge (chrome.* access + postMessage relay)
-  injected.js        Main-world fetch/XHR hooks + per-service adapters
-                     + dispatch by uiMode (sidebar | modal)
+  manifest.json      MV3 manifest (host_permissions, scripts, icons,
+                     web_accessible_resources for engine/*.js)
+  content.js         Isolated-world bridge (chrome.* access + postMessage relay;
+                     also routes LLM_FETCH to service worker)
+  injected.js        Main-world fetch/XHR/WebSocket hooks + per-service adapters
+                     + dispatch by uiMode (sidebar | modal) + LLM merge logic
+                     (mergeLlmDetect, processBody replace-mode fail-closed loop)
   review-modal.js    Main-world Shadow-DOM modal for per-detection review
                      (used when uiMode === "modal")
   sidebar.js         Main-world Shadow-DOM sidebar for aggregated review
-                     (used when uiMode === "sidebar", default)
+                     (used when uiMode === "sidebar", default).
+                     v0.5.0+ adds opts.llmPending Promise → open-before-LLM
+                     with inline "LLM 分析中…" banner and top-right spinner pill
   background.js      Service worker — badge + per-tab counts + storage seed
-                     (seeds enabled / interactive / uiMode)
+                     (seeds enabled / interactive / uiMode / localLlmEnabled /
+                     localLlmMode / localLlmTimeoutMs). Also hosts LLM_FETCH
+                     proxy with sender-id and host-lock validation.
+  options.html/css/js Full-page settings — allowlist DB, local-LLM config,
+                     CORS remediation alert for Ollama 403
   popup.html/css/js  Toolbar popup (enabled toggle, interactive toggle,
                      UI mode radio, gateway health, count)
+  engine/
+    engine.js         Standalone in-browser regex + 形態素 detector
+    ts-sudachi.js     Mini Sudachi-like Japanese morphological analyzer
+    surrogates.js     Type-preserving fake values (RFC 5737 IPs,
+                      @example.com, xorshift32, djb2-seeded)
+    llm-prompts.js    /no_think system prompt + few-shot examples +
+                      HARD NEGATIVE LIST for detect and replace modes
   icons/             16/48/128 px RGBA PNGs (generated from scripts/)
   scripts/
     generate-icons.py Regenerate icons inside local-mask-mcp:latest container

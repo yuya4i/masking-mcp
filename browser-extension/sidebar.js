@@ -288,6 +288,53 @@
       margin-bottom: 12px;
     }
 
+    /* --- LLM pending / error banner ---------------------------------- */
+    .llm-banner {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      margin-bottom: 10px;
+      border-radius: 10px;
+      background: linear-gradient(135deg,
+        rgba(139, 92, 246, 0.10),
+        rgba(99, 102, 241, 0.10));
+      border: 1px solid rgba(139, 92, 246, 0.32);
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.4;
+      animation: llm-banner-in 0.18s ease-out;
+    }
+    .root.dark .llm-banner {
+      background: linear-gradient(135deg,
+        rgba(139, 92, 246, 0.18),
+        rgba(99, 102, 241, 0.18));
+    }
+    .llm-banner.is-error {
+      background: rgba(248, 113, 113, 0.12);
+      border-color: rgba(248, 113, 113, 0.42);
+    }
+    .llm-banner-spin {
+      flex: 0 0 auto;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(139, 92, 246, 0.22);
+      border-top-color: #a855f7;
+      border-right-color: #6366f1;
+      border-radius: 50%;
+      animation: llm-banner-spin 0.8s linear infinite;
+    }
+    .llm-banner-text {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    @keyframes llm-banner-spin { to { transform: rotate(360deg); } }
+    @keyframes llm-banner-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
     /* --- Custom scrollbar -------------------------------------------- */
     .categories {
       flex: 1 1 auto;
@@ -949,7 +996,15 @@
    *   maskedPositions: Array<[number, number, string]>,
    * }>}
    */
-  async function show(aggregatedResponse, originalText) {
+  async function show(aggregatedResponse, originalText, opts) {
+    opts = opts || {};
+    // Promise resolved when background LLM augmentation finishes. When
+    // provided, we open the sidebar immediately with the regex-only
+    // snapshot and re-render after the LLM merges in.
+    const llmPending =
+      opts.llmPending && typeof opts.llmPending.then === "function"
+        ? opts.llmPending
+        : null;
     const safeText =
       typeof originalText === "string"
         ? originalText
@@ -965,10 +1020,9 @@
         : []
     );
 
-    // Short-circuit when nothing to review — happens when the gateway
-    // returned zero detections (e.g. the user was just typing "hi").
-    // The caller then forwards the original body untouched.
-    if (aggregated.length === 0) {
+    // Short-circuit only when nothing to review AND no background LLM
+    // work in flight — otherwise we'd miss entities the LLM will add.
+    if (aggregated.length === 0 && !llmPending) {
       return {
         accepted: true,
         maskedEntityKeys: new Set(),
@@ -976,37 +1030,13 @@
       };
     }
 
-    // Build the per-row internal model and group by category in
-    // first-occurrence order so the UI lists categories in the same
-    // order the gateway returned them.
-    const rows = aggregated.map(buildRowState);
-    const NS = (window.__localMaskMCP = window.__localMaskMCP || {});
-    const allowlist = new Set(
-      Array.isArray(NS.settings && NS.settings.maskAllowlist)
-        ? NS.settings.maskAllowlist
-        : []
-    );
-    for (const row of rows) {
-      if (forcedCategories.has(row.category)) {
-        row.locked = true;
-        row.masked = true;
-      }
-      // Allowlisted values auto-unmask; not locked (user may re-mask
-      // or remove from allowlist via popup).
-      if (allowlist.has(row.value)) {
-        row.masked = false;
-        row.locked = false;
-      }
-    }
-    const categoryOrder = [];
-    const categoryMap = new Map(); // category name → array of rows
-    for (const row of rows) {
-      if (!categoryMap.has(row.category)) {
-        categoryOrder.push(row.category);
-        categoryMap.set(row.category, []);
-      }
-      categoryMap.get(row.category).push(row);
-    }
+    // Row/category structures are rebuilt inside applyAggregated() so
+    // the sidebar can re-render when the LLM augmentation resolves.
+    // Declared here (outer-scope ``let``) so closures created inside
+    // the Promise body see reassignments automatically.
+    let rows = [];
+    let categoryOrder = [];
+    let categoryMap = new Map(); // category name → array of rows
 
     return new Promise((resolve) => {
       // --- Push layout: wrap existing body children in a flex sibling ---
@@ -1632,19 +1662,12 @@
       // Render every category into a dedicated scroll region. The
       // ``.categories`` wrapper gets ``flex: 1 1 auto; overflow-y: auto``
       // from the stylesheet so only the category list scrolls while
-      // the preview below stays pinned in view.
+      // the preview below stays pinned in view. We create an empty
+      // wrapper here — applyAggregated() below fills it, and re-fills
+      // it when the LLM augmentation resolves.
       const categoriesWrap = document.createElement("div");
       categoriesWrap.className = "categories";
-      for (const cat of categoryOrder) {
-        categoriesWrap.appendChild(renderCategory(cat));
-      }
       body.appendChild(categoriesWrap);
-      // Now that all rows + toggles exist, sync the parent toggles
-      // to match the initial row state (everything masked => fully
-      // checked, except where force-mask already locked it).
-      for (const cat of categoryOrder) {
-        syncCategoryToggle(cat);
-      }
 
       // --- Preview pane (pinned at the bottom of .body) --------------------
       const previewSection = document.createElement("div");
@@ -1657,7 +1680,123 @@
       previewSection.appendChild(previewTitle);
       previewSection.appendChild(previewBox);
       body.appendChild(previewSection);
-      updatePreview();
+
+      // Look up settings once; re-used on every applyAggregated() call.
+      const NS = (window.__localMaskMCP = window.__localMaskMCP || {});
+      const allowlist = new Set(
+        Array.isArray(NS.settings && NS.settings.maskAllowlist)
+          ? NS.settings.maskAllowlist
+          : []
+      );
+
+      // Rebuild the row + category models AND the .categories DOM from
+      // a fresh aggregated[] array. Called once at mount, then again
+      // each time the LLM augmentation completes so newly-detected
+      // entities appear in the open sidebar. User intent (masked/
+      // unmasked per value) is preserved across rebuilds.
+      function applyAggregated(aggArr) {
+        const preserved = new Map();
+        for (const r of rows) preserved.set(r.value, r.masked);
+
+        const fresh = (Array.isArray(aggArr) ? aggArr : []).map(buildRowState);
+        for (const row of fresh) {
+          if (forcedCategories.has(row.category)) {
+            row.locked = true;
+            row.masked = true;
+          }
+          if (allowlist.has(row.value)) {
+            row.masked = false;
+            row.locked = false;
+          }
+          // Restore the user's choice for rows that existed before the
+          // rebuild. Locked rows never lose their masked=true state.
+          if (preserved.has(row.value) && !row.locked) {
+            row.masked = preserved.get(row.value);
+          }
+        }
+
+        rows = fresh;
+        categoryOrder = [];
+        categoryMap = new Map();
+        for (const row of rows) {
+          if (!categoryMap.has(row.category)) {
+            categoryOrder.push(row.category);
+            categoryMap.set(row.category, []);
+          }
+          categoryMap.get(row.category).push(row);
+        }
+
+        while (categoriesWrap.firstChild) {
+          categoriesWrap.removeChild(categoriesWrap.firstChild);
+        }
+        rowControls.clear();
+        categoryControls.clear();
+
+        for (const cat of categoryOrder) {
+          categoriesWrap.appendChild(renderCategory(cat));
+        }
+        for (const cat of categoryOrder) {
+          syncCategoryToggle(cat);
+        }
+        applySevFilter();
+        updatePreview();
+      }
+
+      applyAggregated(aggregated);
+
+      // --- LLM pending banner ------------------------------------------
+      // When the caller kicked off an LLM augmentation in parallel, we
+      // show an inline banner at the top of the body until it resolves.
+      // On success we re-render with the merged aggregated[]. On failure
+      // we switch the banner to an error style and auto-hide after 4s.
+      let llmBanner = null;
+      if (llmPending) {
+        llmBanner = document.createElement("div");
+        llmBanner.className = "llm-banner";
+        const spin = document.createElement("span");
+        spin.className = "llm-banner-spin";
+        const txt = document.createElement("span");
+        txt.className = "llm-banner-text";
+        txt.textContent = "\u2728 LLM 分析中… 文脈的な候補を追加表示します";
+        llmBanner.appendChild(spin);
+        llmBanner.appendChild(txt);
+        body.insertBefore(llmBanner, categoriesWrap);
+
+        llmPending
+          .then((updated) => {
+            const nextAgg =
+              updated && Array.isArray(updated.aggregated)
+                ? updated.aggregated
+                : aggregated;
+            // The server may have added new force_masked_categories
+            // after LLM analysis; refresh the in-scope set so new
+            // rows render with the correct locked state.
+            if (updated && Array.isArray(updated.force_masked_categories)) {
+              forcedCategories.clear();
+              for (const c of updated.force_masked_categories) {
+                forcedCategories.add(String(c));
+              }
+            }
+            applyAggregated(nextAgg);
+            if (llmBanner && llmBanner.parentNode) llmBanner.remove();
+            llmBanner = null;
+          })
+          .catch(() => {
+            if (!llmBanner) return;
+            llmBanner.classList.add("is-error");
+            const t = llmBanner.querySelector(".llm-banner-text");
+            if (t) {
+              t.textContent =
+                "LLM 分析に失敗しました — regex / 形態素の結果のみ表示しています";
+            }
+            const s = llmBanner.querySelector(".llm-banner-spin");
+            if (s) s.remove();
+            setTimeout(() => {
+              if (llmBanner && llmBanner.parentNode) llmBanner.remove();
+              llmBanner = null;
+            }, 4000);
+          });
+      }
 
       // Bulk-uncheck gate for the critical tier. Returns ``true`` if
       // the user confirmed the clearance (non-critical rows should be

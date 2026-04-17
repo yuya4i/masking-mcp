@@ -954,21 +954,36 @@
           continue;
         }
         // v0.5.0 — detect mode: augment regex aggregated with LLM
-        // contextual entities. We call llmAugment(text, "detect")
-        // and merge the returned entities into aggResp.aggregated
-        // so the sidebar renders them with an 'llm' source badge.
-        aggResp = await mergeLlmDetect(aggResp, text);
-        const aggregated = Array.isArray(aggResp.aggregated)
+        // contextual entities. If regex already found ≥1 entity we
+        // open the sidebar IMMEDIATELY with the regex snapshot and
+        // hand the LLM work to the sidebar as a pending promise, so
+        // the user sees the review UI while the LLM is still thinking.
+        // If regex found 0 entities, we can't open the sidebar yet
+        // (it would flash empty), so we await the LLM synchronously —
+        // the top-right spinner keeps the user informed meanwhile.
+        const initialAgg = Array.isArray(aggResp.aggregated)
           ? aggResp.aggregated
           : [];
-        if (aggregated.length === 0) {
-          // Nothing to review — forward verbatim. The aggregated
-          // endpoint does not return ``sanitized_text``; we just
-          // keep the original.
-          masked.push(text);
-          continue;
+        let decision;
+        if (initialAgg.length > 0) {
+          const llmPromise = mergeLlmDetect(aggResp, text);
+          decision = await sidebar.show(aggResp, text, {
+            llmPending: llmPromise,
+          });
+        } else {
+          aggResp = await mergeLlmDetect(aggResp, text);
+          const aggregated = Array.isArray(aggResp.aggregated)
+            ? aggResp.aggregated
+            : [];
+          if (aggregated.length === 0) {
+            // Nothing to review — forward verbatim. The aggregated
+            // endpoint does not return ``sanitized_text``; we just
+            // keep the original.
+            masked.push(text);
+            continue;
+          }
+          decision = await sidebar.show(aggResp, text);
         }
-        const decision = await sidebar.show(aggResp, text);
         if (!decision.accepted) {
           throw new Error("mask-mcp: user cancelled review");
         }

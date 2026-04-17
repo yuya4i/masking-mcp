@@ -1185,7 +1185,16 @@
       host.style.all = "initial";
       host.style.display = "block";
       host.style.height = "100vh";
+      // position: relative is REQUIRED for z-index to take effect.
+      // Without it the host is a static element and chat UIs like
+      // ChatGPT / Claude (with their own stacking contexts + z-index
+      // on composers, modals, sticky headers) render ON TOP of our
+      // sidebar. Anchoring + max z-index ensures we always win.
+      host.style.position = "relative";
       host.style.zIndex = "2147483647";
+      // Also create a local stacking context via isolation so any
+      // descendant z-index values can never "leak" above the host.
+      host.style.isolation = "isolate";
 
       function sidebarWidth() {
         return Math.min(400, Math.floor(window.innerWidth * 0.45));

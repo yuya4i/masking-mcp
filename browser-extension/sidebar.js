@@ -279,6 +279,7 @@
       padding: 12px 16px 0 16px;
       background: var(--bg);
       overflow: hidden;
+      position: relative;   /* containing block for .llm-overlay */
     }
 
     .bulk-bar {
@@ -288,49 +289,109 @@
       margin-bottom: 12px;
     }
 
-    /* --- LLM pending / error banner ---------------------------------- */
-    .llm-banner {
+    /* --- LLM centered overlay + compact error toast ------------------ */
+    /* While the LLM is thinking we cover the category area with a
+       semi-transparent gradient and show a large centered spinner +
+       label. Regex rows remain visible underneath so the user can
+       start reviewing; pointer-events are disabled on the overlay
+       itself (not its children, which stay interactive in case we
+       add a "cancel LLM" button later). */
+    .llm-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      padding: 32px 16px;
+      z-index: 10;
+      background: linear-gradient(145deg,
+        rgba(168, 85, 247, 0.12),
+        rgba(99, 102, 241, 0.10) 40%,
+        rgba(var(--bg-panel-rgb), 0.82) 100%);
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
+      pointer-events: none;
+      animation: llm-overlay-in 0.22s ease-out;
+    }
+    .root.dark .llm-overlay {
+      background: linear-gradient(145deg,
+        rgba(168, 85, 247, 0.22),
+        rgba(99, 102, 241, 0.18) 40%,
+        rgba(var(--bg-panel-rgb), 0.82) 100%);
+    }
+    .llm-overlay-spin-wrap {
+      position: relative;
+      width: 64px;
+      height: 64px;
+    }
+    .llm-overlay-spin {
+      position: absolute;
+      inset: 0;
+      border: 3px solid rgba(139, 92, 246, 0.18);
+      border-top-color: #a855f7;
+      border-right-color: #6366f1;
+      border-radius: 50%;
+      animation: llm-overlay-spin 0.9s linear infinite;
+    }
+    .llm-overlay-spin.ring2 {
+      inset: 8px;
+      border-width: 2px;
+      border-top-color: #6366f1;
+      border-right-color: transparent;
+      border-bottom-color: transparent;
+      border-left-color: #a855f7;
+      animation-duration: 1.3s;
+      animation-direction: reverse;
+      opacity: 0.7;
+    }
+    .llm-overlay-label {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--text);
+      text-align: center;
+    }
+    .llm-overlay-sub {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      text-align: center;
+      max-width: 260px;
+      line-height: 1.5;
+    }
+    .llm-overlay.is-leaving {
+      animation: llm-overlay-out 0.18s ease-in forwards;
+    }
+    @keyframes llm-overlay-spin { to { transform: rotate(360deg); } }
+    @keyframes llm-overlay-in {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    @keyframes llm-overlay-out {
+      from { opacity: 1; }
+      to   { opacity: 0; }
+    }
+
+    /* Error toast — slim top banner that auto-hides after 4s. Kept
+       visually calm so the user can still focus on the (now regex-
+       only) review list. */
+    .llm-toast {
       flex: 0 0 auto;
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 9px 12px;
+      padding: 8px 12px;
       margin-bottom: 10px;
-      border-radius: 10px;
-      background: linear-gradient(135deg,
-        rgba(139, 92, 246, 0.10),
-        rgba(99, 102, 241, 0.10));
-      border: 1px solid rgba(139, 92, 246, 0.32);
+      border-radius: 8px;
+      background: rgba(248, 113, 113, 0.12);
+      border: 1px solid rgba(248, 113, 113, 0.42);
       color: var(--text);
       font-size: 12px;
       line-height: 1.4;
-      animation: llm-banner-in 0.18s ease-out;
+      animation: llm-toast-in 0.18s ease-out;
     }
-    .root.dark .llm-banner {
-      background: linear-gradient(135deg,
-        rgba(139, 92, 246, 0.18),
-        rgba(99, 102, 241, 0.18));
-    }
-    .llm-banner.is-error {
-      background: rgba(248, 113, 113, 0.12);
-      border-color: rgba(248, 113, 113, 0.42);
-    }
-    .llm-banner-spin {
-      flex: 0 0 auto;
-      width: 14px;
-      height: 14px;
-      border: 2px solid rgba(139, 92, 246, 0.22);
-      border-top-color: #a855f7;
-      border-right-color: #6366f1;
-      border-radius: 50%;
-      animation: llm-banner-spin 0.8s linear infinite;
-    }
-    .llm-banner-text {
-      flex: 1 1 auto;
-      min-width: 0;
-    }
-    @keyframes llm-banner-spin { to { transform: rotate(360deg); } }
-    @keyframes llm-banner-in {
+    @keyframes llm-toast-in {
       from { opacity: 0; transform: translateY(-4px); }
       to   { opacity: 1; transform: translateY(0); }
     }
@@ -742,14 +803,26 @@
     }
     .row-count { font-variant-numeric: tabular-nums; }
     .row-llm-badge {
-      display: inline-block;
-      padding: 1px 7px;
-      font-size: 10px;
-      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 8px;
+      font-size: 10.5px;
+      font-weight: 700;
       color: #fff;
       background: linear-gradient(135deg, #a855f7, #6366f1);
       border-radius: 10px;
-      letter-spacing: 0.02em;
+      letter-spacing: 0.03em;
+      box-shadow: 0 1px 3px rgba(99, 102, 241, 0.28);
+    }
+    .row-llm-badge::before {
+      content: "";
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
     }
 
     /* --- Severity pills ---------------------------------------------- */
@@ -1438,7 +1511,7 @@
           line2.appendChild(dotLlm);
           const llmBadge = document.createElement("span");
           llmBadge.className = "row-llm-badge";
-          llmBadge.textContent = "\u2728 LLM";
+          llmBadge.textContent = "AI 検出";
           llmBadge.title = "ローカル LLM が文脈から検出";
           line2.appendChild(llmBadge);
         }
@@ -1744,23 +1817,65 @@
 
       applyAggregated(aggregated);
 
-      // --- LLM pending banner ------------------------------------------
-      // When the caller kicked off an LLM augmentation in parallel, we
-      // show an inline banner at the top of the body until it resolves.
-      // On success we re-render with the merged aggregated[]. On failure
-      // we switch the banner to an error style and auto-hide after 4s.
-      let llmBanner = null;
-      if (llmPending) {
-        llmBanner = document.createElement("div");
-        llmBanner.className = "llm-banner";
-        const spin = document.createElement("span");
-        spin.className = "llm-banner-spin";
+      // --- LLM pending: centered overlay -------------------------------
+      // Instead of a thin banner, we show a prominent centered spinner
+      // with a label inside .body while the LLM augmentation runs. The
+      // overlay has pointer-events: none, so regex rows underneath
+      // remain interactive. On resolve we fade it out and rebuild rows.
+      // On failure we replace it with a compact top-positioned toast
+      // that auto-hides after 4s (regex results stay in place).
+      let llmOverlay = null;
+      function buildLlmOverlay() {
+        const root = document.createElement("div");
+        root.className = "llm-overlay";
+        const ring = document.createElement("div");
+        ring.className = "llm-overlay-spin-wrap";
+        const r1 = document.createElement("div");
+        r1.className = "llm-overlay-spin";
+        const r2 = document.createElement("div");
+        r2.className = "llm-overlay-spin ring2";
+        ring.appendChild(r1);
+        ring.appendChild(r2);
+        const label = document.createElement("div");
+        label.className = "llm-overlay-label";
+        label.textContent = "\u2728 AI 分析中\u2026";
+        const sub = document.createElement("div");
+        sub.className = "llm-overlay-sub";
+        sub.textContent =
+          "ローカル LLM が文脈から追加候補を検出しています。完了次第、一覧に反映されます。";
+        root.appendChild(ring);
+        root.appendChild(label);
+        root.appendChild(sub);
+        return root;
+      }
+
+      function dismissLlmOverlay() {
+        if (!llmOverlay) return;
+        const el = llmOverlay;
+        llmOverlay = null;
+        el.classList.add("is-leaving");
+        setTimeout(() => {
+          if (el.parentNode) el.remove();
+        }, 200);
+      }
+
+      function showLlmErrorToast() {
+        const toast = document.createElement("div");
+        toast.className = "llm-toast";
         const txt = document.createElement("span");
-        txt.className = "llm-banner-text";
-        txt.textContent = "\u2728 LLM 分析中… 文脈的な候補を追加表示します";
-        llmBanner.appendChild(spin);
-        llmBanner.appendChild(txt);
-        body.insertBefore(llmBanner, categoriesWrap);
+        txt.className = "llm-toast-text";
+        txt.textContent =
+          "AI 分析に失敗しました — regex / 形態素の結果のみ表示しています";
+        toast.appendChild(txt);
+        body.insertBefore(toast, categoriesWrap);
+        setTimeout(() => {
+          if (toast.parentNode) toast.remove();
+        }, 4000);
+      }
+
+      if (llmPending) {
+        llmOverlay = buildLlmOverlay();
+        body.appendChild(llmOverlay);
 
         llmPending
           .then((updated) => {
@@ -1778,23 +1893,11 @@
               }
             }
             applyAggregated(nextAgg);
-            if (llmBanner && llmBanner.parentNode) llmBanner.remove();
-            llmBanner = null;
+            dismissLlmOverlay();
           })
           .catch(() => {
-            if (!llmBanner) return;
-            llmBanner.classList.add("is-error");
-            const t = llmBanner.querySelector(".llm-banner-text");
-            if (t) {
-              t.textContent =
-                "LLM 分析に失敗しました — regex / 形態素の結果のみ表示しています";
-            }
-            const s = llmBanner.querySelector(".llm-banner-spin");
-            if (s) s.remove();
-            setTimeout(() => {
-              if (llmBanner && llmBanner.parentNode) llmBanner.remove();
-              llmBanner = null;
-            }, 4000);
+            dismissLlmOverlay();
+            showLlmErrorToast();
           });
       }
 

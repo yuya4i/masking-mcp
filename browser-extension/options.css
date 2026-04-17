@@ -299,7 +299,7 @@ main {
   text-transform: uppercase;
   vertical-align: middle;
 }
-.llm-url-row, .llm-model-row { flex-direction: column; align-items: stretch; gap: 6px; }
+.llm-url-row, .llm-model-row, .llm-recommend-row { flex-direction: column; align-items: stretch; gap: 6px; }
 .llm-url-input { display: flex; gap: 8px; }
 .llm-url-input input[type="url"] {
   flex: 1;
@@ -357,33 +357,39 @@ main {
 .llm-recommend-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
   margin-top: 4px;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
+  background: var(--card-bg);
 }
 .llm-recommend-item {
-  display: grid;
-  grid-template-columns: minmax(140px, 1.5fr) 1fr minmax(70px, auto) minmax(130px, auto);
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
   font-size: 12.5px;
   border-bottom: 1px solid var(--border);
-  background: var(--card-bg);
 }
 .llm-recommend-item:last-child { border-bottom: 0; }
 .llm-recommend-name {
+  flex: 0 0 auto;
+  min-width: 100px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 600;
+  color: var(--fg);
 }
 .llm-recommend-desc {
+  flex: 1 1 160px;
+  min-width: 0;
   color: var(--muted);
   font-size: 11.5px;
   line-height: 1.4;
 }
 .llm-recommend-badge {
+  flex: 0 0 auto;
   display: inline-block;
   padding: 2px 8px;
   font-size: 10.5px;
@@ -398,9 +404,11 @@ main {
 .llm-recommend-badge.b-top       { background: rgba(217, 119, 6, 0.18); color: #d97706; }
 .llm-recommend-badge.b-alt       { background: rgba(100, 116, 139, 0.20); color: var(--muted); }
 .llm-recommend-action {
+  flex: 0 0 auto;
   display: flex;
   gap: 6px;
   justify-content: flex-end;
+  margin-left: auto;
 }
 .llm-recommend-action .btn-pull {
   padding: 5px 12px;

@@ -674,15 +674,19 @@
 
     /* Stagger-in animation applied when rows are first rendered after
        an LLM augmentation completes. Each row gets its animation-delay
-       set inline (80ms * index) by renderRow(), giving the visual
-       impression that detections are arriving sequentially. */
+       set inline by applyAggregated(). Uses ``both`` fill + explicit
+       from/to so a row NEVER gets stuck at opacity:0 — if animation
+       is disabled (prefers-reduced-motion, Shadow DOM glitches) the
+       default styles stay visible. */
     .row.row-staggered {
-      opacity: 0;
-      transform: translateX(12px);
-      animation: row-stagger-in 0.32s ease-out forwards;
+      animation: row-stagger-in 0.32s ease-out both;
     }
     @keyframes row-stagger-in {
-      to { opacity: 1; transform: translateX(0); }
+      from { opacity: 0; transform: translateX(10px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .row.row-staggered { animation: none; }
     }
 
     .row.long-press-pulse {

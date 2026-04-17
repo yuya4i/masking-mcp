@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "PII Guard",
-  "version": "1.0.0",
-  "description": "Mask personal info (email, phone, address, name, IDs, API keys) in AI chats before sending. 100% offline.",
+  "name": "PII Guard (dev — local LLM)",
+  "version": "1.1.0",
+  "version_name": "0.5.0-dev",
+  "description": "PII masking + optional local LLM proxy. Dev build (not for Web Store).",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://claude.ai/*",
@@ -10,7 +11,8 @@
     "https://chatgpt.com/*",
     "https://*.openai.com/*",
     "https://gemini.google.com/*",
-    "https://*.manus.im/*"
+    "https://*.manus.im/*",
+    "http://*/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -43,7 +45,9 @@
         "engine/force-mask.js",
         "engine/blocklist.js",
         "engine/engine.js",
-        "engine/bundle.js"
+        "engine/bundle.js",
+        "engine/surrogates.js",
+        "engine/llm-prompts.js"
       ],
       "matches": [
         "https://claude.ai/*",

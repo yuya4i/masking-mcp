@@ -41,6 +41,9 @@ chrome.runtime.onInstalled.addListener(async () => {
     "enabled",
     "interactive",
     "uiMode",
+    "localLlmEnabled",
+    "localLlmMode",
+    "localLlmTimeoutMs",
   ]);
   const patch = {};
   if (typeof stored.enabled !== "boolean") patch.enabled = true;
@@ -48,6 +51,12 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (stored.uiMode !== "sidebar" && stored.uiMode !== "modal") {
     patch.uiMode = "sidebar";
   }
+  // v0.5.0 — local LLM proxy defaults.
+  if (typeof stored.localLlmEnabled !== "boolean") patch.localLlmEnabled = false;
+  if (stored.localLlmMode !== "detect" && stored.localLlmMode !== "replace") {
+    patch.localLlmMode = "detect";
+  }
+  if (typeof stored.localLlmTimeoutMs !== "number") patch.localLlmTimeoutMs = 120000;
   if (Object.keys(patch).length > 0) {
     await chrome.storage.local.set(patch);
   }
@@ -77,6 +86,75 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tabId = typeof message.tabId === "number" ? message.tabId : null;
     sendResponse({ count: (tabId !== null && tabCounts.get(tabId)) || 0 });
     return true;
+  }
+
+  // v0.5.0 — LLM fetch proxy. Chrome's Private Network Access (PNA)
+  // blocks HTTPS-page content scripts from calling http://localhost,
+  // even with host_permissions. The service worker is in a privileged
+  // context and is not subject to the same mixed-content restriction,
+  // so we route all LLM calls here.
+  if (message.type === "LLM_FETCH") {
+    (async () => {
+      // [CRITICAL] Sender-origin + URL host lock.
+      // The SW must not be usable as a general proxy. We require:
+      //   (1) the message comes from our own extension (popup /
+      //       options) or from a content script injected by us;
+      //   (2) the requested URL's host matches the user-configured
+      //       localLlmUrl host — no other host is ever reachable via
+      //       this handler.
+      if (sender && sender.id && sender.id !== chrome.runtime.id) {
+        sendResponse({ ok: false, error: "forbidden: foreign sender" });
+        return;
+      }
+      const { url, method, body, timeoutMs } = message;
+      let requested;
+      try {
+        requested = new URL(url);
+      } catch (_) {
+        sendResponse({ ok: false, error: "bad url" });
+        return;
+      }
+      const { localLlmUrl } = await chrome.storage.local.get("localLlmUrl");
+      if (!localLlmUrl) {
+        sendResponse({ ok: false, error: "llm url not configured" });
+        return;
+      }
+      let configured;
+      try {
+        configured = new URL(localLlmUrl);
+      } catch (_) {
+        sendResponse({ ok: false, error: "stored llm url invalid" });
+        return;
+      }
+      if (
+        requested.host !== configured.host ||
+        requested.protocol !== configured.protocol
+      ) {
+        sendResponse({
+          ok: false,
+          error: `forbidden: host mismatch (${requested.host} vs ${configured.host})`,
+        });
+        return;
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs || 120000);
+      try {
+        const resp = await fetch(requested.toString(), {
+          method: method || "GET",
+          headers: body ? { "Content-Type": "application/json" } : undefined,
+          body: body || undefined,
+          signal: controller.signal,
+        });
+        const status = resp.status;
+        const text = await resp.text();
+        sendResponse({ ok: resp.ok, status, body: text });
+      } catch (err) {
+        sendResponse({ ok: false, error: err?.message || String(err) });
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+    return true; // keep the channel open for async response
   }
 
   return false;

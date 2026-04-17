@@ -284,3 +284,210 @@ main {
   font-size: 13px;
 }
 .link:hover { text-decoration: underline; }
+
+/* --- v0.5.0 Local LLM section --- */
+.badge-experimental {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #a855f7, #6366f1);
+  border-radius: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.llm-url-row, .llm-model-row, .llm-recommend-row { flex-direction: column; align-items: stretch; gap: 6px; }
+.llm-url-input { display: flex; gap: 8px; }
+.llm-url-input input[type="url"] {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+.llm-url-input input[type="url"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+.llm-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+.llm-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+/* 動作モードだけは選択肢が短いので narrower なまま */
+.llm-mode-select { max-width: 260px; }
+.llm-number {
+  width: 140px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  text-align: right;
+  font: inherit;
+  font-size: 13px;
+}
+.hint-inline {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.hint-inline code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.status-pill.status-checking { background: rgba(79, 70, 229, 0.12); color: var(--accent); }
+
+/* --- Recommended models panel --- */
+.llm-recommend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--card-bg);
+}
+.llm-recommend-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+}
+.llm-recommend-item:last-child { border-bottom: 0; }
+.llm-recommend-name {
+  flex: 0 0 auto;
+  min-width: 100px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: var(--fg);
+}
+.llm-recommend-size {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.llm-recommend-desc {
+  flex: 1 1 160px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.llm-recommend-badge {
+  flex: 0 0 auto;
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 10px;
+  white-space: nowrap;
+  text-align: center;
+}
+.llm-recommend-badge.b-recommend { background: rgba(22, 163, 74, 0.15); color: #16a34a; }
+.llm-recommend-badge.b-light     { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+.llm-recommend-badge.b-high      { background: rgba(168, 85, 247, 0.18); color: #a855f7; }
+.llm-recommend-badge.b-top       { background: rgba(217, 119, 6, 0.18); color: #d97706; }
+.llm-recommend-badge.b-alt       { background: rgba(100, 116, 139, 0.20); color: var(--muted); }
+.llm-recommend-action {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+.llm-recommend-action .btn-pull {
+  padding: 5px 12px;
+  font-size: 11.5px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.12s ease;
+}
+.llm-recommend-action .btn-pull:hover:not(:disabled) { background: var(--accent-hover); }
+.llm-recommend-action .btn-pull:disabled {
+  background: var(--border);
+  color: var(--muted);
+  cursor: default;
+}
+.llm-recommend-action .btn-delete {
+  padding: 4px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--err);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.llm-recommend-action .btn-delete:hover {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: var(--err);
+}
+.llm-recommend-installed {
+  font-size: 10.5px;
+  color: var(--ok);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.llm-recommend-progress {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+.llm-recommend-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+  max-width: 220px;
+}
+.llm-recommend-progress-bar {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.llm-recommend-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #6366f1, #a855f7);
+  transition: width 0.24s ease-out;
+  border-radius: 3px;
+}

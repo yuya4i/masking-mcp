@@ -116,6 +116,8 @@
     "engine/aggregate.js",
     "engine/force-mask.js",
     "engine/blocklist.js",
+    "engine/surrogates.js",
+    "engine/llm-prompts.js",
     "engine/engine.js",
     "engine/bundle.js",
   ];
@@ -208,6 +210,10 @@
       handleBackendProbe(data);
     } else if (data.type === "hybrid-pref") {
       handleHybridPref(data);
+    } else if (data.type === "llm-config") {
+      handleLlmConfig(data);
+    } else if (data.type === "llm-call") {
+      handleLlmCall(data);
     } else if (data.type === "detection-count") {
       // Fire-and-forget badge update.
       try {
@@ -360,6 +366,197 @@
       },
       "*"
     );
+  }
+
+  // v0.5.0 — Local LLM proxy. The page world never directly calls
+  // the user-configured LLM URL; it asks us via postMessage and we
+  // execute the fetch from the isolated content script (which holds
+  // the host_permissions grant for http://*/*).
+  async function handleLlmConfig(data) {
+    const { id } = data;
+    let cfg = null;
+    try {
+      const stored = await chrome.storage.local.get([
+        "localLlmEnabled",
+        "localLlmUrl",
+        "localLlmModel",
+        "localLlmMode",
+        "localLlmKind",
+        "localLlmTimeoutMs",
+      ]);
+      if (
+        stored.localLlmEnabled === true &&
+        typeof stored.localLlmUrl === "string" &&
+        stored.localLlmUrl
+      ) {
+        cfg = {
+          url: stored.localLlmUrl.replace(/\/+$/, ""),
+          model: stored.localLlmModel || "",
+          mode: stored.localLlmMode === "replace" ? "replace" : "detect",
+          kind: stored.localLlmKind === "openai-compat" ? "openai-compat" : "ollama",
+          timeoutMs: Number(stored.localLlmTimeoutMs) || 120000,
+        };
+      }
+    } catch (_) {}
+    window.postMessage(
+      { source: TAG_OUT, id, type: "llm-config-result", config: cfg },
+      "*"
+    );
+  }
+
+  async function handleLlmCall(data) {
+    const { id, system, user, config } = data;
+    let result = null;
+    if (!config || !config.url) {
+      window.postMessage({ source: TAG_OUT, id, type: "llm-call-result", result: null }, "*");
+      return;
+    }
+    // Route the actual fetch through the service worker (background.js)
+    // so Chrome's Private Network Access blocker doesn't reject an
+    // HTTPS-page content script calling http://localhost.
+    const isOpenAi = config.kind === "openai-compat";
+    const url = config.url + (isOpenAi ? "/v1/chat/completions" : "/api/chat");
+    // Ollama request needs THREE things for thinking-capable models
+    // (Qwen3 family, Deepseek-R1, etc.) to emit visible tokens:
+    //   1. think: false        — disables the built-in reasoning trace.
+    //      Without this, the model burns the entire num_predict budget
+    //      on internal <think>…</think> tokens that Ollama hides from
+    //      the .message.content field, leaving content = "" at the end.
+    //   2. format: "json"      — grammar-constrains the output to valid
+    //      JSON so we don't need to strip markdown fences.
+    //   3. num_predict: 2048   — enough for a 30-entity detect response
+    //      without blowing the context window.
+    const body = JSON.stringify(
+      isOpenAi
+        ? {
+            model: config.model || "default",
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: user },
+            ],
+            stream: false,
+            temperature: 0,
+            response_format: { type: "json_object" },
+            max_tokens: 2048,
+          }
+        : {
+            model: config.model || "qwen3:1.7b",
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: user },
+            ],
+            stream: false,
+            think: false,
+            format: "json",
+            options: {
+              temperature: 0,
+              num_predict: 2048,
+            },
+          }
+    );
+    // Retry loop for Ollama cold-start. A 9B/8B model can take 30–60s
+    // to load into VRAM on first invocation and Ollama returns
+    //   500 {"error":"unexpected server status: llm server loading model"}
+    // (or a 503) during that window. The body comes back fast, so we
+    // can retry cheaply without waiting for the full timeout. We only
+    // retry on "loading model" responses — 403 CORS and hard errors
+    // bail immediately.
+    // Retry budget — split by cause. Cold-start 500/503 "loading
+    // model" answers come back fast, so we can poll cheaply. Timeouts
+    // (AbortError) are genuine inference stalls — we allow a small
+    // number of re-runs so 9B thinking models that exceed one timeout
+    // window still get a second chance after the KV cache is warm.
+    const WARMUP_MAX = 6;      // 500/503 loading-model retries
+    const WARMUP_DELAY_MS = 3000;
+    const TIMEOUT_MAX = 2;     // AbortError retries (inference too slow)
+    const TIMEOUT_DELAY_MS = 2000;
+    let warmupTries = 0;
+    let timeoutTries = 0;
+    const callStart = Date.now();
+    console.debug(
+      "[mask-mcp] llm fetch start:",
+      url,
+      "timeout=" + (config.timeoutMs || 120000) + "ms",
+    );
+    while (true) {
+      try {
+        const resp = await chrome.runtime.sendMessage({
+          type: "LLM_FETCH",
+          url,
+          method: "POST",
+          body,
+          timeoutMs: config.timeoutMs || 120000,
+        });
+        if (resp && resp.ok && resp.body) {
+          const j = JSON.parse(resp.body);
+          result = isOpenAi
+            ? j?.choices?.[0]?.message?.content
+            : j?.message?.content;
+          result = result || null;
+          console.debug(
+            `[mask-mcp] llm fetch OK in ${Date.now() - callStart}ms, content=${
+              result ? result.length + " chars" : "EMPTY"
+            }${result ? "" : " (check num_predict / think settings)"}`,
+          );
+          break;
+        }
+        const warming =
+          resp &&
+          (resp.status === 500 || resp.status === 503) &&
+          typeof resp.body === "string" &&
+          /loading model|model is still loading|server loading/i.test(resp.body);
+        if (warming && warmupTries < WARMUP_MAX) {
+          warmupTries++;
+          console.debug(
+            `[mask-mcp] llm warming up (${warmupTries}/${WARMUP_MAX}), waiting ${WARMUP_DELAY_MS}ms…`
+          );
+          await new Promise((r) => setTimeout(r, WARMUP_DELAY_MS));
+          continue;
+        }
+        // SW-side fetch abort surfaces as { ok:false, error:"signal is
+        // aborted without reason" } (or similar). Treat this the same
+        // as a JS-side AbortError — allow a couple of re-runs.
+        const abortLike =
+          resp && !resp.ok && typeof resp.error === "string" &&
+          /abort|aborted|AbortError/i.test(resp.error);
+        if (abortLike && timeoutTries < TIMEOUT_MAX) {
+          timeoutTries++;
+          console.debug(
+            `[mask-mcp] llm inference timeout (${timeoutTries}/${TIMEOUT_MAX}), retrying…`
+          );
+          await new Promise((r) => setTimeout(r, TIMEOUT_DELAY_MS));
+          continue;
+        }
+        if (resp && resp.status === 403) {
+          console.warn(
+            "[mask-mcp] Ollama returned 403 (CORS). Set OLLAMA_ORIGINS=" +
+              "chrome-extension://* or restart ollama with " +
+              "OLLAMA_ORIGINS=* env. Docker: `docker run -e OLLAMA_ORIGINS=* ...` " +
+              "or `docker exec ollama sh -c 'export OLLAMA_ORIGINS=*'` then restart."
+          );
+        } else {
+          console.debug(
+            "[mask-mcp] llm call non-ok:",
+            resp && (resp.status || resp.error),
+            resp && resp.body && resp.body.slice(0, 200)
+          );
+        }
+        break;
+      } catch (err) {
+        const isAbort = err && err.name === "AbortError";
+        if (isAbort && timeoutTries < TIMEOUT_MAX) {
+          timeoutTries++;
+          console.debug(
+            `[mask-mcp] llm inference timeout (${timeoutTries}/${TIMEOUT_MAX}), retrying…`
+          );
+          await new Promise((r) => setTimeout(r, TIMEOUT_DELAY_MS));
+          continue;
+        }
+        console.debug("[mask-mcp] llm call failed:", err?.message || err);
+        break;
+      }
+    }
+    window.postMessage({ source: TAG_OUT, id, type: "llm-call-result", result }, "*");
   }
 
   async function handleIsEnabled(data) {

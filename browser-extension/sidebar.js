@@ -241,6 +241,34 @@
       letter-spacing: 0.025em;
     }
 
+    .mode-pill {
+      flex: 0 0 auto;
+      margin-left: auto;
+      margin-right: 4px;
+      padding: 3px 10px;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      border-radius: 10px;
+      white-space: nowrap;
+      line-height: 1.35;
+    }
+    .mode-pill.mode-replace {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.18), rgba(99, 102, 241, 0.18));
+      color: #a855f7;
+      border: 1px solid rgba(168, 85, 247, 0.42);
+    }
+    .mode-pill.mode-detect {
+      background: rgba(59, 130, 246, 0.14);
+      color: #3b82f6;
+      border: 1px solid rgba(59, 130, 246, 0.36);
+    }
+    .mode-pill.mode-regex {
+      background: rgba(100, 116, 139, 0.14);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
     .close-btn {
       background: transparent;
       border: none;
@@ -279,6 +307,7 @@
       padding: 12px 16px 0 16px;
       background: var(--bg);
       overflow: hidden;
+      position: relative;   /* containing block for .llm-overlay */
     }
 
     .bulk-bar {
@@ -286,6 +315,113 @@
       display: flex;
       gap: 8px;
       margin-bottom: 12px;
+    }
+
+    /* --- LLM centered overlay + compact error toast ------------------ */
+    /* While the LLM is thinking we cover the category area with a
+       semi-transparent gradient and show a large centered spinner +
+       label. Regex rows remain visible underneath so the user can
+       start reviewing; pointer-events are disabled on the overlay
+       itself (not its children, which stay interactive in case we
+       add a "cancel LLM" button later). */
+    .llm-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      padding: 32px 16px;
+      z-index: 10;
+      background: linear-gradient(145deg,
+        rgba(168, 85, 247, 0.12),
+        rgba(99, 102, 241, 0.10) 40%,
+        rgba(var(--bg-panel-rgb), 0.82) 100%);
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
+      pointer-events: none;
+      animation: llm-overlay-in 0.22s ease-out;
+    }
+    .root.dark .llm-overlay {
+      background: linear-gradient(145deg,
+        rgba(168, 85, 247, 0.22),
+        rgba(99, 102, 241, 0.18) 40%,
+        rgba(var(--bg-panel-rgb), 0.82) 100%);
+    }
+    .llm-overlay-spin-wrap {
+      position: relative;
+      width: 64px;
+      height: 64px;
+    }
+    .llm-overlay-spin {
+      position: absolute;
+      inset: 0;
+      border: 3px solid rgba(139, 92, 246, 0.18);
+      border-top-color: #a855f7;
+      border-right-color: #6366f1;
+      border-radius: 50%;
+      animation: llm-overlay-spin 0.9s linear infinite;
+    }
+    .llm-overlay-spin.ring2 {
+      inset: 8px;
+      border-width: 2px;
+      border-top-color: #6366f1;
+      border-right-color: transparent;
+      border-bottom-color: transparent;
+      border-left-color: #a855f7;
+      animation-duration: 1.3s;
+      animation-direction: reverse;
+      opacity: 0.7;
+    }
+    .llm-overlay-label {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--text);
+      text-align: center;
+    }
+    .llm-overlay-sub {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      text-align: center;
+      max-width: 260px;
+      line-height: 1.5;
+    }
+    .llm-overlay.is-leaving {
+      animation: llm-overlay-out 0.18s ease-in forwards;
+    }
+    @keyframes llm-overlay-spin { to { transform: rotate(360deg); } }
+    @keyframes llm-overlay-in {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    @keyframes llm-overlay-out {
+      from { opacity: 1; }
+      to   { opacity: 0; }
+    }
+
+    /* Error toast — slim top banner that auto-hides after 4s. Kept
+       visually calm so the user can still focus on the (now regex-
+       only) review list. */
+    .llm-toast {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      background: rgba(248, 113, 113, 0.12);
+      border: 1px solid rgba(248, 113, 113, 0.42);
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.4;
+      animation: llm-toast-in 0.18s ease-out;
+    }
+    @keyframes llm-toast-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
 
     /* --- Custom scrollbar -------------------------------------------- */
@@ -562,7 +698,30 @@
     .row.sev-high     { border-left-color: var(--sev-high); }
     .row.sev-medium   { border-left-color: var(--sev-medium); }
     .row.sev-low      { border-left-color: var(--sev-low); }
-    .row.is-unmasked  { opacity: 0.55; background: var(--bg); border-right: 4px solid #22c55e; }
+    /* Unmasked row = green right-border marker only. Previously the
+       row itself had a 0.55 opacity which combined with child opacity
+       to produce a flicker when hovering an unmasked row. Children
+       carry their own opacity / color changes.
+       NB: no backticks inside this CSS template literal. */
+    .row.is-unmasked  { background: var(--bg); border-right: 4px solid #22c55e; }
+
+    /* Stagger-in animation applied when rows are first rendered after
+       an LLM augmentation completes. Each row gets its animation-delay
+       set inline by applyAggregated(). Uses both-fill + explicit
+       from/to so a row NEVER gets stuck at opacity:0 — if animation
+       is disabled (prefers-reduced-motion, Shadow DOM glitches) the
+       default styles stay visible.
+       NB: no backticks inside this CSS template literal. */
+    .row.row-staggered {
+      animation: row-stagger-in 0.32s ease-out both;
+    }
+    @keyframes row-stagger-in {
+      from { opacity: 0; transform: translateX(10px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .row.row-staggered { animation: none; }
+    }
 
     .row.long-press-pulse {
       animation: lp-pulse 0.45s ease-out;
@@ -615,21 +774,40 @@
       z-index: 1;
     }
     .row-line1 {
-      display: flex;
+      display: grid;
+      /* 4-column grid that stays consistent across every row so the
+         "value arrow placeholder" pairs form vertical columns:
+           [ icon ] [ 変更前 value ] [ arrow ] [ 変更後 placeholder ]
+         The two data columns share the remaining space 50/50.
+         minmax(0, 1fr) on each data column is the trick that lets
+         text-overflow: ellipsis work inside grid cells.
+         NB: absolutely no backticks inside this CSS template. */
+      grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+      column-gap: 8px;
       align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
     }
     .row-icon {
-      flex: 0 0 auto;
       font-size: 14px;
       line-height: 1;
       transition: transform var(--ease-fast);
+    }
+    .row-icon.is-llm {
+      filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.55));
+      animation: llm-icon-pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes llm-icon-pulse {
+      0%, 100% { filter: drop-shadow(0 0 2px rgba(168, 85, 247, 0.35)); }
+      50%      { filter: drop-shadow(0 0 7px rgba(168, 85, 247, 0.70)); }
     }
     .row:hover .row-icon {
       transform: scale(1.1);
     }
     .row-value {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
         "Liberation Mono", monospace;
       font-size: 12.5px;
@@ -637,11 +815,16 @@
       border: 1px solid var(--border);
       padding: 1px 6px;
       border-radius: 4px;
-      word-break: break-all;
       font-weight: 500;
       color: var(--text-muted);
-      opacity: 0.65;
-      transition: all var(--ease-fast);
+      opacity: 0.75;
+      /* Specific properties only — "transition: all" was animating
+         layout-related things (font-weight) which caused a visible
+         flicker whenever hover / is-unmasked / any parent opacity
+         changed together.
+         NB: no backticks inside this CSS template literal. */
+      transition: color var(--ease-fast), border-color var(--ease-fast),
+        opacity var(--ease-fast);
     }
     .row.is-unmasked .row-value {
       border-color: var(--text-muted);
@@ -650,7 +833,7 @@
       font-weight: 600;
     }
     .row-arrow {
-      flex: 0 0 auto;
+      justify-self: center;
       color: var(--primary);
       font-weight: 800;
       font-size: 15px;
@@ -667,6 +850,11 @@
       transform: scaleX(-1) translateX(2px);
     }
     .row-placeholder {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
         "Liberation Mono", monospace;
       font-size: 12px;
@@ -675,9 +863,9 @@
       border: 1px solid var(--primary);
       padding: 1px 6px;
       border-radius: 4px;
-      word-break: break-all;
       font-weight: 600;
-      transition: all var(--ease-fast);
+      transition: color var(--ease-fast), border-color var(--ease-fast),
+        opacity var(--ease-fast);
     }
     .row.is-unmasked .row-placeholder {
       border-color: var(--border);
@@ -694,6 +882,28 @@
       color: var(--text-muted);
     }
     .row-count { font-variant-numeric: tabular-nums; }
+    .row-llm-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 8px;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #fff;
+      background: linear-gradient(135deg, #a855f7, #6366f1);
+      border-radius: 10px;
+      letter-spacing: 0.03em;
+      box-shadow: 0 1px 3px rgba(99, 102, 241, 0.28);
+    }
+    .row-llm-badge::before {
+      content: "";
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
+    }
 
     /* --- Severity pills ---------------------------------------------- */
     .sev-pill {
@@ -916,6 +1126,7 @@
       placeholder: typeof entity.placeholder === "string" && entity.placeholder
         ? entity.placeholder
         : `<${String(entity.label || "MASKED")}>`,
+      source: entity.source === "llm" ? "llm" : "regex",
     };
   }
 
@@ -938,7 +1149,15 @@
    *   maskedPositions: Array<[number, number, string]>,
    * }>}
    */
-  async function show(aggregatedResponse, originalText) {
+  async function show(aggregatedResponse, originalText, opts) {
+    opts = opts || {};
+    // Promise resolved when background LLM augmentation finishes. When
+    // provided, we open the sidebar immediately with the regex-only
+    // snapshot and re-render after the LLM merges in.
+    const llmPending =
+      opts.llmPending && typeof opts.llmPending.then === "function"
+        ? opts.llmPending
+        : null;
     const safeText =
       typeof originalText === "string"
         ? originalText
@@ -954,10 +1173,9 @@
         : []
     );
 
-    // Short-circuit when nothing to review — happens when the gateway
-    // returned zero detections (e.g. the user was just typing "hi").
-    // The caller then forwards the original body untouched.
-    if (aggregated.length === 0) {
+    // Short-circuit only when nothing to review AND no background LLM
+    // work in flight — otherwise we'd miss entities the LLM will add.
+    if (aggregated.length === 0 && !llmPending) {
       return {
         accepted: true,
         maskedEntityKeys: new Set(),
@@ -965,37 +1183,13 @@
       };
     }
 
-    // Build the per-row internal model and group by category in
-    // first-occurrence order so the UI lists categories in the same
-    // order the gateway returned them.
-    const rows = aggregated.map(buildRowState);
-    const NS = (window.__localMaskMCP = window.__localMaskMCP || {});
-    const allowlist = new Set(
-      Array.isArray(NS.settings && NS.settings.maskAllowlist)
-        ? NS.settings.maskAllowlist
-        : []
-    );
-    for (const row of rows) {
-      if (forcedCategories.has(row.category)) {
-        row.locked = true;
-        row.masked = true;
-      }
-      // Allowlisted values auto-unmask; not locked (user may re-mask
-      // or remove from allowlist via popup).
-      if (allowlist.has(row.value)) {
-        row.masked = false;
-        row.locked = false;
-      }
-    }
-    const categoryOrder = [];
-    const categoryMap = new Map(); // category name → array of rows
-    for (const row of rows) {
-      if (!categoryMap.has(row.category)) {
-        categoryOrder.push(row.category);
-        categoryMap.set(row.category, []);
-      }
-      categoryMap.get(row.category).push(row);
-    }
+    // Row/category structures are rebuilt inside applyAggregated() so
+    // the sidebar can re-render when the LLM augmentation resolves.
+    // Declared here (outer-scope ``let``) so closures created inside
+    // the Promise body see reassignments automatically.
+    let rows = [];
+    let categoryOrder = [];
+    let categoryMap = new Map(); // category name → array of rows
 
     return new Promise((resolve) => {
       // --- Push layout: wrap existing body children in a flex sibling ---
@@ -1005,28 +1199,78 @@
       // in the same document flow so they never overlap.
       const wrapper = document.createElement("div");
       wrapper.setAttribute("data-mask-mcp-wrapper", "");
-      wrapper.style.cssText = "flex:1 1 0;min-width:0;overflow:auto;height:100vh;";
+      // ``transform: translateZ(0)`` + ``contain: layout`` together
+      // promote the wrapper into a containing block for its fixed-
+      // position descendants. Without this, ChatGPT / Claude composer
+      // boxes and sticky headers (which use ``position: fixed``)
+      // render relative to the VIEWPORT and extend across the sidebar
+      // area, visually covering our panel. With the wrapper as a
+      // containing block, those fixed elements use the wrapper's
+      // (flex:1, narrower) box so they stay on the left and the
+      // sidebar sits cleanly on the right.
+      wrapper.style.cssText =
+        "flex:1 1 0;min-width:0;overflow:auto;height:100vh;" +
+        "transform:translateZ(0);contain:layout;position:relative;";
       while (document.body.firstChild) {
         wrapper.appendChild(document.body.firstChild);
       }
       document.body.appendChild(wrapper);
-      document.body.style.cssText += ";display:flex!important;flex-direction:row!important;margin:0!important;overflow:hidden!important;height:100vh!important;";
+      document.body.style.cssText += ";display:flex!important;flex-direction:row!important;margin:0!important;overflow:hidden!important;height:100vh!important;width:100vw!important;";
 
       const host = document.createElement("div");
       host.setAttribute("data-mask-mcp-sidebar", "");
       host.style.all = "initial";
       host.style.display = "block";
       host.style.height = "100vh";
+      // position: relative is REQUIRED for z-index to take effect.
+      // Without it the host is a static element and chat UIs like
+      // ChatGPT / Claude (with their own stacking contexts + z-index
+      // on composers, modals, sticky headers) render ON TOP of our
+      // sidebar. Anchoring + max z-index ensures we always win.
+      host.style.position = "relative";
       host.style.zIndex = "2147483647";
+      // Also create a local stacking context via isolation so any
+      // descendant z-index values can never "leak" above the host.
+      host.style.isolation = "isolate";
 
       function sidebarWidth() {
-        return Math.min(400, Math.floor(window.innerWidth * 0.45));
+        // Target 400px; on narrow viewports shrink to max 50% so
+        // both panes are usable. Never go below 280px (rows + pill
+        // get unreadable). On very small screens (<560px total)
+        // the math yields 50% which is ~280 — still usable.
+        const vw = window.innerWidth;
+        const target = 400;
+        const maxShare = Math.floor(vw * 0.5);
+        const minPx = Math.min(280, Math.floor(vw * 0.5));
+        return Math.max(minPx, Math.min(target, maxShare));
       }
       function applySidebarLayout() {
         const sw = sidebarWidth();
         host.style.width = sw + "px";
         host.style.minWidth = sw + "px";
+        host.style.maxWidth = sw + "px";
+        host.style.flex = `0 0 ${sw}px`;
+        // Give wrapper an EXPLICIT pixel width (calc) so chat frames
+        // that declare width: 100vw can't override flex:1 and overflow
+        // past the sidebar boundary. The chat becomes exactly
+        // (100vw - sw)px wide, sidebar is sw px wide, total = 100vw.
+        wrapper.style.width = `calc(100vw - ${sw}px)`;
+        wrapper.style.maxWidth = `calc(100vw - ${sw}px)`;
+        wrapper.style.flex = "1 1 auto";
+        // Keep a CSS custom property + global style rule so any chat
+        // child that uses `width: 100vw` or `right: 0` with
+        // `position: fixed` gets rewritten to respect the narrower
+        // viewport. See globalLayoutStyle below.
+        globalLayoutStyle.textContent =
+          ":root{--mmcp-sidebar-w:" + sw + "px}" +
+          "[data-mask-mcp-wrapper] *{max-width:100%!important}" +
+          "[data-mask-mcp-wrapper]{contain:layout}";
       }
+      // Style element INSIDE document (not shadow DOM) so its rules
+      // reach chat-app descendants. Content set by applySidebarLayout.
+      const globalLayoutStyle = document.createElement("style");
+      globalLayoutStyle.setAttribute("data-mask-mcp-layout", "");
+      document.head.appendChild(globalLayoutStyle);
       const shadow = host.attachShadow({ mode: "open" });
 
       const style = document.createElement("style");
@@ -1082,12 +1326,32 @@
       const title = document.createElement("h2");
       title.id = "mcp-sb-title";
       title.textContent = "マスク対象の確認";
+
+      // Mode indicator pill — reflects the active detection flow so
+      // the user knows whether regex alone, regex+LLM, or AI-replace
+      // is driving this review.
+      const modeLabel = (() => {
+        const m = opts.mode;
+        if (m === "replace") return "AI 置換 (実験的)";
+        if (m === "detect")  return "検出補助 (Regex + AI)";
+        return "Regex のみ";
+      })();
+      const modeCls = (() => {
+        if (opts.mode === "replace") return "mode-replace";
+        if (opts.mode === "detect")  return "mode-detect";
+        return "mode-regex";
+      })();
+      const modePill = document.createElement("span");
+      modePill.className = "mode-pill " + modeCls;
+      modePill.textContent = modeLabel;
+
       const closeBtn = document.createElement("button");
       closeBtn.type = "button";
       closeBtn.className = "close-btn";
       closeBtn.setAttribute("aria-label", "閉じる");
       closeBtn.textContent = "\u00d7"; // ×
       header.appendChild(title);
+      header.appendChild(modePill);
       header.appendChild(closeBtn);
 
       const body = document.createElement("div");
@@ -1109,10 +1373,6 @@
 
       // --- Hold-duration slider ---
       let lockHoldMs = 1000;
-      const lockHoldLabel = () =>
-        lockHoldMs === 0
-          ? "\ud83d\udd12 クリックで解除"
-          : "\ud83d\udd12 長押しで解除 (" + (lockHoldMs / 1000) + "s)";
       const holdSliderBar = document.createElement("div");
       holdSliderBar.className = "hold-slider-bar";
       const holdLabel = document.createElement("label");
@@ -1129,11 +1389,9 @@
       holdSlider.addEventListener("input", () => {
         lockHoldMs = Math.round(parseFloat(holdSlider.value) * 1000);
         holdVal.textContent = holdSlider.value + "s";
-        for (const el of categoriesWrap.querySelectorAll(".row-lock")) {
-          if (el.textContent.includes("長押しで解除")) {
-            el.textContent = lockHoldLabel();
-          }
-        }
+        // Per-row .row-lock hints were removed — nothing to update
+        // in the category list. lockHoldMs is picked up on next
+        // pointerdown via getHoldMs() inside the row's onDown.
       });
       holdSliderBar.appendChild(holdLabel);
       holdSliderBar.appendChild(holdSlider);
@@ -1358,18 +1616,34 @@
         const line1 = document.createElement("div");
         line1.className = "row-line1";
 
+        // Row icon picks the most specific marker:
+        //   🔒 locked (force-masked)
+        //   ✨ LLM-detected (overrides critical/non-critical)
+        //   🔑 critical
+        //   🔍 non-critical
+        // Row-level icon:
+        //   ✨ LLM-detected
+        //   🔑 critical
+        //   🔍 non-critical
+        // The 🔒 lock glyph is intentionally NOT used here — it's
+        // already shown on the category header for force-masked
+        // categories, and peppering it on every child row creates
+        // visual noise ("鍵マークが散見している" per user feedback).
         const icon = document.createElement("span");
         icon.className = "row-icon";
-        icon.textContent = row.locked
-          ? "\ud83d\udd12"  // 🔒 force-masked
-          : isCritical
-            ? "\ud83d\udd11" // 🔑 critical
-            : "\ud83d\udd0d"; // 🔍 non-critical
+        if (row.source === "llm") icon.classList.add("is-llm");
+        icon.textContent =
+          row.source === "llm"
+            ? "\u2728"              // ✨ AI-detected
+            : isCritical
+              ? "\ud83d\udd11"      // 🔑 critical
+              : "\ud83d\udd0d";     // 🔍 non-critical
         line1.appendChild(icon);
 
         const value = document.createElement("span");
         value.className = "row-value";
         value.textContent = row.value;
+        value.title = row.value;
         line1.appendChild(value);
 
         const arrow = document.createElement("span");
@@ -1379,7 +1653,9 @@
 
         const ph = document.createElement("span");
         ph.className = "row-placeholder";
-        ph.textContent = row.placeholder || `<${row.label}>`;
+        const phText = row.placeholder || `<${row.label}>`;
+        ph.textContent = phText;
+        ph.title = phText;
         line1.appendChild(ph);
 
         // ----- Line 2: N件 · [SEV] · 🔒 長押しで解除 -------------------
@@ -1388,18 +1664,25 @@
 
         const count = document.createElement("span");
         count.className = "row-count";
-        count.textContent = `${row.count}件`;
+        count.textContent = `出現回数 ${row.count}回`;
+        count.title = `この値が入力テキスト中に ${row.count} 回出現`;
         line2.appendChild(count);
 
-        if (row.locked) {
-          const dot2 = document.createElement("span");
-          dot2.textContent = "·";
-          line2.appendChild(dot2);
-          const lock = document.createElement("span");
-          lock.className = "row-lock";
-          lock.textContent = "\ud83d\udd12";
-          line2.appendChild(lock);
+        if (row.source === "llm") {
+          const dotLlm = document.createElement("span");
+          dotLlm.textContent = "·";
+          line2.appendChild(dotLlm);
+          const llmBadge = document.createElement("span");
+          llmBadge.className = "row-llm-badge";
+          llmBadge.textContent = "AI 検出";
+          llmBadge.title = "ローカル LLM が文脈から検出した候補";
+          llmBadge.setAttribute("aria-label", "AI 検出項目");
+          line2.appendChild(llmBadge);
         }
+
+        // Locked rows no longer get an individual 🔒 hint on line 2
+        // — the category header already carries the lock icon for
+        // the whole group. See renderCategory() above.
 
         const excludeBtn = document.createElement("button");
         excludeBtn.className = "exclude-btn";
@@ -1429,17 +1712,19 @@
           wrap.classList.toggle("is-unmasked", !row.masked);
         };
 
-        const baseIcon = isCritical ? "\ud83d\udd11" : "\ud83d\udd0d";
-        const lockIcon = "\ud83d\udd12";
-        const wasOriginallyLocked = row.locked;
+        const baseIcon = row.source === "llm"
+          ? "\u2728"                 // ✨
+          : isCritical
+            ? "\ud83d\udd11"         // 🔑
+            : "\ud83d\udd0d";        // 🔍
 
         const unlockRow = () => {
           row.locked = false;
           checkbox.disabled = false;
+          // Icon stays as the severity/LLM marker — the 🔒 only ever
+          // lived on the category header.
           icon.textContent = baseIcon;
           wrap.classList.remove("is-locked");
-          const hintEl = wrap.querySelector(".row-lock");
-          if (hintEl) hintEl.remove();
           const catEl = wrap.closest(".category");
           if (catEl) catEl.classList.remove("is-locked");
         };
@@ -1448,18 +1733,23 @@
           if (row.locked) unlockRow();
           row.masked = !!next;
           checkbox.checked = row.masked;
-          // Restore lock icon when re-masking a row that was originally
-          // force-locked. The row stays click-toggleable (no relock).
-          if (wasOriginallyLocked) {
-            icon.textContent = row.masked ? lockIcon : baseIcon;
-          }
           syncAria();
           syncCategoryToggle(row.category);
           updatePreview();
         };
 
-        if (!row.locked) {
-          // Unlocked rows (all severities): single click toggles.
+        // Interaction model (per user spec):
+        //   * critical + masked → long-press to UNMASK. Short tap is
+        //     a deliberate no-op (safety against accidental exposure).
+        //   * critical + unmasked → ONE tap to RE-MASK.
+        //   * Everything else (locked force-masked, high, medium, low)
+        //     → plain one-tap toggle for both lock and unlock.
+        // Force-locked rows go through setState → unlockRow on first
+        // tap which removes is-locked and toggles masked in one shot.
+        const requiresHold = () => isCritical && row.masked;
+
+        if (!isCritical) {
+          // Non-critical, non-locked path: plain click toggle.
           wrap.addEventListener("click", () => setState(!row.masked));
           wrap.addEventListener("keydown", (event) => {
             if (event.key === " " || event.key === "Enter") {
@@ -1468,11 +1758,15 @@
             }
           });
         } else {
-          // Locked rows only: long-press with slider duration.
+          // Critical OR locked path: single pointer-based state
+          // machine. We do NOT attach a click listener at all —
+          // everything is decided at pointerup so there's no
+          // possibility of click+pointerdown interfering.
           const getHoldMs = () => lockHoldMs;
           let timerId = null;
           let tickId = null;
           let startedAt = 0;
+          let holdFired = false;
 
           const resetFill = () => {
             if (!fill) return;
@@ -1483,29 +1777,23 @@
             if (timerId !== null) { clearTimeout(timerId); timerId = null; }
             if (tickId !== null) { clearInterval(tickId); tickId = null; }
           };
-          const onDown = (event) => {
-            if (timerId !== null) return;
-            // After unlock the row behaves like any other row —
-            // single click toggles without the long-press gate.
-            if (!row.locked) {
-              if (event.preventDefault) event.preventDefault();
-              setState(!row.masked);
-              return;
-            }
-            if (event.preventDefault) event.preventDefault();
+          const beginHold = (event) => {
+            if (event && event.preventDefault) event.preventDefault();
             startedAt = Date.now();
+            holdFired = false;
             if (fill) {
               fill.style.transition = "width 0.05s linear";
               fill.style.width = "0%";
             }
             try {
-              if (event.pointerId !== undefined) wrap.setPointerCapture(event.pointerId);
-            } catch (_) {
-              /* Safari / older WebViews may throw on setPointerCapture. */
-            }
+              if (event && event.pointerId !== undefined) {
+                wrap.setPointerCapture(event.pointerId);
+              }
+            } catch (_) { /* Safari */ }
             const ms = getHoldMs();
             const doToggle = () => {
               clearTimers();
+              holdFired = true;
               if (fill) fill.style.width = "100%";
               const wasLocked = row.locked;
               wrap.classList.add("long-press-pulse");
@@ -1523,19 +1811,51 @@
             }
             tickId = setInterval(() => {
               const elapsed = Math.min(ms, Date.now() - startedAt);
-              if (fill) fill.style.width = `${(elapsed / ms) * 100}%`;
+              if (fill) fill.style.width = (elapsed / ms) * 100 + "%";
             }, 50);
             timerId = setTimeout(doToggle, ms);
           };
+
+          const onDown = (event) => {
+            if (timerId !== null) return; // already holding
+            holdFired = false;
+            if (requiresHold()) {
+              beginHold(event);
+            }
+            // else: wait for pointerup — it's a click path
+          };
           const onUp = () => {
+            const wasHolding = timerId !== null;
             clearTimers();
             resetFill();
+            if (holdFired) {
+              // doToggle already ran → nothing more to do
+              return;
+            }
+            if (wasHolding) {
+              // User released before hold completed → cancel, no toggle
+              return;
+            }
+            // Short tap, no hold ran. Toggle ONLY when hold wasn't
+            // required (i.e. critical + unmasked → one-click re-mask).
+            if (!requiresHold()) {
+              setState(!row.masked);
+            }
           };
+
           wrap.addEventListener("pointerdown", onDown);
           wrap.addEventListener("pointerup", onUp);
-          wrap.addEventListener("pointercancel", onUp);
-          wrap.addEventListener("pointerleave", onUp);
-          // Keyboard: hold Space/Enter for 800ms.
+          wrap.addEventListener("pointercancel", () => {
+            clearTimers();
+            resetFill();
+            holdFired = false;
+          });
+          wrap.addEventListener("pointerleave", () => {
+            clearTimers();
+            resetFill();
+          });
+
+          // Keyboard mirrors the pointer state machine.
           let keyHeld = false;
           wrap.addEventListener("keydown", (event) => {
             if ((event.key === " " || event.key === "Enter") && !keyHeld) {
@@ -1610,19 +1930,12 @@
       // Render every category into a dedicated scroll region. The
       // ``.categories`` wrapper gets ``flex: 1 1 auto; overflow-y: auto``
       // from the stylesheet so only the category list scrolls while
-      // the preview below stays pinned in view.
+      // the preview below stays pinned in view. We create an empty
+      // wrapper here — applyAggregated() below fills it, and re-fills
+      // it when the LLM augmentation resolves.
       const categoriesWrap = document.createElement("div");
       categoriesWrap.className = "categories";
-      for (const cat of categoryOrder) {
-        categoriesWrap.appendChild(renderCategory(cat));
-      }
       body.appendChild(categoriesWrap);
-      // Now that all rows + toggles exist, sync the parent toggles
-      // to match the initial row state (everything masked => fully
-      // checked, except where force-mask already locked it).
-      for (const cat of categoryOrder) {
-        syncCategoryToggle(cat);
-      }
 
       // --- Preview pane (pinned at the bottom of .body) --------------------
       const previewSection = document.createElement("div");
@@ -1635,7 +1948,216 @@
       previewSection.appendChild(previewTitle);
       previewSection.appendChild(previewBox);
       body.appendChild(previewSection);
-      updatePreview();
+
+      // Look up settings once; re-used on every applyAggregated() call.
+      const NS = (window.__localMaskMCP = window.__localMaskMCP || {});
+      const allowlist = new Set(
+        Array.isArray(NS.settings && NS.settings.maskAllowlist)
+          ? NS.settings.maskAllowlist
+          : []
+      );
+
+      // Rebuild the row + category models AND the .categories DOM from
+      // a fresh aggregated[] array. Called once at mount, then again
+      // each time the LLM augmentation completes so newly-detected
+      // entities appear in the open sidebar. User intent (masked/
+      // unmasked per value) is preserved across rebuilds.
+      function applyAggregated(aggArr, opts) {
+        opts = opts || {};
+        const stagger = !!opts.stagger;
+        const preserved = new Map();
+        for (const r of rows) preserved.set(r.value, r.masked);
+
+        const fresh = (Array.isArray(aggArr) ? aggArr : []).map(buildRowState);
+        for (const row of fresh) {
+          if (forcedCategories.has(row.category)) {
+            row.locked = true;
+            row.masked = true;
+          }
+          if (allowlist.has(row.value)) {
+            row.masked = false;
+            row.locked = false;
+          }
+          // Restore the user's choice for rows that existed before the
+          // rebuild. Locked rows never lose their masked=true state.
+          if (preserved.has(row.value) && !row.locked) {
+            row.masked = preserved.get(row.value);
+          }
+        }
+
+        rows = fresh;
+        categoryOrder = [];
+        categoryMap = new Map();
+        for (const row of rows) {
+          if (!categoryMap.has(row.category)) {
+            categoryOrder.push(row.category);
+            categoryMap.set(row.category, []);
+          }
+          categoryMap.get(row.category).push(row);
+        }
+
+        while (categoriesWrap.firstChild) {
+          categoriesWrap.removeChild(categoriesWrap.firstChild);
+        }
+        rowControls.clear();
+        categoryControls.clear();
+
+        for (const cat of categoryOrder) {
+          categoriesWrap.appendChild(renderCategory(cat));
+        }
+        for (const cat of categoryOrder) {
+          syncCategoryToggle(cat);
+        }
+        // Empty-state placeholder when regex + LLM both returned 0:
+        // keeps the sidebar visually coherent so the user knows
+        // the analysis actually completed rather than silently
+        // vanishing.
+        if (categoryOrder.length === 0) {
+          const emptyMsg = document.createElement("div");
+          emptyMsg.className = "empty";
+          emptyMsg.textContent = "✓ PII は検出されませんでした — そのまま送信できます";
+          categoriesWrap.appendChild(emptyMsg);
+        }
+        applySevFilter();
+        updatePreview();
+
+        // Stagger-in animation: each .row gets an 80ms-incrementing
+        // delay so detections appear sequentially. Only done when
+        // opts.stagger === true (i.e. the post-LLM rebuild path).
+        if (stagger) {
+          const rowEls = categoriesWrap.querySelectorAll(".row");
+          rowEls.forEach((el, i) => {
+            el.classList.add("row-staggered");
+            el.style.animationDelay = i * 80 + "ms";
+          });
+        }
+      }
+
+      // Initial paint: if LLM augmentation is pending we hold off on
+      // painting any rows until it resolves — otherwise the user sees
+      // a transient "regex-only" masking list that then shuffles as
+      // the LLM adds/overrides entries. When llmPending is null we
+      // paint the regex-only results immediately as before.
+      if (!llmPending) {
+        applyAggregated(aggregated);
+      }
+
+      // --- LLM pending: centered overlay -------------------------------
+      // While the LLM augmentation runs the sidebar shows ONLY the
+      // centered overlay — no rows, no preview, no bulk buttons — so
+      // the user isn't given a partial "regex-only" list that will
+      // be rewritten a moment later. Supporting chrome (bulk-bar /
+      // slider / sev-tabs / preview) is hidden until the overlay
+      // dismisses; on error we reveal the regex-only fallback.
+      // On failure we replace it with a compact top-positioned toast
+      // that auto-hides after 4s (regex results stay in place).
+      // Supporting UI that should be hidden while we show the overlay.
+      // Collected once here so reveal() can flip them back on atomically.
+      const chromeToHide = [bulkBar, holdSliderBar, sevTabs, previewSection];
+      function hideChrome() {
+        for (const el of chromeToHide) el.style.display = "none";
+      }
+      function revealChrome() {
+        for (const el of chromeToHide) el.style.display = "";
+      }
+
+      let llmOverlay = null;
+      function buildLlmOverlay() {
+        const root = document.createElement("div");
+        root.className = "llm-overlay";
+        const ring = document.createElement("div");
+        ring.className = "llm-overlay-spin-wrap";
+        const r1 = document.createElement("div");
+        r1.className = "llm-overlay-spin";
+        const r2 = document.createElement("div");
+        r2.className = "llm-overlay-spin ring2";
+        ring.appendChild(r1);
+        ring.appendChild(r2);
+        const label = document.createElement("div");
+        label.className = "llm-overlay-label";
+        label.textContent =
+          opts.mode === "replace" ? "\u2728 AI 置換中\u2026" : "\u2728 AI 分析中\u2026";
+        const sub = document.createElement("div");
+        sub.className = "llm-overlay-sub";
+        sub.textContent =
+          opts.mode === "replace"
+            ? "ローカル LLM が送信内容を <tag> プレースホルダーに書き換えています。"
+            : "ローカル LLM が文脈から追加候補を検出しています。完了次第、一覧に反映されます。";
+        root.appendChild(ring);
+        root.appendChild(label);
+        root.appendChild(sub);
+        return root;
+      }
+
+      function dismissLlmOverlay() {
+        if (!llmOverlay) return;
+        const el = llmOverlay;
+        llmOverlay = null;
+        el.classList.add("is-leaving");
+        setTimeout(() => {
+          if (el.parentNode) el.remove();
+        }, 200);
+      }
+
+      function showLlmErrorToast() {
+        const toast = document.createElement("div");
+        toast.className = "llm-toast";
+        const txt = document.createElement("span");
+        txt.className = "llm-toast-text";
+        txt.textContent =
+          "AI 分析に失敗しました — regex / 形態素の結果のみ表示しています";
+        toast.appendChild(txt);
+        body.insertBefore(toast, categoriesWrap);
+        setTimeout(() => {
+          if (toast.parentNode) toast.remove();
+        }, 4000);
+      }
+
+      if (llmPending) {
+        hideChrome();
+        llmOverlay = buildLlmOverlay();
+        body.appendChild(llmOverlay);
+
+        // mergeLlmDetect resolves in ALL paths (success, 0-entity,
+        // timeout) — the `.catch` branch here is a safety net for
+        // unexpected programming errors, not for LLM failure. We
+        // detect LLM failure by inspecting the returned aggResp's
+        // _llmStatus field set by injected.js.
+        const finishLlm = (updated, hadException) => {
+          const nextAgg =
+            updated && Array.isArray(updated.aggregated)
+              ? updated.aggregated
+              : aggregated;
+          if (updated && Array.isArray(updated.force_masked_categories)) {
+            forcedCategories.clear();
+            for (const c of updated.force_masked_categories) {
+              forcedCategories.add(String(c));
+            }
+          }
+          const failed =
+            hadException ||
+            (updated && updated._llmStatus === "failed");
+          const rowsInAgg = Array.isArray(nextAgg) ? nextAgg.length : 0;
+
+          // ALWAYS show the sidebar after LLM resolves — even when
+          // nothing was detected — so the user can see that the
+          // analysis ran and confirm / cancel the send. An empty
+          // list renders a "未検出" placeholder (see applyAggregated
+          // below, which inserts one if rows.length === 0).
+          const shouldStagger = !failed && rowsInAgg > 0;
+          applyAggregated(nextAgg, { stagger: shouldStagger });
+          revealChrome();
+          const lastRowEnd = shouldStagger ? rowsInAgg * 80 + 320 : 0;
+          setTimeout(() => {
+            dismissLlmOverlay();
+            if (failed) showLlmErrorToast();
+          }, lastRowEnd);
+        };
+
+        llmPending
+          .then((updated) => finishLlm(updated, false))
+          .catch(() => finishLlm(null, true));
+      }
 
       // Bulk-uncheck gate for the critical tier. Returns ``true`` if
       // the user confirmed the clearance (non-critical rows should be
@@ -1745,6 +2267,9 @@
         window.removeEventListener("resize", onResize);
         window.removeEventListener("mask-mcp:settings-updated", onSettingsUpdated);
         if (host.parentNode) host.parentNode.removeChild(host);
+        if (globalLayoutStyle.parentNode) {
+          globalLayoutStyle.parentNode.removeChild(globalLayoutStyle);
+        }
         // Unwrap: move children back to <body> and remove wrapper.
         if (wrapper.parentNode === document.body) {
           while (wrapper.firstChild) {
@@ -1756,7 +2281,8 @@
             .replace(/flex-direction:\s*row\s*!important;?/g, "")
             .replace(/overflow:\s*hidden\s*!important;?/g, "")
             .replace(/height:\s*100vh\s*!important;?/g, "")
-            .replace(/margin:\s*0\s*!important;?/g, "");
+            .replace(/margin:\s*0\s*!important;?/g, "")
+            .replace(/width:\s*100vw\s*!important;?/g, "");
         }
       }
 
@@ -1859,5 +2385,85 @@
     });
   }
 
-  NS.sidebar = { show, applyMasks };
+  // --- Loading indicator (LLM 分析中) ----------------------------------
+  // A tiny always-on-top spinner pinned to the top-right edge while
+  // the LLM is being queried. Independent of the main review sidebar
+  // so the user sees activity the moment a query starts, even if the
+  // main sidebar hasn't rendered yet.
+  let loadingHost = null;
+  function showLoading(label) {
+    if (loadingHost) {
+      const lbl = loadingHost.shadowRoot.querySelector(".label");
+      if (lbl) lbl.textContent = label || "LLM 分析中…";
+      return;
+    }
+    loadingHost = document.createElement("div");
+    loadingHost.setAttribute("data-mask-mcp-loader", "");
+    loadingHost.style.cssText =
+      "all:initial;position:fixed;top:16px;right:16px;z-index:2147483647;pointer-events:none";
+    const shadow = loadingHost.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = `
+      .pill {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px 10px 14px;
+        background: rgba(17, 24, 39, 0.92);
+        color: #f9fafb;
+        border-radius: 999px;
+        font: 500 13px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        letter-spacing: 0.01em;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.18);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        animation: fade-in 0.18s ease-out;
+      }
+      .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.22);
+        border-top-color: #a855f7;
+        border-right-color: #6366f1;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      .label { white-space: nowrap; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes fade-in {
+        from { opacity: 0; transform: translateY(-6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+    `;
+    shadow.appendChild(style);
+    const pill = document.createElement("div");
+    pill.className = "pill";
+    const spin = document.createElement("div");
+    spin.className = "spinner";
+    const txt = document.createElement("span");
+    txt.className = "label";
+    txt.textContent = label || "LLM 分析中…";
+    pill.appendChild(spin);
+    pill.appendChild(txt);
+    shadow.appendChild(pill);
+    document.body.appendChild(loadingHost);
+  }
+  function hideLoading() {
+    if (!loadingHost) return;
+    try { loadingHost.remove(); } catch (_) {}
+    loadingHost = null;
+  }
+
+  // Replace mode no longer needs a separate page-center overlay —
+  // the in-sidebar .llm-overlay handles both detect and replace
+  // modes via sidebar.show({ mode, llmPending }). The previous
+  // showReplaceOverlay / hideReplaceOverlay functions were dead
+  // after commit b3a0ab9 and were removed for clarity.
+
+  NS.sidebar = {
+    show,
+    applyMasks,
+    showLoading,
+    hideLoading,
+  };
 })();

@@ -51,6 +51,22 @@
     }
   }
 
+  // Dedupe diagnostic logs so ChatGPT-style telemetry floods don't
+  // drown out the few LOG lines that matter (adapter hits, LLM
+  // results). Key = "logTag|host+path" — we log once per unique
+  // route per page load.
+  const _logSeen = new Set();
+  function logOnce(tag, url, extra) {
+    try {
+      const u = new URL(url, location.href);
+      const key = tag + "|" + u.host + u.pathname;
+      if (_logSeen.has(key)) return;
+      _logSeen.add(key);
+    } catch (_) {}
+    if (extra !== undefined) LOG(tag, redactUrl(url), extra);
+    else LOG(tag, redactUrl(url));
+  }
+
   // Bounded-length snippet for logging WS frames. Socket.IO EVENT frames
   // start with ``42[...]`` and are usually under a few hundred chars —
   // 160 chars is enough to see the event name + first field without
@@ -110,19 +126,22 @@
     entry.resolve(data);
   });
 
-  function request(type, extra) {
+  function request(type, extra, timeoutMs) {
     const id = `mcp-${++sequence}-${Date.now()}`;
     return new Promise((resolve) => {
       pending.set(id, { resolve });
       window.postMessage({ source: TAG_IN, id, type, ...extra }, "*");
       // Safety timeout — the content script should always reply;
-      // this guards against a broken extension install.
+      // this guards against a broken extension install. For most
+      // request types 5s is plenty, but LLM calls against 9B+
+      // thinking models can take 30–120s (model load + inference),
+      // so callers override with their own budget + a small buffer.
       setTimeout(() => {
         if (pending.has(id)) {
           pending.delete(id);
           resolve(null);
         }
-      }, 5000);
+      }, typeof timeoutMs === "number" && timeoutMs > 0 ? timeoutMs : 5000);
     });
   }
 
@@ -258,6 +277,290 @@
     return resp.result; // may be null on gateway failure
   }
 
+  // v0.5.0 — Local LLM wrapper. Returns null when LLM is disabled /
+  // unreachable / times out, so callers can treat "no augmentation"
+  // as the normal case.
+  async function llmAugment(text, mode) {
+    try {
+      const cfgResp = await request("llm-config", {});
+      const cfg = cfgResp && cfgResp.config;
+      if (!cfg) return null;
+      const prompts = NS.engine && NS.engine.llmPrompts;
+      if (!prompts) return null;
+      const build =
+        mode === "replace" ? prompts.buildReplacePrompt : prompts.buildDetectPrompt;
+      const { system, user } = build(text);
+      // Give the inner bridge enough time to cover the full SW
+      // retry loop: up to 6 warming-up retries + 2 abort retries,
+      // each with its own cfg.timeoutMs fetch window. Budget:
+      //   (timeoutMs * 3) + 30s buffer
+      // → for the 120s default this is ~6.5 min, which covers
+      // even the slowest 4B cold-start scenarios while still
+      // bounding how long a stuck request can hang.
+      const innerBudget = (cfg.timeoutMs || 120000) * 3 + 30000;
+      LOG(
+        `llm ${mode}: inner bridge budget ${Math.round(innerBudget / 1000)}s (fetch timeout ${Math.round((cfg.timeoutMs || 120000) / 1000)}s)`,
+      );
+      const callResp = await request(
+        "llm-call",
+        { system, user, config: cfg },
+        innerBudget,
+      );
+      const raw = callResp && callResp.result;
+      if (!raw || typeof raw !== "string") {
+        LOG(`llm ${mode}: no response (timeout / network / CORS)`);
+        return null;
+      }
+      LOG(`llm ${mode}: got response (${raw.length} chars)`);
+      // The LLM sometimes wraps JSON in ```json fences despite instructions.
+      // Qwen3 / Deepseek-R1 / other "thinking" models wrap reasoning
+      // in <think>...</think> before the actual answer. Strip those
+      // blocks (including multi-line, including unclosed in case the
+      // model truncated). Also strip ```json fences.
+      let cleaned = raw
+        .replace(/<think>[\s\S]*?<\/think>/gi, "")
+        .replace(/<think>[\s\S]*$/i, "")
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
+      // Some models leave a leading narrative before JSON. Find the
+      // first `{` and last `}` and parse that substring.
+      const firstBrace = cleaned.indexOf("{");
+      const lastBrace = cleaned.lastIndexOf("}");
+      if (firstBrace > 0 && lastBrace > firstBrace) {
+        cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch (_) {
+        LOG("llm response not JSON; ignoring");
+        return null;
+      }
+      // [MEDIUM] Strict schema validation — a prompt-injected response
+      // that returns free-form text or unexpected fields must be
+      // rejected so the regex pipeline stays authoritative.
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        LOG("llm response not object; ignoring");
+        return null;
+      }
+      if (mode === "detect") {
+        if (!Array.isArray(parsed.entities)) {
+          LOG("llm detect response missing entities[]; ignoring");
+          return null;
+        }
+        parsed.entities = parsed.entities.filter(
+          (e) =>
+            e &&
+            typeof e === "object" &&
+            typeof e.text === "string" &&
+            e.text.trim().length > 0 &&
+            e.text.length < 500 &&
+            typeof e.entity_type === "string"
+        );
+        return parsed;
+      }
+      if (mode === "replace") {
+        if (
+          typeof parsed.rewritten_text !== "string" ||
+          parsed.rewritten_text.length === 0
+        ) {
+          LOG("llm replace response missing rewritten_text; ignoring");
+          return null;
+        }
+        return parsed;
+      }
+      return parsed;
+    } catch (err) {
+      WARN("llmAugment failed:", err?.message || err);
+      return null;
+    }
+  }
+
+  // Merge LLM-detected contextual entities with the regex aggregated
+  // response. When LLM is connected (mode === "detect"), the LLM is
+  // treated as the primary authority: any entity LLM flagged
+  // REPLACES the regex/morphology entry for the same surface text
+  // (label, category, severity all come from LLM). Entities regex
+  // found but LLM did not are kept as a safety-net supplement so
+  // structured PII (email, credit card, phone number) is never
+  // silently dropped. Skips LLM entirely when config is missing.
+  async function mergeLlmDetect(aggResp, text) {
+    try {
+      const cfgResp = await request("llm-config", {});
+      const cfg = cfgResp && cfgResp.config;
+      if (!cfg) {
+        LOG("llm detect: SKIPPED (no config — enable toggle + set URL in options)");
+        aggResp._llmStatus = "failed";
+        return aggResp;
+      }
+      // In replace mode the primary path (full rewrite) runs earlier
+      // in processBody. If it failed (timeout/network/partial), we
+      // still want LLM contextual detection to augment the regex
+      // pipeline — otherwise LLM effectively contributes nothing on
+      // replace-mode failure. So detect runs for BOTH modes.
+      if (cfg.mode !== "detect" && cfg.mode !== "replace") {
+        LOG(`llm detect: SKIPPED (mode="${cfg.mode}", not detect/replace)`);
+        aggResp._llmStatus = "failed";
+        return aggResp;
+      }
+      LOG(`llm detect: querying ${cfg.kind} model="${cfg.model || "(default)"}"`);
+      // No showLoading() here — the sidebar's centered overlay is now
+      // the sole LLM progress indicator when regex found ≥1 entity and
+      // we opened the sidebar in parallel. For the zero-regex path
+      // (sidebar can't be opened yet) we stay silent rather than
+      // flashing a top-right pill before any UI is visible.
+      const out = await llmAugment(text, "detect");
+      let llmEnts = (out && Array.isArray(out.entities)) ? out.entities : [];
+      // Distinguish three outcomes so the sidebar can render
+      // appropriate feedback:
+      //   "failed"       — LLM did not respond (timeout / CORS / network)
+      //   "ok_empty"     — LLM answered, but with no entities
+      //   "ok_entities"  — LLM answered with at least one entity
+      if (!llmEnts.length) {
+        aggResp._llmStatus = out === null ? "failed" : "ok_empty";
+        LOG(
+          `llm detect: ${aggResp._llmStatus} — keeping regex/morphology only`,
+        );
+        return aggResp;
+      }
+      aggResp._llmStatus = "ok_entities";
+      // Post-filter: drop common false positives even if the LLM
+      // labeled them. This is a safety net against an over-eager
+      // model that flags job titles, generic IT terms, or polite
+      // phrases.
+      const LLM_DENYLIST = new Set([
+        // Job titles / roles
+        "エンジニア", "インフラエンジニア", "プログラマー", "デザイナー",
+        "マネージャー", "リーダー", "部長", "課長", "社長", "CTO", "CEO",
+        "PM", "PL", "アルバイト", "正社員", "フリーランス", "コンサルタント",
+        // IT common nouns (words, not actual values)
+        "パスワード", "アクセスキー", "APIキー", "API キー", "トークン",
+        "認証情報", "秘密鍵", "公開鍵", "ハッシュ", "セッション",
+        "Cookie", "JWT", "OAuth", "SSH", "SSL", "HTTPS", "HTTP",
+        "JSON", "YAML", "CSS", "SQL", "Database", "API", "REST", "GraphQL",
+        // Generic business terms
+        "プロジェクト", "会議", "ミーティング", "タスク", "チケット",
+        "レポート", "ドキュメント", "データ", "システム", "サーバー",
+        "クライアント", "ユーザー", "メンバー", "チーム", "部署", "組織",
+        "営業", "経理", "開発", "人事", "総務",
+        // Public orgs / technical tools
+        "政府", "省庁", "警察", "国税庁", "GitHub", "Docker", "Kubernetes",
+        "AWS", "GCP", "Azure",
+      ]);
+      const LLM_DENY_REGEX = [
+        /^エンジニア$/, /エンジニア$/,          // all "…エンジニア"
+        /^(?:パス|アクセス)(?:ワード|キー)$/,  // パスワード, アクセスキー
+        /^.+(?:部長|課長|係長|主任|取締役|社長)$/, // 何々部長 etc.
+      ];
+      const filtered = llmEnts.filter((e) => {
+        const v = (e && e.text) || "";
+        if (typeof v !== "string" || !v.trim()) return false;
+        if (LLM_DENYLIST.has(v)) {
+          LOG(`llm detect: dropped false positive "${v}" (denylist)`);
+          return false;
+        }
+        if (LLM_DENY_REGEX.some((re) => re.test(v))) {
+          LOG(`llm detect: dropped false positive "${v}" (pattern)`);
+          return false;
+        }
+        // Short surfaces that are pure hiragana are almost always
+        // particles / polite phrases mis-tagged.
+        if (v.length <= 3 && /^[ぁ-ん]+$/.test(v)) {
+          LOG(`llm detect: dropped short hiragana "${v}"`);
+          return false;
+        }
+        return true;
+      });
+      if (filtered.length !== llmEnts.length) {
+        LOG(
+          `llm detect: filtered ${llmEnts.length - filtered.length} ` +
+            `false positives, ${filtered.length} kept`
+        );
+      }
+      llmEnts = filtered;
+      if (!llmEnts.length) {
+        LOG("llm detect: all LLM entities filtered out; keeping regex only");
+        return aggResp;
+      }
+      const LABEL_TO_CATEGORY = {
+        PERSON: "PERSON",
+        COMPANY: "ORGANIZATION",
+        LOCATION: "LOCATION",
+        DEPARTMENT: "OTHER",
+        PROJECT_CODE: "OTHER",
+        CREDENTIAL: "CREDENTIAL",
+        SENSITIVE_FACT: "OTHER",
+      };
+      const LABEL_TO_SEVERITY = {
+        PERSON: "critical",
+        COMPANY: "critical",
+        LOCATION: "high",
+        DEPARTMENT: "medium",
+        PROJECT_CODE: "medium",
+        CREDENTIAL: "critical",
+        SENSITIVE_FACT: "high",
+      };
+      // Build the LLM rows first (they become authoritative). We scan
+      // ALL occurrences of each value in the input so multi-occurrence
+      // surfaces ("田中さんから田中部長に伝言") get every instance
+      // masked rather than just the first.
+      const llmRows = [];
+      const llmValues = new Set();
+      const counters = {};
+      for (const ent of llmEnts) {
+        const value = typeof ent.text === "string" ? ent.text.trim() : "";
+        if (!value || llmValues.has(value)) continue;
+        const positions = [];
+        let from = 0;
+        while (true) {
+          const idx = text.indexOf(value, from);
+          if (idx < 0) break;
+          positions.push([idx, idx + value.length]);
+          from = idx + value.length;
+        }
+        if (!positions.length) continue;
+        const label = String(ent.entity_type || "SENSITIVE_FACT").toUpperCase();
+        const category = LABEL_TO_CATEGORY[label] || "OTHER";
+        const severity = LABEL_TO_SEVERITY[label] || "medium";
+        counters[label] = (counters[label] || 0) + 1;
+        llmRows.push({
+          value,
+          label,
+          category,
+          count: positions.length,
+          positions,
+          masked: true,
+          placeholder: `<${label}_${counters[label]}>`,
+          classification: "contextual",
+          severity,
+          source: "llm",
+        });
+        llmValues.add(value);
+      }
+      // Keep regex rows ONLY when LLM didn't already flag that surface.
+      // This gives LLM final say on label/severity while retaining
+      // structured regex detections (email, credit card, etc.) that
+      // LLM might not have surfaced.
+      const keptRegex = (aggResp.aggregated || []).filter(
+        (a) => !llmValues.has(String(a.value))
+      );
+      const replaced = (aggResp.aggregated || []).length - keptRegex.length;
+      // LLM rows come first in the aggregated list so the sidebar
+      // shows them at the top of their severity tab.
+      aggResp.aggregated = [...llmRows, ...keptRegex];
+      LOG(
+        `llm detect merge: +${llmRows.length} llm entities, ` +
+          `+${keptRegex.length} regex kept, ${replaced} regex overridden by LLM`
+      );
+      return aggResp;
+    } catch (err) {
+      WARN("mergeLlmDetect failed:", err?.message || err);
+      aggResp._llmStatus = "failed";
+      return aggResp;
+    }
+  }
+
   async function isEnabled() {
     const resp = await request("is-enabled", {});
     if (!resp || resp.type !== "is-enabled-result") return true;
@@ -281,9 +584,19 @@
 
   const claudeAdapter = {
     name: "claude",
+    // Match any URL that contains a SEND path segment anywhere, then
+    // explicitly exclude sub-operations that are POSTs but don't carry
+    // user-typed chat text (rename, feedback, star, etc.). The final
+    // gate is extractInputs(): if the body has no ``messages[].content``
+    // or ``prompt``, processBody early-returns without firing any UI.
     match: (url) =>
       /(^https?:\/\/claude\.(ai|com)|\.claude\.com)/.test(url) &&
-      /\/(api|completion|append_message|chat_conversations)/.test(url),
+      /\/(?:completion|append_message|retry_completion|chat_conversations)(?=[/?#]|$)/.test(
+        url
+      ) &&
+      !/\/(?:title|feedback|star|archive|share|export|leave|rename|latest|preview)(?=[/?#]|$)/.test(
+        url
+      ),
     extractInputs(body) {
       const out = [];
       if (typeof body?.prompt === "string" && body.prompt.trim()) {
@@ -330,10 +643,14 @@
 
   const chatgptAdapter = {
     name: "chatgpt",
+    // ChatGPT's chat send is `POST /backend-api/conversation` (or the
+    // `/backend-api/f/conversation` moderation variant). Any longer
+    // sub-path like `.../{id}/title` or `.../{id}/feedback` is NOT a
+    // send. We allow optional query/hash, and rely on extractInputs
+    // as the final gate.
     match: (url) =>
       /(chatgpt\.com|chat\.openai\.com)/.test(url) &&
-      /\/backend-api\//.test(url) &&
-      /(conversation|messages)/.test(url),
+      /\/backend-api\/(?:f\/)?conversation(?:\?[^#]*)?(?:#.*)?$/.test(url),
     extractInputs(body) {
       const out = [];
       if (Array.isArray(body?.messages)) {
@@ -423,12 +740,20 @@
   // out static assets and telemetry.
   const manusAdapter = {
     name: "manus",
+    // Keep a broad SEND-intent regex with exclusions for non-chat
+    // sub-paths. Manus's API surface shifts often (butterfly-effect
+    // vs manus.im) and the bulk of their chat traffic is over the
+    // Socket.IO WebSocket, so the fetch/XHR matcher here is a safety
+    // net only. extractInputs is the authoritative gate.
     match: (url) =>
       /(manus\.im|butterfly-effect\.dev)/i.test(url) &&
       !/(sentry|amplitude|analytics|telemetry|segment\.io|datadog|newrelic)/i.test(
         url
       ) &&
-      /(\/api\/|\/v1\/|\/chat\/|\/message|\/task|\/session|\/rpc|\/submit|\/send|\/completion|\/agent|\/conversation)/i.test(
+      /\/(?:submit|send|message|messages|completion|chat|rpc|prompt|task|agent|conversation|conversations)(?=[/?#]|$)/i.test(
+        url
+      ) &&
+      !/\/(?:files?|list|search|feedback|metrics|status|health|heartbeat|preview|thumbnail|avatar|upload)(?=[/?#]|$)/i.test(
         url
       ),
     extractInputs(body) {
@@ -593,6 +918,105 @@
   // never imports from the sidebar global (the sidebar may legitimately
   // be missing if the user picked ``uiMode: "modal"`` and only
   // review-modal.js was loaded).
+  // Post-process LLM replace-mode output so every distinct original
+  // value gets a UNIQUE numbered tag (<name_1>, <name_2>, <company_1>, …).
+  // This is what makes restoration possible later: the extension can
+  // map <name_3> → "田中副社長" unambiguously because the mapping is
+  // 1:1, not 1:N. The same surface text reused within one message
+  // keeps the same tag so references stay consistent.
+  //
+  // Strategy:
+  //   1. Walk LLM.replacements in order, derive a base tag ("name",
+  //      "company", …) from each replacement string ("<name>" or
+  //      entity_type lowercase).
+  //   2. Assign <base_N> where N is 1-based per-base counter; same
+  //      original gets the same tag.
+  //   3. Rebuild rewritten_text by locating every occurrence of
+  //      every tagged original in the source text and splicing in
+  //      its tag. Longest-first greedy to avoid clobbering longer
+  //      matches that contain shorter ones.
+  function applyUniqueTagsToReplace(originalText, replacements) {
+    const BASE_FROM_LABEL = {
+      PERSON: "name",
+      COMPANY: "company",
+      LOCATION: "location",
+      DEPARTMENT: "department",
+      PROJECT_CODE: "project",
+      CREDENTIAL: "credential",
+      SENSITIVE_FACT: "fact",
+      PHONE_NUMBER: "phone",
+      EMAIL_ADDRESS: "email",
+    };
+    const tagByOriginal = new Map();
+    const counters = {};
+    for (const r of replacements) {
+      const orig = typeof r?.original === "string" ? r.original.trim() : "";
+      if (!orig || tagByOriginal.has(orig)) continue;
+      // Prefer the LLM-picked base tag (e.g. <hospital> inside
+      // <hospital> or "元<company>"), but fall back to the label
+      // mapping if the replacement wasn't a recognizable tag.
+      let base;
+      const tagMatch = String(r.replacement || "").match(
+        /<([a-z][a-z_]*?)(?:_\d+)?>/i
+      );
+      if (tagMatch) {
+        base = tagMatch[1].toLowerCase();
+      } else {
+        base =
+          BASE_FROM_LABEL[String(r.entity_type || "").toUpperCase()] ||
+          "masked";
+      }
+      counters[base] = (counters[base] || 0) + 1;
+      tagByOriginal.set(orig, `<${base}_${counters[base]}>`);
+    }
+    // Rebuild rewritten_text — match every tagged original against
+    // the source, resolve overlaps by longest-first, splice tags in.
+    const hits = [];
+    for (const orig of tagByOriginal.keys()) {
+      let from = 0;
+      while (true) {
+        const idx = originalText.indexOf(orig, from);
+        if (idx < 0) break;
+        hits.push({ start: idx, end: idx + orig.length, orig });
+        from = idx + orig.length;
+      }
+    }
+    hits.sort((a, b) => {
+      if (a.start !== b.start) return a.start - b.start;
+      return b.end - b.start - (a.end - a.start);
+    });
+    const chosen = [];
+    let lastEnd = -1;
+    for (const h of hits) {
+      if (h.start >= lastEnd) {
+        chosen.push(h);
+        lastEnd = h.end;
+      }
+    }
+    let out = "";
+    let cursor = 0;
+    for (const h of chosen) {
+      out += originalText.slice(cursor, h.start);
+      out += tagByOriginal.get(h.orig);
+      cursor = h.end;
+    }
+    out += originalText.slice(cursor);
+
+    const uniqueReplacements = [];
+    const seen = new Set();
+    for (const r of replacements) {
+      const orig = typeof r?.original === "string" ? r.original.trim() : "";
+      if (!orig || seen.has(orig)) continue;
+      seen.add(orig);
+      uniqueReplacements.push({
+        original: orig,
+        replacement: tagByOriginal.get(orig),
+        entity_type: r.entity_type,
+      });
+    }
+    return { rewritten_text: out, replacements: uniqueReplacements };
+  }
+
   function applyTriples(originalText, triples) {
     if (!triples || triples.length === 0) return originalText;
     const numberFor = buildNumberer(originalText, triples);
@@ -623,6 +1047,136 @@
     }
     LOG(`${adapter.name}: ${inputs.length} input string(s) to mask`);
 
+    // v0.5.0 — AI replace mode. The LLM rewrites each input into
+    // <tag_N> placeholders. We open the review sidebar IMMEDIATELY
+    // with an overlay, run the LLM as opts.llmPending, then display
+    // the rewritten rows for user confirmation. No page-center
+    // overlay — everything happens inside the sidebar.
+    try {
+      const cfgResp = await request("llm-config", {});
+      const cfg = cfgResp && cfgResp.config;
+      if (cfg && cfg.mode === "replace") {
+        const sidebarNS = NS.sidebar;
+        const wantReview =
+          NS.settings && NS.settings.interactive !== false;
+        if (wantReview && sidebarNS && inputs.length > 0) {
+          const LBL2CAT = {
+            PERSON: "PERSON",
+            COMPANY: "ORGANIZATION",
+            LOCATION: "LOCATION",
+            DEPARTMENT: "OTHER",
+            PROJECT_CODE: "OTHER",
+            CREDENTIAL: "CREDENTIAL",
+            SENSITIVE_FACT: "OTHER",
+            EMAIL_ADDRESS: "CONTACT",
+            PHONE_NUMBER: "CONTACT",
+          };
+          const LBL2SEV = {
+            PERSON: "critical",
+            COMPANY: "critical",
+            LOCATION: "high",
+            DEPARTMENT: "medium",
+            PROJECT_CODE: "medium",
+            CREDENTIAL: "critical",
+            SENSITIVE_FACT: "high",
+            EMAIL_ADDRESS: "critical",
+            PHONE_NUMBER: "high",
+          };
+          const text0 = inputs[0];
+          // Closure holds the rewritten texts + whether LLM succeeded
+          // for every input. Populated by the llmPending promise; read
+          // after sidebar.show returns.
+          const replaceResult = { rewritten: [], ok: true };
+          const llmPromise = (async () => {
+            for (const text of inputs) {
+              const out = await llmAugment(text, "replace");
+              if (
+                out &&
+                typeof out.rewritten_text === "string" &&
+                out.rewritten_text.length > 0 &&
+                out.rewritten_text !== text
+              ) {
+                const normalized = applyUniqueTagsToReplace(
+                  text,
+                  Array.isArray(out.replacements) ? out.replacements : [],
+                );
+                replaceResult.rewritten.push(normalized.rewritten_text);
+                if (text === text0) replaceResult.replacements0 = normalized.replacements;
+              } else {
+                replaceResult.ok = false;
+                break;
+              }
+            }
+            // Build synthetic aggregated for the first input so the
+            // sidebar can render the rows. Multi-input bodies trust
+            // the first one's review.
+            const reps0 = replaceResult.replacements0 || [];
+            const rows = [];
+            for (const r of reps0) {
+              const orig = typeof r.original === "string" ? r.original : "";
+              if (!orig) continue;
+              const start = text0.indexOf(orig);
+              if (start < 0) continue;
+              const label = String(r.entity_type || "SENSITIVE_FACT").toUpperCase();
+              rows.push({
+                value: orig,
+                label,
+                category: LBL2CAT[label] || "OTHER",
+                count: 1,
+                positions: [[start, start + orig.length]],
+                masked: true,
+                placeholder: String(r.replacement || `<${label}>`),
+                classification: "contextual",
+                severity: LBL2SEV[label] || "medium",
+                source: "llm",
+              });
+            }
+            return {
+              original_text: text0,
+              aggregated: rows,
+              audit_id: "",
+              force_masked_categories: [],
+              _llmStatus: replaceResult.ok && rows.length > 0
+                ? "ok_entities"
+                : replaceResult.ok
+                  ? "ok_empty"
+                  : "failed",
+            };
+          })();
+
+          // Open sidebar with empty initial data + the pending
+          // promise. The in-sidebar overlay shows "AI 置換中…" until
+          // llmPromise resolves with the rewritten rows.
+          const emptyAgg = {
+            original_text: text0,
+            aggregated: [],
+            audit_id: "",
+            force_masked_categories: [],
+          };
+          const decision = await sidebarNS.show(emptyAgg, text0, {
+            llmPending: llmPromise,
+            mode: "replace",
+          });
+          if (!decision.accepted) {
+            throw new Error("mask-mcp: user cancelled review");
+          }
+          if (replaceResult.ok && replaceResult.rewritten.length === inputs.length) {
+            LOG(`${adapter.name}: LLM replace mode substituted ${inputs.length} input(s)`);
+            return {
+              changed: true,
+              body: adapter.replaceInputs(bodyJson, replaceResult.rewritten),
+            };
+          }
+          LOG(`${adapter.name}: LLM replace partial/failed; falling back to regex path`);
+        }
+      }
+    } catch (err) {
+      if (err && err.message && err.message.includes("mask-mcp: user cancelled")) {
+        throw err;
+      }
+      WARN("llm replace path failed; falling back to regex:", err?.message || err);
+    }
+
     const interactive = NS.settings && NS.settings.interactive !== false;
     const uiMode = (NS.settings && NS.settings.uiMode) || "sidebar";
     const sidebar = NS.sidebar;
@@ -637,12 +1191,24 @@
     const useSidebar = interactive && uiMode === "sidebar" && !!sidebar;
     const useModal = interactive && uiMode === "modal" && !!modal;
 
+    // When LLM is enabled we take it as the authoritative detector
+    // and ALWAYS open the sidebar with the overlay, even when the
+    // regex layer returned 0 hits. Cached once per batch so every
+    // input in a multi-message send uses the same decision.
+    let llmEnabled = false;
+    try {
+      const cfgResp = await request("llm-config", {});
+      llmEnabled = !!(cfgResp && cfgResp.config);
+    } catch (_) {
+      llmEnabled = false;
+    }
+
     const masked = [];
     let totalDetections = 0;
     let anyChanged = false;
     for (const text of inputs) {
       if (useSidebar) {
-        const aggResp = await sanitizeAggregated(text, adapter.name, url);
+        let aggResp = await sanitizeAggregated(text, adapter.name, url);
         if (!aggResp) {
           if (!confirmSendUnmasked(adapter.name)) {
             throw new Error("mask-mcp: user cancelled unmasked send");
@@ -650,17 +1216,29 @@
           masked.push(text);
           continue;
         }
-        const aggregated = Array.isArray(aggResp.aggregated)
+        // Dispatch based on whether the local LLM is enabled:
+        //   * LLM ON  → open sidebar + overlay IMMEDIATELY, regardless
+        //     of regex count. LLM is authoritative. The sidebar itself
+        //     auto-closes silently if the merged result is empty.
+        //   * LLM OFF → behave as before. If regex returned 0 rows
+        //     we forward the text untouched (no sidebar flash).
+        const initialAgg = Array.isArray(aggResp.aggregated)
           ? aggResp.aggregated
           : [];
-        if (aggregated.length === 0) {
-          // Nothing to review — forward verbatim. The aggregated
-          // endpoint does not return ``sanitized_text``; we just
-          // keep the original.
+        let decision;
+        if (llmEnabled) {
+          const llmPromise = mergeLlmDetect(aggResp, text);
+          decision = await sidebar.show(aggResp, text, {
+            llmPending: llmPromise,
+            mode: "detect",
+          });
+        } else if (initialAgg.length > 0) {
+          decision = await sidebar.show(aggResp, text, { mode: "regex" });
+        } else {
+          // Neither regex nor LLM has anything for us — forward.
           masked.push(text);
           continue;
         }
-        const decision = await sidebar.show(aggResp, text);
         if (!decision.accepted) {
           throw new Error("mask-mcp: user cancelled review");
         }
@@ -735,36 +1313,19 @@
       const method =
         (init && init.method) || (input && input.method) || "GET";
 
-      // Provider-host diagnostic: for the 4 AI provider hostnames we
-      // claim in manifest.json, log every request regardless of method.
-      // This is how we find streaming/WS/SSE endpoints that don't go
-      // through our POST+JSON path. Third-party hosts (amplitude etc.)
-      // are excluded so the console isn't drowned in telemetry.
-      const PROVIDER_RE =
-        /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i;
-      try {
-        const host = new URL(url, location.href).host;
-        if (PROVIDER_RE.test(host)) {
-          LOG(
-            "provider request:",
-            method.toUpperCase(),
-            redactUrl(url),
-            "bodyType=" + typeof (init && init.body)
-          );
-        }
-      } catch (_) {}
-
+      // Fast path: skip non-POST methods immediately. Polling / GET /
+      // HEAD / OPTIONS requests never carry user-typed chat content,
+      // so we don't even bother running adapter matchers for them.
       if (method.toUpperCase() !== "POST") {
         return originalFetch(input, init);
       }
       const adapter = pickAdapter(url);
       if (!adapter) {
-        try {
-          const target = new URL(url, location.href).host;
-          if (PROVIDER_RE.test(target)) {
-            LOG("intercepted POST with no adapter match:", redactUrl(url));
-          }
-        } catch (_) {}
+        // No diagnostic log — unmatched POSTs are the common case on
+        // any page (analytics, feature flags, autosave, etc.) and we
+        // don't want the console to fill with noise while the user
+        // is just browsing. If you need to debug a missed adapter,
+        // turn on verbose logging via window.__localMaskMCP.debug.
         return originalFetch(input, init);
       }
       if (!(await isEnabled())) {
@@ -800,8 +1361,15 @@
         // as "send failed — try again" which is the correct UX.
         return Promise.reject(err);
       }
-      WARN("fetch hook error; falling back to original:", err?.message || err);
-      return originalFetch(input, init);
+      // [SECURITY] Fail-closed: if masking pipeline threw an unexpected
+      // error we refuse the send rather than silently passing the
+      // original (PII-bearing) body through. The AI service sees a
+      // network error and the user sees the retry-prompt — the correct
+      // UX for a privacy-critical tool.
+      WARN("fetch hook error; ABORTING request (fail-closed):", err?.message || err);
+      return Promise.reject(
+        new TypeError("PII Guard: masking pipeline error; request aborted")
+      );
     }
   };
 
@@ -820,18 +1388,9 @@
     try {
       const method = (this._maskMcpMethod || "GET").toUpperCase();
       const url = this._maskMcpUrl || "";
-      // Same provider-host diagnostic as the fetch hook, so XHR-based
-      // submissions show up in the console too.
-      try {
-        const host = new URL(url, location.href).host;
-        if (
-          /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i.test(
-            host
-          )
-        ) {
-          LOG("provider xhr:", method, redactUrl(url), "bodyType=" + typeof body);
-        }
-      } catch (_) {}
+      // Fast path: only intercept POSTs with a string body. GET polling
+      // and binary uploads fall through silently — we never log non-send
+      // activity to keep the console quiet.
       if (method !== "POST" || typeof body !== "string") {
         return originalXhrSend.apply(this, arguments);
       }
@@ -867,13 +1426,18 @@
             try { xhr.abort(); } catch (_) { /* noop */ }
             return;
           }
-          WARN("XHR hook error; falling back to original:", err?.message || err);
-          originalXhrSend.apply(xhr, args);
+          // [SECURITY] Fail-closed: abort the XHR so the original
+          // body never reaches the network. Chat UIs surface this as
+          // a send error.
+          WARN("XHR hook error; ABORTING (fail-closed):", err?.message || err);
+          try { xhr.abort(); } catch (_) { /* noop */ }
         }
       })();
     } catch (err) {
-      WARN("XHR send hook setup failed:", err?.message || err);
-      return originalXhrSend.apply(this, arguments);
+      // [SECURITY] Outer setup error — also fail closed.
+      WARN("XHR send hook setup failed; ABORTING:", err?.message || err);
+      try { this.abort(); } catch (_) { /* noop */ }
+      return;
     }
   };
 
@@ -894,7 +1458,14 @@
             host
           )
         ) {
-          LOG("provider beacon:", redactUrl(url), "bodyType=" + typeof data);
+          // [SECURITY] Fail-closed sendBeacon: provider-host beacons
+          // bypass fetch/XHR hooks entirely. Analytics payloads from
+          // chat UIs can embed user text (draft buffers, error
+          // reports). Refuse the beacon unconditionally — the return
+          // value of false signals the page that delivery failed,
+          // which chat apps gracefully ignore.
+          LOG("provider beacon BLOCKED:", redactUrl(url), "bodyType=" + typeof data);
+          return false;
         }
       } catch (_) {}
       return originalSendBeacon(url, data);
@@ -1032,11 +1603,14 @@
                   LOG(err.message, "— WS frame dropped");
                   return;
                 }
+                // [SECURITY] Fail-closed: drop the frame instead of
+                // forwarding the original. The WS stays open so the
+                // session survives; the chat UI treats this as a
+                // missing ack and typically re-prompts.
                 WARN(
-                  "WS hook error; falling back to original:",
+                  "WS hook error; DROPPING frame (fail-closed):",
                   err?.message || err
                 );
-                originalWsSend.apply(ws, args);
               }
             })();
             }

@@ -24,10 +24,19 @@
       T("DATE", /\d{4}[/\-年]\d{1,2}[/\-月]\d{1,2}日?/gu),
       T("DATE", /(?:令和|平成|昭和|大正)\s*\d{1,2}\s*年(?:\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*日)?)?/gu),
     ],
-    // 会社名
+    // 会社名 — char class は [カタカナ + 漢字 + 半角英数 + 社名記号] に限定
+    // することで、ひらがな助詞 (の / から / で / に / を / も / は / が …)
+    // で必ず break する。これで「株式会社アクメの田中部長から連絡」が
+    // `株式会社アクメ` で止まる (以前は全文を 1 entity 化していた)。
     COMPANY: [
-      T("COMPANY", /(?:株式会社|有限会社|合同会社|一般社団法人|一般財団法人|NPO法人|学校法人|医療法人)\s*[^\s、。,]{1,20}/gu),
-      T("COMPANY", /[^\s、。,]{1,20}(?:株式会社|有限会社|合同会社|Inc\.|Corp\.|Ltd\.|LLC|Co\.,?\s*Ltd\.)/gu),
+      T(
+        "COMPANY",
+        /(?:株式会社|有限会社|合同会社|一般社団法人|一般財団法人|NPO法人|学校法人|医療法人)\s*[\p{Script=Katakana}\p{Script=Han}A-Za-z0-9・ー＆&\-]{1,20}/gu,
+      ),
+      T(
+        "COMPANY",
+        /[\p{Script=Katakana}\p{Script=Han}A-Za-z0-9・ー＆&\-]{1,20}(?:株式会社|有限会社|合同会社|㈱|㈲|Inc\.|Corp\.|Ltd\.|LLC|Co\.,?\s*Ltd\.)/gu,
+      ),
     ],
     // 通信
     IP_ADDRESS: [T("IP_ADDRESS", /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/gu)],
@@ -43,8 +52,77 @@
       T("DB_CONNECTION", /(?:database|db_name|dbname|DB_HOST|DB_NAME)\s*[=:]\s*[^\s,;]+/gu),
     ],
     API_KEY: [
+      // --- Generic catch-alls (kept for backwards compat) ------------
       T("API_KEY", /(?:sk|pk|api[_\-]?key|access[_\-]?key)[_\-][\w\-]{20,}/gu),
       T("SECRET", /(?:password|secret|token|api_key|apikey|access_token)\s*[=:]\s*\S{8,}/gu),
+
+      // --- Vendor-specific well-known token formats ------------------
+      // Patterns below anchor on the exact prefix each vendor uses
+      // (typically a 2–10 char opaque namespace) so they fire reliably
+      // without the false positives generic "sk-anything" would
+      // produce. Ordered vaguely by popularity. Documented in
+      // README.md and browser-extension/README.md.
+
+      // OpenAI — classic / project / service-account / legacy-null
+      T("API_KEY", /\bsk-(?:proj|svcacct|None)-[A-Za-z0-9_\-]{20,}/gu),
+      T("API_KEY", /\bsk-[A-Za-z0-9]{32,}\b/gu),
+      // Anthropic
+      T("API_KEY", /\bsk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_\-]{80,}/gu),
+      // Notion — new `ntn_` integration tokens + legacy `secret_`
+      T("API_KEY", /\bntn_[A-Za-z0-9]{40,}\b/gu),
+      T("API_KEY", /\bsecret_[A-Za-z0-9]{43}\b/gu),
+      // GitHub — classic PAT family + fine-grained PAT
+      T("API_KEY", /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\b/gu),
+      T("API_KEY", /\bgithub_pat_[A-Za-z0-9_]{80,}\b/gu),
+      // Slack — bot / user / app / admin / refresh
+      T("API_KEY", /\bxox[baprs]-[A-Za-z0-9\-]{10,}/gu),
+      // Google Cloud / Firebase
+      T("API_KEY", /\bAIza[A-Za-z0-9_\-]{35}\b/gu),
+      T("API_KEY", /\bya29\.[A-Za-z0-9_\-]{40,}/gu),
+      // AWS — access key IDs (AKIA/ASIA/…)
+      T("API_KEY", /\b(?:AKIA|ASIA|AROA|AIDA|ANPA|ANVA|APKA|ABIA|ACCA)[A-Z0-9]{16}\b/gu),
+      // Hugging Face
+      T("API_KEY", /\bhf_[A-Za-z0-9]{34,}\b/gu),
+      // Stripe — secret / publishable / restricted (live|test) + webhook secret
+      T("API_KEY", /\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{24,}\b/gu),
+      T("API_KEY", /\bwhsec_[A-Za-z0-9]{32,}\b/gu),
+      // Twilio — Account SID (AC) + API Key SID (SK)
+      T("API_KEY", /\b(?:AC|SK)[a-f0-9]{32}\b/gu),
+      // SendGrid
+      T("API_KEY", /\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}\b/gu),
+      // Groq
+      T("API_KEY", /\bgsk_[A-Za-z0-9]{40,}\b/gu),
+      // Replicate
+      T("API_KEY", /\br8_[A-Za-z0-9]{37,}\b/gu),
+      // Tavily
+      T("API_KEY", /\btvly-[A-Za-z0-9]{16,}\b/gu),
+      // GitLab — personal access token / runner token
+      T("API_KEY", /\b(?:glpat|glrt)-[A-Za-z0-9_\-]{20,}/gu),
+      // Mailgun
+      T("API_KEY", /\bkey-[a-f0-9]{32}\b/gu),
+      // npm — automation / publishing
+      T("API_KEY", /\bnpm_[A-Za-z0-9]{36}\b/gu),
+      // Fireworks AI
+      T("API_KEY", /\bfw_[A-Za-z0-9]{24,}\b/gu),
+      // Airtable — personal access tokens
+      T("API_KEY", /\bpat[A-Za-z0-9]{14}\.[a-f0-9]{64}\b/gu),
+      // Linear
+      T("API_KEY", /\blin_(?:api|oauth)_[A-Za-z0-9]{32,}\b/gu),
+      // Figma
+      T("API_KEY", /\bfigd_[A-Za-z0-9_\-]{40,}/gu),
+      // Discord bot token
+      T("API_KEY", /\b[MN][A-Za-z\d]{23}\.[\w\-]{6}\.[\w\-]{27,}\b/gu),
+      // Cloudflare API tokens (40 base64url chars after slash-free prefix)
+      T("API_KEY", /\bcf-[A-Za-z0-9_\-]{40,}/gu),
+      // Supabase service_role / anon keys are JWTs — covered below
+      // JWT — three base64url segments. Greedy but safe: header ``eyJ``
+      T("API_KEY", /\beyJ[A-Za-z0-9_\-]+\.eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+/gu),
+      // Authorization: Bearer <token>
+      T("API_KEY", /\bBearer\s+[A-Za-z0-9\-_.~+/]{16,}=*/gu),
+      // Generic "Authorization:" header value
+      T("API_KEY", /(?:Authorization|X-Api-Key)\s*:\s*\S{16,}/giu),
+      // PEM private keys (RSA / EC / OpenSSH / generic)
+      T("SECRET", /-----BEGIN(?:\s[A-Z]+)?\s(?:RSA|EC|OPENSSH|DSA|PGP)?\s?PRIVATE KEY-----[\s\S]*?-----END(?:\s[A-Z]+)?\s(?:RSA|EC|OPENSSH|DSA|PGP)?\s?PRIVATE KEY-----/gu),
     ],
     // プロジェクト / 内部 ID
     INTERNAL_ID: [

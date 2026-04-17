@@ -53,15 +53,22 @@ The dev build shipped on `feat/local-llm-proxy-v0.5.0` is
 
 | Service | URL pattern | Status |
 |---|---|---|
-| Claude.ai | `claude.ai`, `*.claude.com` | working |
-| ChatGPT | `chatgpt.com`, `chat.openai.com` | partial — needs manual tuning |
+| Claude.ai | `claude.ai`, `*.claude.com` | **working** (v0.5.1+; covers `completion` / `send_message` / `messages` / projects paths; relative URLs resolved) |
+| ChatGPT | `chatgpt.com`, `chat.openai.com` | working — POST `/backend-api/conversation` |
 | Gemini | `gemini.google.com` | partial — `f.req` form is read-only |
-| Manus | `manus.im`, `*.manus.im` | partial — schema drifts often |
+| Manus | `manus.im`, `*.manus.im` + `*.butterfly-effect.dev` | working — fetch + Socket.IO WebSocket |
 
-Claude.ai is the primary target. The other three use best-effort
-adapters; if you hit a missed case, the `console.debug` logs in
-devtools will show `[mask-mcp]` entries tagged with the adapter
-name — grep for those when reporting adapter bugs.
+If you hit a missed case, the `console.debug` logs in devtools
+will show `[mask-mcp]` entries tagged with the adapter name.
+Specifically useful for triage:
+
+    [mask-mcp] provider POST (adapter matched):        <url>
+    [mask-mcp] provider POST (NO adapter match):       <url>
+    [mask-mcp] <adapter>: adapter matched but body had no user text —
+        keys: <top-level-keys>                         <url>
+
+Paste any of those (deduped per URL) into an issue and we can
+patch the matcher or extractor.
 
 ## Local-LLM proxy (v0.5.0+, experimental)
 

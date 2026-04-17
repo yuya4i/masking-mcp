@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.5.1 — Claude.ai interception fix + adapter coverage (2026-04-18)
+
+Follow-up patch to v0.5.0 addressing a reproducible "sidebar never
+opens on claude.ai" report from field testing.
+
+### Fixes
+
+- **Relative URL resolution** — the fetch / XHR hooks now resolve
+  `fetch("/api/…")` style relative URLs to absolute via
+  `new URL(raw, location.href)` before running adapter matchers.
+  Claude.ai's SPA emits relative paths exclusively; the previous
+  code fed those straight into the `^https?://claude\.(ai|com)/`
+  anchor, which could never match, so no POST ever reached
+  `processBody`. Confirmed against the user-reported URL
+  `/api/organizations/<uuid>/chat_conversations/<uuid>/completion`.
+
+### Coverage
+
+- Claude adapter match / body extractors broadened to handle
+  current API shapes:
+    * Allow-list: `send_message`, `messages`, `send` (in addition
+      to legacy `completion`, `append_message`, `retry_completion`,
+      `chat_conversations`)
+    * Deny-list: added `render_status`, `count`, `stream_events`,
+      `usage`, `analytics`, `telemetry`, `ratings` on top of the
+      existing `title`, `feedback`, `star`, `archive`, `share`,
+      `export`, `leave`, `rename`, `latest`, `preview`
+    * `extractInputs` / `replaceInputs` now also read top-level
+      `text` / `query` / `message` string fields and a top-level
+      `content: [{type:"text", text:…}]` array — used by projects
+      conversations and the newer send_message variants
+
+### Diagnostics
+
+- Provider-host POST / XHR logging (deduped per URL) so any future
+  "sidebar doesn't open" report can be triaged with a single
+  console snippet:
+
+      [mask-mcp] provider POST (adapter matched):      <url>
+      [mask-mcp] provider POST (NO adapter match):     <url>
+      [mask-mcp] provider XHR (adapter matched):       <url>
+      [mask-mcp] provider XHR (NO adapter match):      <url>
+      [mask-mcp] <adapter>: adapter matched but body had no user text —
+          keys: <top-level-keys>                       <url>
+
+  These are intentionally under-verbose (logOnce per unique URL).
+
 ## 0.5.0 — Local-LLM proxy + context-aware detection (2026-04-18)
 
 End-to-end local-LLM augmentation. The extension can now route

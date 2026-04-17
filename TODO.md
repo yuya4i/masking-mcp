@@ -555,6 +555,22 @@ commits. Full changelog in `browser-extension/CHANGELOG.md` under
   `browser-extension/engine/patterns.js` and
   `src/app/services/analyzers/presets.py`.
 
+- [x] **v0.5.1 — Claude.ai interception fix** (`bf3c12f`,
+  `6c7d286`, `a537ce9`). Field-reported "sidebar never opens on
+  claude.ai" traced to relative-URL vs. host-anchored regex
+  mismatch. Fetch + XHR hooks now resolve `fetch("/api/…")` to
+  absolute via `new URL(raw, location.href)` before adapter
+  matching. Adapter allow-list broadened with `send_message` /
+  `messages` / `send`; deny-list extended with
+  `ratings` / `stream_events` / `usage` / `analytics` /
+  `telemetry` / `count` / `render_status`. `extractInputs` +
+  `replaceInputs` gained top-level `text` / `query` / `message`
+  string fields and `content: [{type,text}]` array handling used
+  by projects conversations. Added provider-host POST/XHR
+  diagnostic logs (deduped per URL) for future triage. Verified
+  on user's URL
+  `/api/organizations/<uuid>/chat_conversations/<uuid>/completion`.
+
 ### Milestone 9 follow-ups (open)
 
 - [ ] **feat/response-restore** — when the AI service replies, walk

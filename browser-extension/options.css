@@ -381,6 +381,17 @@ main {
   font-weight: 600;
   color: var(--fg);
 }
+.llm-recommend-size {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: nowrap;
+}
 .llm-recommend-desc {
   flex: 1 1 160px;
   min-width: 0;

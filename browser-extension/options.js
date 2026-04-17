@@ -233,40 +233,58 @@ function populateModels(models) {
 // detection reasonably well. The "accuracy" column is a qualitative
 // label from in-house PII benchmarks, NOT an academic score — it
 // reflects relative behaviour on 100 mixed JA/EN test prompts.
+// ``size`` is approximate on-disk / download size for the default
+// Ollama quantization (Q4_K_M). ``vram`` is peak runtime VRAM with
+// the default 4k-8k context. Both values come from Ollama's public
+// model cards and in-house measurements.
 const RECOMMENDED_MODELS = [
   {
     name: "qwen3:1.7b",
-    desc: "軽量 · 日本語対応 · VRAM 約 1.5 GB · 最初の選択肢",
+    size: "1.1 GB",
+    vram: "~1.5 GB",
+    desc: "軽量 · 日本語対応 · 最初の選択肢",
     badge: { label: "軽量", cls: "b-light" },
   },
   {
     name: "qwen3:4b",
-    desc: "推奨 · バランス型 · VRAM 約 3 GB · 精度/速度のバランス◎",
+    size: "2.5 GB",
+    vram: "~3 GB",
+    desc: "推奨 · バランス型 · 精度/速度のバランス◎",
     badge: { label: "推奨", cls: "b-recommend" },
   },
   {
     name: "qwen3:8b",
-    desc: "高精度 · VRAM 約 5 GB · 文脈検出が正確",
+    size: "4.7 GB",
+    vram: "~5 GB",
+    desc: "高精度 · 文脈検出が正確",
     badge: { label: "高精度", cls: "b-high" },
   },
   {
     name: "qwen3:14b",
-    desc: "最高精度 · VRAM 約 9 GB · 複雑な日本語ビジネス文書向け",
+    size: "8.2 GB",
+    vram: "~9 GB",
+    desc: "最高精度 · 複雑な日本語ビジネス文書向け",
     badge: { label: "最高精度", cls: "b-top" },
   },
   {
     name: "gemma3:4b",
-    desc: "代替 · Google · VRAM 約 3 GB · Qwen3 系の代替候補",
+    size: "2.5 GB",
+    vram: "~3 GB",
+    desc: "代替 · Google · Qwen3 系の代替候補",
     badge: { label: "代替", cls: "b-alt" },
   },
   {
     name: "llama3.2:3b",
-    desc: "代替 · 英語寄り · VRAM 約 2 GB",
+    size: "2.0 GB",
+    vram: "~2 GB",
+    desc: "代替 · 英語寄り",
     badge: { label: "代替", cls: "b-alt" },
   },
   {
     name: "phi3.5:3.8b",
-    desc: "代替 · Microsoft · VRAM 約 2.5 GB",
+    size: "2.2 GB",
+    vram: "~2.5 GB",
+    desc: "代替 · Microsoft",
     badge: { label: "代替", cls: "b-alt" },
   },
 ];
@@ -290,6 +308,11 @@ function renderRecommendList(installedModels) {
     const name = document.createElement("div");
     name.className = "llm-recommend-name";
     name.textContent = rec.name;
+
+    const size = document.createElement("span");
+    size.className = "llm-recommend-size";
+    size.title = "ダウンロードサイズ · VRAM 使用量 (推定)";
+    size.textContent = `${rec.size} / VRAM ${rec.vram}`;
 
     const desc = document.createElement("div");
     desc.className = "llm-recommend-desc";
@@ -316,6 +339,7 @@ function renderRecommendList(installedModels) {
     }
 
     row.appendChild(name);
+    row.appendChild(size);
     row.appendChild(desc);
     row.appendChild(badge);
     row.appendChild(action);

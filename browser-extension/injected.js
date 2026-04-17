@@ -385,6 +385,7 @@
       const cfg = cfgResp && cfgResp.config;
       if (!cfg) {
         LOG("llm detect: SKIPPED (no config — enable toggle + set URL in options)");
+        aggResp._llmStatus = "failed";
         return aggResp;
       }
       // In replace mode the primary path (full rewrite) runs earlier
@@ -394,6 +395,7 @@
       // replace-mode failure. So detect runs for BOTH modes.
       if (cfg.mode !== "detect" && cfg.mode !== "replace") {
         LOG(`llm detect: SKIPPED (mode="${cfg.mode}", not detect/replace)`);
+        aggResp._llmStatus = "failed";
         return aggResp;
       }
       LOG(`llm detect: querying ${cfg.kind} model="${cfg.model || "(default)"}"`);
@@ -548,6 +550,7 @@
       return aggResp;
     } catch (err) {
       WARN("mergeLlmDetect failed:", err?.message || err);
+      aggResp._llmStatus = "failed";
       return aggResp;
     }
   }

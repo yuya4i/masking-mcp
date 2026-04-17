@@ -1848,6 +1848,16 @@
         for (const cat of categoryOrder) {
           syncCategoryToggle(cat);
         }
+        // Empty-state placeholder when regex + LLM both returned 0:
+        // keeps the sidebar visually coherent so the user knows
+        // the analysis actually completed rather than silently
+        // vanishing.
+        if (categoryOrder.length === 0) {
+          const emptyMsg = document.createElement("div");
+          emptyMsg.className = "empty";
+          emptyMsg.textContent = "✓ PII は検出されませんでした — そのまま送信できます";
+          categoriesWrap.appendChild(emptyMsg);
+        }
         applySevFilter();
         updatePreview();
 
@@ -1966,26 +1976,11 @@
             (updated && updated._llmStatus === "failed");
           const rowsInAgg = Array.isArray(nextAgg) ? nextAgg.length : 0;
 
-          // Silent auto-close: LLM succeeded and nothing was found
-          // (regex also empty). Don't pester the user with an empty
-          // sidebar — close it and report "accepted, no masking"
-          // so the caller forwards the original text verbatim.
-          if (!failed && rowsInAgg === 0) {
-            dismissLlmOverlay();
-            setTimeout(() => {
-              cleanup();
-              resolve({
-                accepted: true,
-                maskedEntityKeys: new Set(),
-                maskedPositions: [],
-              });
-            }, 220);
-            return;
-          }
-
-          // Stagger is only meaningful when we have a successful LLM
-          // result with entities to reveal. For failed paths we paint
-          // regex-only rows at once.
+          // ALWAYS show the sidebar after LLM resolves — even when
+          // nothing was detected — so the user can see that the
+          // analysis ran and confirm / cancel the send. An empty
+          // list renders a "未検出" placeholder (see applyAggregated
+          // below, which inserts one if rows.length === 0).
           const shouldStagger = !failed && rowsInAgg > 0;
           applyAggregated(nextAgg, { stagger: shouldStagger });
           revealChrome();

@@ -769,13 +769,18 @@
       z-index: 1;
     }
     .row-line1 {
-      display: flex;
+      display: grid;
+      /* 4-column grid that stays consistent across every row so the
+         "value → placeholder" pairs form vertical columns:
+           [ icon ] [ 変更前 value ] [ → ] [ 変更後 placeholder ]
+         The two data columns share the remaining space 50/50.
+         ``minmax(0, 1fr)`` is the trick that lets text-overflow:
+         ellipsis work inside grid cells. */
+      grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+      column-gap: 8px;
       align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
     }
     .row-icon {
-      flex: 0 0 auto;
       font-size: 14px;
       line-height: 1;
       transition: transform var(--ease-fast);
@@ -792,6 +797,11 @@
       transform: scale(1.1);
     }
     .row-value {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
         "Liberation Mono", monospace;
       font-size: 12.5px;
@@ -799,7 +809,6 @@
       border: 1px solid var(--border);
       padding: 1px 6px;
       border-radius: 4px;
-      word-break: break-all;
       font-weight: 500;
       color: var(--text-muted);
       opacity: 0.65;
@@ -812,7 +821,7 @@
       font-weight: 600;
     }
     .row-arrow {
-      flex: 0 0 auto;
+      justify-self: center;
       color: var(--primary);
       font-weight: 800;
       font-size: 15px;
@@ -829,6 +838,11 @@
       transform: scaleX(-1) translateX(2px);
     }
     .row-placeholder {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
         "Liberation Mono", monospace;
       font-size: 12px;
@@ -837,7 +851,6 @@
       border: 1px solid var(--primary);
       padding: 1px 6px;
       border-radius: 4px;
-      word-break: break-all;
       font-weight: 600;
       transition: all var(--ease-fast);
     }
@@ -1616,6 +1629,7 @@
         const value = document.createElement("span");
         value.className = "row-value";
         value.textContent = row.value;
+        value.title = row.value;
         line1.appendChild(value);
 
         const arrow = document.createElement("span");
@@ -1625,7 +1639,9 @@
 
         const ph = document.createElement("span");
         ph.className = "row-placeholder";
-        ph.textContent = row.placeholder || `<${row.label}>`;
+        const phText = row.placeholder || `<${row.label}>`;
+        ph.textContent = phText;
+        ph.title = phText;
         line1.appendChild(ph);
 
         // ----- Line 2: N件 · [SEV] · 🔒 長押しで解除 -------------------

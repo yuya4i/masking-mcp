@@ -1964,15 +1964,31 @@
           const failed =
             hadException ||
             (updated && updated._llmStatus === "failed");
-          // Stagger is only meaningful when we have a successful LLM
-          // result with entities to reveal. For 0-result / failed
-          // paths we just paint everything at once and dismiss.
           const rowsInAgg = Array.isArray(nextAgg) ? nextAgg.length : 0;
+
+          // Silent auto-close: LLM succeeded and nothing was found
+          // (regex also empty). Don't pester the user with an empty
+          // sidebar — close it and report "accepted, no masking"
+          // so the caller forwards the original text verbatim.
+          if (!failed && rowsInAgg === 0) {
+            dismissLlmOverlay();
+            setTimeout(() => {
+              cleanup();
+              resolve({
+                accepted: true,
+                maskedEntityKeys: new Set(),
+                maskedPositions: [],
+              });
+            }, 220);
+            return;
+          }
+
+          // Stagger is only meaningful when we have a successful LLM
+          // result with entities to reveal. For failed paths we paint
+          // regex-only rows at once.
           const shouldStagger = !failed && rowsInAgg > 0;
           applyAggregated(nextAgg, { stagger: shouldStagger });
           revealChrome();
-          // When staggering, keep the overlay up until the last row
-          // has finished its 320ms fade-in. Otherwise dismiss now.
           const lastRowEnd = shouldStagger ? rowsInAgg * 80 + 320 : 0;
           setTimeout(() => {
             dismissLlmOverlay();

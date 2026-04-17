@@ -992,6 +992,18 @@
     const useSidebar = interactive && uiMode === "sidebar" && !!sidebar;
     const useModal = interactive && uiMode === "modal" && !!modal;
 
+    // When LLM is enabled we take it as the authoritative detector
+    // and ALWAYS open the sidebar with the overlay, even when the
+    // regex layer returned 0 hits. Cached once per batch so every
+    // input in a multi-message send uses the same decision.
+    let llmEnabled = false;
+    try {
+      const cfgResp = await request("llm-config", {});
+      llmEnabled = !!(cfgResp && cfgResp.config);
+    } catch (_) {
+      llmEnabled = false;
+    }
+
     const masked = [];
     let totalDetections = 0;
     let anyChanged = false;
@@ -1005,36 +1017,27 @@
           masked.push(text);
           continue;
         }
-        // v0.5.0 — detect mode: augment regex aggregated with LLM
-        // contextual entities. If regex already found ≥1 entity we
-        // open the sidebar IMMEDIATELY with the regex snapshot and
-        // hand the LLM work to the sidebar as a pending promise, so
-        // the user sees the review UI while the LLM is still thinking.
-        // If regex found 0 entities, we can't open the sidebar yet
-        // (it would flash empty), so we await the LLM synchronously —
-        // the top-right spinner keeps the user informed meanwhile.
+        // Dispatch based on whether the local LLM is enabled:
+        //   * LLM ON  → open sidebar + overlay IMMEDIATELY, regardless
+        //     of regex count. LLM is authoritative. The sidebar itself
+        //     auto-closes silently if the merged result is empty.
+        //   * LLM OFF → behave as before. If regex returned 0 rows
+        //     we forward the text untouched (no sidebar flash).
         const initialAgg = Array.isArray(aggResp.aggregated)
           ? aggResp.aggregated
           : [];
         let decision;
-        if (initialAgg.length > 0) {
+        if (llmEnabled) {
           const llmPromise = mergeLlmDetect(aggResp, text);
           decision = await sidebar.show(aggResp, text, {
             llmPending: llmPromise,
           });
-        } else {
-          aggResp = await mergeLlmDetect(aggResp, text);
-          const aggregated = Array.isArray(aggResp.aggregated)
-            ? aggResp.aggregated
-            : [];
-          if (aggregated.length === 0) {
-            // Nothing to review — forward verbatim. The aggregated
-            // endpoint does not return ``sanitized_text``; we just
-            // keep the original.
-            masked.push(text);
-            continue;
-          }
+        } else if (initialAgg.length > 0) {
           decision = await sidebar.show(aggResp, text);
+        } else {
+          // Neither regex nor LLM has anything for us — forward.
+          masked.push(text);
+          continue;
         }
         if (!decision.accepted) {
           throw new Error("mask-mcp: user cancelled review");

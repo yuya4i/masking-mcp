@@ -375,8 +375,13 @@
         LOG("llm detect: SKIPPED (no config — enable toggle + set URL in options)");
         return aggResp;
       }
-      if (cfg.mode !== "detect") {
-        LOG(`llm detect: SKIPPED (mode="${cfg.mode}", not "detect")`);
+      // In replace mode the primary path (full rewrite) runs earlier
+      // in processBody. If it failed (timeout/network/partial), we
+      // still want LLM contextual detection to augment the regex
+      // pipeline — otherwise LLM effectively contributes nothing on
+      // replace-mode failure. So detect runs for BOTH modes.
+      if (cfg.mode !== "detect" && cfg.mode !== "replace") {
+        LOG(`llm detect: SKIPPED (mode="${cfg.mode}", not detect/replace)`);
         return aggResp;
       }
       LOG(`llm detect: querying ${cfg.kind} model="${cfg.model || "(default)"}"`);

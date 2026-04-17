@@ -239,7 +239,7 @@ async function loadLlmSettings() {
   $("llm-enabled").checked = stored.localLlmEnabled === true;
   $("llm-url").value = stored.localLlmUrl || "";
   $("llm-mode").value = stored.localLlmMode === "replace" ? "replace" : "detect";
-  $("llm-timeout").value = stored.localLlmTimeoutMs || 30000;
+  $("llm-timeout").value = stored.localLlmTimeoutMs || 60000;
   if (stored.localLlmModel) {
     const opt = document.createElement("option");
     opt.value = stored.localLlmModel;
@@ -318,7 +318,7 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.storage.local.set({ localLlmMode: v });
   });
   $("llm-timeout").addEventListener("change", (e) => {
-    const n = Math.max(2000, Math.min(120000, parseInt(e.target.value, 10) || 30000));
+    const n = Math.max(2000, Math.min(180000, parseInt(e.target.value, 10) || 60000));
     chrome.storage.local.set({ localLlmTimeoutMs: n });
     e.target.value = n;
   });

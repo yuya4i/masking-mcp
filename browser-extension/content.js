@@ -394,7 +394,7 @@
           model: stored.localLlmModel || "",
           mode: stored.localLlmMode === "replace" ? "replace" : "detect",
           kind: stored.localLlmKind === "openai-compat" ? "openai-compat" : "ollama",
-          timeoutMs: Number(stored.localLlmTimeoutMs) || 30000,
+          timeoutMs: Number(stored.localLlmTimeoutMs) || 60000,
         };
       }
     } catch (_) {}
@@ -443,7 +443,7 @@
         url,
         method: "POST",
         body,
-        timeoutMs: config.timeoutMs || 30000,
+        timeoutMs: config.timeoutMs || 60000,
       });
       if (resp && resp.ok && resp.body) {
         const j = JSON.parse(resp.body);

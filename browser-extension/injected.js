@@ -51,6 +51,22 @@
     }
   }
 
+  // Dedupe diagnostic logs so ChatGPT-style telemetry floods don't
+  // drown out the few LOG lines that matter (adapter hits, LLM
+  // results). Key = "logTag|host+path" — we log once per unique
+  // route per page load.
+  const _logSeen = new Set();
+  function logOnce(tag, url, extra) {
+    try {
+      const u = new URL(url, location.href);
+      const key = tag + "|" + u.host + u.pathname;
+      if (_logSeen.has(key)) return;
+      _logSeen.add(key);
+    } catch (_) {}
+    if (extra !== undefined) LOG(tag, redactUrl(url), extra);
+    else LOG(tag, redactUrl(url));
+  }
+
   // Bounded-length snippet for logging WS frames. Socket.IO EVENT frames
   // start with ``42[...]`` and are usually under a few hundred chars —
   // 160 chars is enough to see the event name + first field without
@@ -273,7 +289,11 @@
       const { system, user } = build(text);
       const callResp = await request("llm-call", { system, user, config: cfg });
       const raw = callResp && callResp.result;
-      if (!raw || typeof raw !== "string") return null;
+      if (!raw || typeof raw !== "string") {
+        LOG(`llm ${mode}: no response (timeout / network / CORS)`);
+        return null;
+      }
+      LOG(`llm ${mode}: got response (${raw.length} chars)`);
       // The LLM sometimes wraps JSON in ```json fences despite instructions.
       // Qwen3 / Deepseek-R1 / other "thinking" models wrap reasoning
       // in <think>...</think> before the actual answer. Strip those
@@ -347,7 +367,15 @@
     try {
       const cfgResp = await request("llm-config", {});
       const cfg = cfgResp && cfgResp.config;
-      if (!cfg || cfg.mode !== "detect") return aggResp;
+      if (!cfg) {
+        LOG("llm detect: SKIPPED (no config — enable toggle + set URL in options)");
+        return aggResp;
+      }
+      if (cfg.mode !== "detect") {
+        LOG(`llm detect: SKIPPED (mode="${cfg.mode}", not "detect")`);
+        return aggResp;
+      }
+      LOG(`llm detect: querying ${cfg.kind} model="${cfg.model || "(default)"}"`);
       NS.sidebar && NS.sidebar.showLoading && NS.sidebar.showLoading("LLM 分析中…");
       let out;
       try {
@@ -943,11 +971,10 @@
       try {
         const host = new URL(url, location.href).host;
         if (PROVIDER_RE.test(host)) {
-          LOG(
+          logOnce(
             "provider request:",
-            method.toUpperCase(),
-            redactUrl(url),
-            "bodyType=" + typeof (init && init.body)
+            url,
+            method.toUpperCase() + " bodyType=" + typeof (init && init.body)
           );
         }
       } catch (_) {}
@@ -960,7 +987,7 @@
         try {
           const target = new URL(url, location.href).host;
           if (PROVIDER_RE.test(target)) {
-            LOG("intercepted POST with no adapter match:", redactUrl(url));
+            logOnce("intercepted POST with no adapter match:", url);
           }
         } catch (_) {}
         return originalFetch(input, init);

@@ -51,24 +51,32 @@ Schema:
 
 If nothing qualifies, return {"entities":[]}.`;
 
-  const REPLACE_SYSTEM_PROMPT = `Rewrite Japanese/English input so ALL identifying or sensitive information is replaced with realistic fakes. Keep meaning, grammar, and shape identical. Return JSON only.
+  const REPLACE_SYSTEM_PROMPT = `Rewrite Japanese/English input by swapping ALL identifying or sensitive information with lowercase angle-bracket placeholder TAGS (NOT realistic fakes). Keep meaning, grammar, and formatting identical. Return JSON only.
 
-You MUST rewrite ALL of these categories — be aggressive, not conservative:
+CRITICAL RULE: Every replacement MUST be a placeholder in the form <lowercase_tag>. Do NOT substitute realistic-looking fake values (no "田中 → 佐藤", no "1,250 万円 → 800 万円"). The downstream AI service should see <tag>s, not plausible data.
 
-1. PERSON — real names (田中 → 佐藤, Taro Yamada → Kenji Watanabe). Include when a title follows (田中副社長 → 佐藤副社長).
-2. COMPANY — corporate names with OR without 株式会社 prefix (株式会社アクメ → 株式会社サンプル商事, メルカリ → 楽天). Also 元メルカリ → 元楽天 etc.
-3. LOCATION — office buildings (渋谷本社 → 品川本社), meeting rooms (雲雀 → 桜), cities in business context (大阪オフィス → 名古屋オフィス), medical facilities (都立駒込病院 → 都立荏原病院), building codes (B 棟 7F → C 棟 3F).
-4. DEPARTMENT — internal units (営業第三部 → 営業第一部, 経営企画部 → マーケティング部).
-5. PROJECT_CODE — code names / project IDs (アポロ計画 → プロジェクト Orion, ひまわり PoC → さくら PoC, 次期製品ロードマップ v3 → 次期製品ロードマップ v5).
-6. CREDENTIAL — actual secret values (Pass2024! → [REDACTED]). Also cloud RESOURCE names that reveal infra (Route53 → [REDACTED_DNS], RDS → [REDACTED_DB], AWS SSO → [REDACTED_IDP], IAM ロール arn → [REDACTED_ROLE_ARN]).
-7. SENSITIVE_FACT — illness names (白血病 → 慢性疾患), salary figures (年収 1,450 万円 → 年収 800 万円), personal schedules (水・金の午後 → 火・木の午後), confidentiality markers (社外秘 keep as is — that IS public), join/leave dates (2023 年 6 月入社 → 2021 年 3 月入社).
+Choose a descriptive lowercase tag per value. Reuse the same tag across multiple instances of the same concept within one message (e.g. every person → <name>; every company → <company>).
 
-Phones: 0X0-XXXX-XXXX with new digits. Emails: new_user@example.com form.
+Tag catalog (use the most specific one that fits; fall back to the category default):
 
-Preserve COMPLETELY: polite phrases, code blocks, markdown, public domains (github.com), generic tech names (Docker, Kubernetes, Linux), public figures, common nouns, punctuation, line breaks.
+- PERSON          → <name>  (or <surname> for "田中" alone)
+- COMPANY         → <company>
+- LOCATION        → <location>  / <office>  / <building>  / <room>  / <city>  / <hospital>
+- DEPARTMENT      → <department>  / <team>
+- PROJECT_CODE    → <project>  / <pjcode>  / <slack_channel>
+- CREDENTIAL      → <credential>  / <apikey>  / <password>  / <cloud_resource>  / <role_arn>
+- SENSITIVE_FACT  → <income>  / <salary>  / <stock>  / <bonus>  / <age>  / <family>  / <illness>  / <join_date>  / <schedule>  / <url>  / <rank>
+
+Also standard structured:
+- Phone number    → <phone>
+- Email address   → <email>
+- URL with path   → <url>
+- GitHub handle   → <github>
+
+Preserve COMPLETELY (no tag): polite phrases, code blocks, markdown, public domains (github.com alone, example.com), generic tech names (Docker, Kubernetes, Linux, AWS as a vendor name — but specific AWS resources like Route53 ARE credentials), public figures, common nouns, punctuation, line breaks.
 
 Schema:
-{"rewritten_text":"<full rewritten message>","replacements":[{"original":"<substring>","replacement":"<new value>","entity_type":"<LABEL>"}]}
+{"rewritten_text":"<full rewritten message>","replacements":[{"original":"<original substring>","replacement":"<tag>","entity_type":"<LABEL>"}]}
 
 If nothing to change, return {"rewritten_text":"<original>","replacements":[]}.`;
 
@@ -85,16 +93,16 @@ Ex2 Output: {"entities":[{"text":"営業第二部","entity_type":"DEPARTMENT","r
 
   const FEW_SHOT_REPLACE = `
 Ex1 Input: "田中太郎さんの電話 090-1234-5678 までご連絡ください"
-Ex1 Output: {"rewritten_text":"佐藤健太さんの電話 080-5678-9012 までご連絡ください","replacements":[{"original":"田中太郎","replacement":"佐藤健太","entity_type":"PERSON"},{"original":"090-1234-5678","replacement":"080-5678-9012","entity_type":"PHONE_NUMBER"}]}
+Ex1 Output: {"rewritten_text":"<name>さんの電話 <phone> までご連絡ください","replacements":[{"original":"田中太郎","replacement":"<name>","entity_type":"PERSON"},{"original":"090-1234-5678","replacement":"<phone>","entity_type":"PHONE_NUMBER"}]}
 
 Ex2 Input: "アポロ計画の MTG は渋谷本社 B 棟 7F で。営業第三部の佐藤 (元メルカリ) が担当"
-Ex2 Output: {"rewritten_text":"プロジェクト Orion の MTG は品川本社 C 棟 3F で。営業第一部の鈴木 (元楽天) が担当","replacements":[{"original":"アポロ計画","replacement":"プロジェクト Orion","entity_type":"PROJECT_CODE"},{"original":"渋谷本社","replacement":"品川本社","entity_type":"LOCATION"},{"original":"B 棟 7F","replacement":"C 棟 3F","entity_type":"LOCATION"},{"original":"営業第三部","replacement":"営業第一部","entity_type":"DEPARTMENT"},{"original":"佐藤","replacement":"鈴木","entity_type":"PERSON"},{"original":"元メルカリ","replacement":"元楽天","entity_type":"COMPANY"}]}
+Ex2 Output: {"rewritten_text":"<project>の MTG は<office> <building>で。<department>の<surname> (元<company>) が担当","replacements":[{"original":"アポロ計画","replacement":"<project>","entity_type":"PROJECT_CODE"},{"original":"渋谷本社","replacement":"<office>","entity_type":"LOCATION"},{"original":"B 棟 7F","replacement":"<building>","entity_type":"LOCATION"},{"original":"営業第三部","replacement":"<department>","entity_type":"DEPARTMENT"},{"original":"佐藤","replacement":"<surname>","entity_type":"PERSON"},{"original":"元メルカリ","replacement":"元<company>","entity_type":"COMPANY"}]}
 
 Ex3 Input: "母が都立駒込病院で白血病の治療中。年収 1,450 万円超えは人事 HRIS へ"
-Ex3 Output: {"rewritten_text":"母が都立荏原病院で慢性疾患の治療中。年収 800 万円超えは人事 HRIS へ","replacements":[{"original":"都立駒込病院","replacement":"都立荏原病院","entity_type":"LOCATION"},{"original":"白血病","replacement":"慢性疾患","entity_type":"SENSITIVE_FACT"},{"original":"1,450 万円","replacement":"800 万円","entity_type":"SENSITIVE_FACT"}]}
+Ex3 Output: {"rewritten_text":"母が<hospital>で<illness>の治療中。年収 <income>超えは人事 <pjcode> へ","replacements":[{"original":"都立駒込病院","replacement":"<hospital>","entity_type":"LOCATION"},{"original":"白血病","replacement":"<illness>","entity_type":"SENSITIVE_FACT"},{"original":"1,450 万円","replacement":"<income>","entity_type":"SENSITIVE_FACT"},{"original":"HRIS","replacement":"<pjcode>","entity_type":"PROJECT_CODE"}]}
 
-Ex4 Input: "本番の Route53 と RDS のクレデンシャルを AWS SSO 側でローテート"
-Ex4 Output: {"rewritten_text":"本番の [REDACTED_DNS] と [REDACTED_DB] のクレデンシャルを [REDACTED_IDP] 側でローテート","replacements":[{"original":"Route53","replacement":"[REDACTED_DNS]","entity_type":"CREDENTIAL"},{"original":"RDS","replacement":"[REDACTED_DB]","entity_type":"CREDENTIAL"},{"original":"AWS SSO","replacement":"[REDACTED_IDP]","entity_type":"CREDENTIAL"}]}
+Ex4 Input: "本番の Route53 と RDS のクレデンシャルを AWS SSO 側でローテート。IAM ロール arn:aws:iam::1234567890:role/prod を棚卸し"
+Ex4 Output: {"rewritten_text":"本番の <cloud_resource> と <cloud_resource> のクレデンシャルを <cloud_resource> 側でローテート。IAM ロール <role_arn> を棚卸し","replacements":[{"original":"Route53","replacement":"<cloud_resource>","entity_type":"CREDENTIAL"},{"original":"RDS","replacement":"<cloud_resource>","entity_type":"CREDENTIAL"},{"original":"AWS SSO","replacement":"<cloud_resource>","entity_type":"CREDENTIAL"},{"original":"arn:aws:iam::1234567890:role/prod","replacement":"<role_arn>","entity_type":"CREDENTIAL"}]}
 
 Ex5 Input: "HTTPS 経由で github.com に push してください"
 Ex5 Output: {"rewritten_text":"HTTPS 経由で github.com に push してください","replacements":[]}

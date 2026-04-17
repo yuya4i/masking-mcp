@@ -1738,18 +1738,17 @@
           updatePreview();
         };
 
-        // Interaction model:
-        //   * locked row OR (critical + masked) → long-press to
-        //     UNMASK/UNLOCK. A short tap during this state is a
-        //     deliberate no-op (safety against accidental exposure).
-        //   * critical + unmasked → ONE click to RE-MASK (locking
-        //     a value is always safe; re-adding protection needs no
-        //     gate).
-        //   * everything else (medium / high / low, not locked) →
-        //     regular one-click toggle.
-        const requiresHold = () => row.locked || (isCritical && row.masked);
+        // Interaction model (per user spec):
+        //   * critical + masked → long-press to UNMASK. Short tap is
+        //     a deliberate no-op (safety against accidental exposure).
+        //   * critical + unmasked → ONE tap to RE-MASK.
+        //   * Everything else (locked force-masked, high, medium, low)
+        //     → plain one-tap toggle for both lock and unlock.
+        // Force-locked rows go through setState → unlockRow on first
+        // tap which removes is-locked and toggles masked in one shot.
+        const requiresHold = () => isCritical && row.masked;
 
-        if (!isCritical && !row.locked) {
+        if (!isCritical) {
           // Non-critical, non-locked path: plain click toggle.
           wrap.addEventListener("click", () => setState(!row.masked));
           wrap.addEventListener("keydown", (event) => {

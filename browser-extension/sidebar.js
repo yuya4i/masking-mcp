@@ -1361,10 +1361,6 @@
 
       // --- Hold-duration slider ---
       let lockHoldMs = 1000;
-      const lockHoldLabel = () =>
-        lockHoldMs === 0
-          ? "\ud83d\udd12 クリックで解除"
-          : "\ud83d\udd12 長押しで解除 (" + (lockHoldMs / 1000) + "s)";
       const holdSliderBar = document.createElement("div");
       holdSliderBar.className = "hold-slider-bar";
       const holdLabel = document.createElement("label");
@@ -1381,11 +1377,9 @@
       holdSlider.addEventListener("input", () => {
         lockHoldMs = Math.round(parseFloat(holdSlider.value) * 1000);
         holdVal.textContent = holdSlider.value + "s";
-        for (const el of categoriesWrap.querySelectorAll(".row-lock")) {
-          if (el.textContent.includes("長押しで解除")) {
-            el.textContent = lockHoldLabel();
-          }
-        }
+        // Per-row .row-lock hints were removed — nothing to update
+        // in the category list. lockHoldMs is picked up on next
+        // pointerdown via getHoldMs() inside the row's onDown.
       });
       holdSliderBar.appendChild(holdLabel);
       holdSliderBar.appendChild(holdSlider);
@@ -1615,12 +1609,19 @@
         //   ✨ LLM-detected (overrides critical/non-critical)
         //   🔑 critical
         //   🔍 non-critical
+        // Row-level icon:
+        //   ✨ LLM-detected
+        //   🔑 critical
+        //   🔍 non-critical
+        // The 🔒 lock glyph is intentionally NOT used here — it's
+        // already shown on the category header for force-masked
+        // categories, and peppering it on every child row creates
+        // visual noise ("鍵マークが散見している" per user feedback).
         const icon = document.createElement("span");
         icon.className = "row-icon";
         if (row.source === "llm") icon.classList.add("is-llm");
-        icon.textContent = row.locked
-          ? "\ud83d\udd12"          // 🔒 force-masked
-          : row.source === "llm"
+        icon.textContent =
+          row.source === "llm"
             ? "\u2728"              // ✨ AI-detected
             : isCritical
               ? "\ud83d\udd11"      // 🔑 critical
@@ -1667,15 +1668,9 @@
           line2.appendChild(llmBadge);
         }
 
-        if (row.locked) {
-          const dot2 = document.createElement("span");
-          dot2.textContent = "·";
-          line2.appendChild(dot2);
-          const lock = document.createElement("span");
-          lock.className = "row-lock";
-          lock.textContent = "\ud83d\udd12";
-          line2.appendChild(lock);
-        }
+        // Locked rows no longer get an individual 🔒 hint on line 2
+        // — the category header already carries the lock icon for
+        // the whole group. See renderCategory() above.
 
         const excludeBtn = document.createElement("button");
         excludeBtn.className = "exclude-btn";
@@ -1705,17 +1700,19 @@
           wrap.classList.toggle("is-unmasked", !row.masked);
         };
 
-        const baseIcon = isCritical ? "\ud83d\udd11" : "\ud83d\udd0d";
-        const lockIcon = "\ud83d\udd12";
-        const wasOriginallyLocked = row.locked;
+        const baseIcon = row.source === "llm"
+          ? "\u2728"                 // ✨
+          : isCritical
+            ? "\ud83d\udd11"         // 🔑
+            : "\ud83d\udd0d";        // 🔍
 
         const unlockRow = () => {
           row.locked = false;
           checkbox.disabled = false;
+          // Icon stays as the severity/LLM marker — the 🔒 only ever
+          // lived on the category header.
           icon.textContent = baseIcon;
           wrap.classList.remove("is-locked");
-          const hintEl = wrap.querySelector(".row-lock");
-          if (hintEl) hintEl.remove();
           const catEl = wrap.closest(".category");
           if (catEl) catEl.classList.remove("is-locked");
         };
@@ -1724,11 +1721,6 @@
           if (row.locked) unlockRow();
           row.masked = !!next;
           checkbox.checked = row.masked;
-          // Restore lock icon when re-masking a row that was originally
-          // force-locked. The row stays click-toggleable (no relock).
-          if (wasOriginallyLocked) {
-            icon.textContent = row.masked ? lockIcon : baseIcon;
-          }
           syncAria();
           syncCategoryToggle(row.category);
           updatePreview();

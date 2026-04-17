@@ -81,14 +81,31 @@ both paths surface — regex becomes a safety net for structured PII
 | LLM 補助検出を有効化 | off | master switch |
 | エンドポイント URL | — | e.g. `http://localhost:11434` (Ollama) or `http://192.168.1.12:1234` (LM Studio) |
 | 使用モデル | — | auto-populated from `/api/tags` or `/v1/models` after 接続確認 |
-| 動作モード | `検出補助 (regex + LLM)` | `AI 置換 (実験的)` rewrites the full text via LLM |
-| タイムアウト (ms) | `60000` | cold-start 9B models need ≥30s; max `180000` |
+| 動作モード | `検出補助 (regex + LLM)` | `AI 置換 (実験的)` rewrites the full text into `<tag_N>` placeholders |
+| タイムアウト (ms) | `120000` | 9B thinking models need ≥60s; max `240000` |
 
-Recommended models (日本語向け, 軽量):
+### Model management panel (v0.5.0+)
 
-- `qwen3:1.7b` — fastest, decent accuracy
-- `qwen3:4b` — default recommendation, 4GB VRAM
-- `gemma3:4b` — low-memory alternative
+The options page lists 7 curated models as a table with:
+- on-disk size + VRAM chip (`2.5 GB / VRAM ~3 GB`)
+- qualitative badge — **軽量 / 推奨 / 高精度 / 最高精度 / 代替**
+- **ダウンロード** button for uninstalled models (fires `POST /api/pull`
+  with streaming NDJSON; shows live progress bar + `% (downloaded/total)`)
+- **削除** button for installed models (fires `DELETE /api/delete`
+  after `window.confirm`)
+- `✓ インストール済` tag when the model is present
+
+Curated catalog:
+
+| Model | Size | VRAM | Badge |
+|---|---|---|---|
+| `qwen3:1.7b` | 1.1 GB | ~1.5 GB | 軽量 |
+| `qwen3:4b` | 2.5 GB | ~3 GB | 推奨 |
+| `qwen3:8b` | 4.7 GB | ~5 GB | 高精度 |
+| `qwen3:14b` | 8.2 GB | ~9 GB | 最高精度 |
+| `gemma3:4b` | 2.5 GB | ~3 GB | 代替 |
+| `llama3.2:3b` | 2.0 GB | ~2 GB | 代替 |
+| `phi3.5:3.8b` | 2.2 GB | ~2.5 GB | 代替 |
 
 ### Required Ollama configuration
 
@@ -142,32 +159,78 @@ The SW will **refuse** any host that does not match the saved
 ### Detection flow when LLM is enabled
 
 1. `sanitize/aggregated` returns regex + Sudachi entities.
-2. If ≥1 entity found, the sidebar opens **immediately** with the
-   regex snapshot and an inline *LLM 分析中…* banner.
-3. `mergeLlmDetect()` runs in parallel, asking the LLM
-   (`/no_think` instruction for Qwen3 families, `<think>` blocks
-   stripped from the response, JSON-only output enforced by the
-   system prompt and post-parse validation).
-4. LLM output is filtered through a denylist (job titles, credential
+2. Regardless of regex count, the sidebar opens **immediately** with
+   a ModePill ("検出補助 (Regex + AI)" / "AI 置換 (実験的)") and a
+   centered overlay (`✨ AI 分析中…` or `✨ AI 置換中…` depending
+   on mode). Rows don't paint yet.
+3. `mergeLlmDetect()` (detect) or the replace rewrite runs in
+   parallel. Ollama body includes:
+     think: false          — suppresses Qwen3's internal reasoning
+     format: "json"        — grammar-constrains output
+     num_predict: 2048     — generation cap
+   `<think>` regex fallback strip still runs for models that ignore
+   `think:false`.
+4. LLM output passes the denylist (job titles, credential
    type-names, polite particles, short hiragana) to kill common
    false positives.
-5. Surviving LLM rows replace any regex rows with the same surface
-   (LLM gets final say on label / severity / category). Untouched
-   regex rows stay as safety net.
-6. The sidebar re-renders. User masked/unmasked choices on the
-   initial regex rows are preserved across the rebuild.
-7. On LLM failure (timeout / 403 / network) the banner switches to
+5. Entities get **unique numbered tags** via `applyUniqueTagsToReplace`:
+     田中          → <surname_1>
+     中村          → <surname_2>
+     株式会社…     → <company_1>
+     駒込病院      → <hospital_1>
+   Same surface text → same tag; every distinct value → its own
+   number. Foundation for future response-restore feature.
+6. Rows fade in with an 80 ms-per-row stagger; overlay dismisses
+   after the last row finishes animating.
+7. On LLM failure (timeout / 403 / network) the overlay switches to
    an error style and auto-hides after 4s; regex-only detections
    stay in place — **fail-open on augmentation**, not on masking.
 
 ### Replace mode (`AI 置換`)
 
-Instead of surfacing entities for review, the LLM rewrites the
-whole input with surrogate values (type-preserving fake emails,
-RFC 5737 test IPs, etc.). Runs in a **fail-closed** loop: if
-*any* input fails validation, the entire outbound request is
-aborted rather than leaking partial content. Still experimental —
-detection mode is the recommended default.
+The LLM rewrites the whole input into `<tag_N>` placeholders
+(NOT realistic fakes). Output example:
+```
+原文: 株式会社アクメの田中副社長と佐藤課長にエスカレーション。
+         年収 1,450 万円ラインを超える昇給者リストは HRIS へ。
+置換: <company_1>の<name_1>と<surname_1>にエスカレーション。
+         年収 <income_1>ラインを超える昇給者リストは <pjcode_1> へ。
+```
+
+Tag catalog covers all 7 categories:
+- PERSON          → `<name>` / `<surname>`
+- COMPANY         → `<company>`
+- LOCATION        → `<location>` / `<office>` / `<building>` / `<room>` / `<hospital>`
+- DEPARTMENT      → `<department>` / `<team>`
+- PROJECT_CODE    → `<project>` / `<pjcode>` / `<slack_channel>`
+- CREDENTIAL      → `<credential>` / `<apikey>` / `<password>` / `<cloud_resource>` / `<role_arn>`
+- SENSITIVE_FACT  → `<income>` / `<salary>` / `<stock>` / `<bonus>` / `<age>` / `<family>` / `<illness>` / `<join_date>` / `<schedule>` / `<url>` / `<rank>`
+
+`applyUniqueTagsToReplace()` post-processes the LLM output to
+guarantee unique numbered tags per distinct value — same surface
+gets the same tag, distinct values get distinct numbers. This
+makes the mapping 1:1 restorable (groundwork for the future
+"restore tags in AI response" feature).
+
+**Fail-closed loop**: if *any* input fails validation, the
+entire outbound request is aborted rather than leaking partial
+content.
+
+### Row interaction rules (v0.5.0 final)
+
+| Row state | Tap | Long-press |
+|---|---|---|
+| critical + masked | no-op (safety) | **unmask** |
+| critical + unmasked | **re-mask** | n/a (not required) |
+| locked (force-masked) + masked | **unlock + unmask** | n/a |
+| locked + unmasked (already解除) | **re-mask** | n/a |
+| high / medium / low | **toggle** | n/a |
+
+Long-press is the ONLY gesture that requires hold — and only on
+critical rows that are currently masked. Everything else responds
+to a single tap. Critical-unmasked rows use `pointerup` to
+distinguish tap from cancelled hold; no click listener is
+attached to them to avoid dual-listener interference.
 
 ## Interactive review mode
 

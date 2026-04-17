@@ -545,9 +545,18 @@
 
   const claudeAdapter = {
     name: "claude",
+    // Only fire on explicit SEND endpoints — not every /api/* POST.
+    // Claude.ai chat send URLs end with one of these path segments:
+    //   /completion                — main send
+    //   /append_message            — legacy user append
+    //   /retry_completion          — retry last assistant response
+    //   /chat_conversations        — create new conversation (1st send)
+    // Rename/feedback/star/title sub-paths are intentionally excluded.
     match: (url) =>
       /(^https?:\/\/claude\.(ai|com)|\.claude\.com)/.test(url) &&
-      /\/(api|completion|append_message|chat_conversations)/.test(url),
+      /\/(?:completion|append_message|retry_completion|chat_conversations)(?:\?[^/]*)?(?:#[^/]*)?$/.test(
+        url
+      ),
     extractInputs(body) {
       const out = [];
       if (typeof body?.prompt === "string" && body.prompt.trim()) {
@@ -594,10 +603,13 @@
 
   const chatgptAdapter = {
     name: "chatgpt",
+    // ChatGPT's chat send goes to `/backend-api/conversation` (POST).
+    // Rename/title/share/feedback POSTs live under longer sub-paths
+    // like `/backend-api/conversation/{id}/title`; we exclude those
+    // by anchoring on the path ending.
     match: (url) =>
       /(chatgpt\.com|chat\.openai\.com)/.test(url) &&
-      /\/backend-api\//.test(url) &&
-      /(conversation|messages)/.test(url),
+      /\/backend-api\/conversation(?:\?[^/]*)?(?:#[^/]*)?$/.test(url),
     extractInputs(body) {
       const out = [];
       if (Array.isArray(body?.messages)) {
@@ -687,12 +699,16 @@
   // out static assets and telemetry.
   const manusAdapter = {
     name: "manus",
+    // Narrow to SEND-intent path segments. The previous regex matched
+    // any `/api/` POST, which included polling / state-sync / file
+    // listing and produced continuous hook activity. We keep only the
+    // verbs that semantically mean "user is sending content".
     match: (url) =>
       /(manus\.im|butterfly-effect\.dev)/i.test(url) &&
       !/(sentry|amplitude|analytics|telemetry|segment\.io|datadog|newrelic)/i.test(
         url
       ) &&
-      /(\/api\/|\/v1\/|\/chat\/|\/message|\/task|\/session|\/rpc|\/submit|\/send|\/completion|\/agent|\/conversation)/i.test(
+      /\/(?:submit|send|message|messages|completion|chat|rpc)(?:\?[^/]*)?(?:#[^/]*)?$/i.test(
         url
       ),
     extractInputs(body) {
@@ -1058,35 +1074,19 @@
       const method =
         (init && init.method) || (input && input.method) || "GET";
 
-      // Provider-host diagnostic: for the 4 AI provider hostnames we
-      // claim in manifest.json, log every request regardless of method.
-      // This is how we find streaming/WS/SSE endpoints that don't go
-      // through our POST+JSON path. Third-party hosts (amplitude etc.)
-      // are excluded so the console isn't drowned in telemetry.
-      const PROVIDER_RE =
-        /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i;
-      try {
-        const host = new URL(url, location.href).host;
-        if (PROVIDER_RE.test(host)) {
-          logOnce(
-            "provider request:",
-            url,
-            method.toUpperCase() + " bodyType=" + typeof (init && init.body)
-          );
-        }
-      } catch (_) {}
-
+      // Fast path: skip non-POST methods immediately. Polling / GET /
+      // HEAD / OPTIONS requests never carry user-typed chat content,
+      // so we don't even bother running adapter matchers for them.
       if (method.toUpperCase() !== "POST") {
         return originalFetch(input, init);
       }
       const adapter = pickAdapter(url);
       if (!adapter) {
-        try {
-          const target = new URL(url, location.href).host;
-          if (PROVIDER_RE.test(target)) {
-            logOnce("intercepted POST with no adapter match:", url);
-          }
-        } catch (_) {}
+        // No diagnostic log — unmatched POSTs are the common case on
+        // any page (analytics, feature flags, autosave, etc.) and we
+        // don't want the console to fill with noise while the user
+        // is just browsing. If you need to debug a missed adapter,
+        // turn on verbose logging via window.__localMaskMCP.debug.
         return originalFetch(input, init);
       }
       if (!(await isEnabled())) {
@@ -1149,18 +1149,9 @@
     try {
       const method = (this._maskMcpMethod || "GET").toUpperCase();
       const url = this._maskMcpUrl || "";
-      // Same provider-host diagnostic as the fetch hook, so XHR-based
-      // submissions show up in the console too.
-      try {
-        const host = new URL(url, location.href).host;
-        if (
-          /(claude\.(ai|com)|\.claude\.com|chatgpt\.com|\.openai\.com|gemini\.google\.com|manus\.im|butterfly-effect\.dev)/i.test(
-            host
-          )
-        ) {
-          LOG("provider xhr:", method, redactUrl(url), "bodyType=" + typeof body);
-        }
-      } catch (_) {}
+      // Fast path: only intercept POSTs with a string body. GET polling
+      // and binary uploads fall through silently — we never log non-send
+      // activity to keep the console quiet.
       if (method !== "POST" || typeof body !== "string") {
         return originalXhrSend.apply(this, arguments);
       }

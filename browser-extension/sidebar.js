@@ -1738,43 +1738,36 @@
           updatePreview();
         };
 
-        // Long-press is required when EITHER:
-        //   - the row is force-locked (force_masked_categories), OR
-        //   - the row is critical severity AND currently masked
-        //     (i.e. the user is trying to UNMASK a critical value).
-        // Re-masking a critical row (masked=false → true) stays
-        // one-click because adding protection is always safe.
+        // Interaction model:
+        //   * locked row OR (critical + masked) → long-press to
+        //     UNMASK/UNLOCK. A short tap during this state is a
+        //     deliberate no-op (safety against accidental exposure).
+        //   * critical + unmasked → ONE click to RE-MASK (locking
+        //     a value is always safe; re-adding protection needs no
+        //     gate).
+        //   * everything else (medium / high / low, not locked) →
+        //     regular one-click toggle.
         const requiresHold = () => row.locked || (isCritical && row.masked);
 
-        // ALWAYS attach the click / keyboard toggle. requiresHold()
-        // is evaluated at event time, so:
-        //   - critical row + masked       → requiresHold()=true,
-        //                                   click is no-op (hold only)
-        //   - critical row + unmasked     → requiresHold()=false,
-        //                                   click re-masks in one tap
-        //   - locked row + unlocked later → requiresHold()=false,
-        //                                   click toggles normally
-        const clickHandler = () => {
-          if (requiresHold()) return; // gesture takes over below
-          setState(!row.masked);
-        };
-        wrap.addEventListener("click", clickHandler);
-        wrap.addEventListener("keydown", (event) => {
-          if (requiresHold()) return;
-          if (event.key === " " || event.key === "Enter") {
-            event.preventDefault();
-            setState(!row.masked);
-          }
-        });
-        if (row.locked || isCritical) {
-          // Long-press with slider duration. Active for locked rows
-          // AND for critical rows (enforced via requiresHold inside
-          // onDown to avoid triggering when a critical row has
-          // already been unmasked).
+        if (!isCritical && !row.locked) {
+          // Non-critical, non-locked path: plain click toggle.
+          wrap.addEventListener("click", () => setState(!row.masked));
+          wrap.addEventListener("keydown", (event) => {
+            if (event.key === " " || event.key === "Enter") {
+              event.preventDefault();
+              setState(!row.masked);
+            }
+          });
+        } else {
+          // Critical OR locked path: single pointer-based state
+          // machine. We do NOT attach a click listener at all —
+          // everything is decided at pointerup so there's no
+          // possibility of click+pointerdown interfering.
           const getHoldMs = () => lockHoldMs;
           let timerId = null;
           let tickId = null;
           let startedAt = 0;
+          let holdFired = false;
 
           const resetFill = () => {
             if (!fill) return;
@@ -1785,28 +1778,23 @@
             if (timerId !== null) { clearTimeout(timerId); timerId = null; }
             if (tickId !== null) { clearInterval(tickId); tickId = null; }
           };
-          const onDown = (event) => {
-            if (timerId !== null) return;
-            // If neither locked nor a to-be-unmasked critical row,
-            // the click path handles this row. Long-press is only
-            // needed in those two cases.
-            if (!requiresHold()) {
-              return; // let the click listener handle it
-            }
-            if (event.preventDefault) event.preventDefault();
+          const beginHold = (event) => {
+            if (event && event.preventDefault) event.preventDefault();
             startedAt = Date.now();
+            holdFired = false;
             if (fill) {
               fill.style.transition = "width 0.05s linear";
               fill.style.width = "0%";
             }
             try {
-              if (event.pointerId !== undefined) wrap.setPointerCapture(event.pointerId);
-            } catch (_) {
-              /* Safari / older WebViews may throw on setPointerCapture. */
-            }
+              if (event && event.pointerId !== undefined) {
+                wrap.setPointerCapture(event.pointerId);
+              }
+            } catch (_) { /* Safari */ }
             const ms = getHoldMs();
             const doToggle = () => {
               clearTimers();
+              holdFired = true;
               if (fill) fill.style.width = "100%";
               const wasLocked = row.locked;
               wrap.classList.add("long-press-pulse");
@@ -1824,19 +1812,51 @@
             }
             tickId = setInterval(() => {
               const elapsed = Math.min(ms, Date.now() - startedAt);
-              if (fill) fill.style.width = `${(elapsed / ms) * 100}%`;
+              if (fill) fill.style.width = (elapsed / ms) * 100 + "%";
             }, 50);
             timerId = setTimeout(doToggle, ms);
           };
+
+          const onDown = (event) => {
+            if (timerId !== null) return; // already holding
+            holdFired = false;
+            if (requiresHold()) {
+              beginHold(event);
+            }
+            // else: wait for pointerup — it's a click path
+          };
           const onUp = () => {
+            const wasHolding = timerId !== null;
             clearTimers();
             resetFill();
+            if (holdFired) {
+              // doToggle already ran → nothing more to do
+              return;
+            }
+            if (wasHolding) {
+              // User released before hold completed → cancel, no toggle
+              return;
+            }
+            // Short tap, no hold ran. Toggle ONLY when hold wasn't
+            // required (i.e. critical + unmasked → one-click re-mask).
+            if (!requiresHold()) {
+              setState(!row.masked);
+            }
           };
+
           wrap.addEventListener("pointerdown", onDown);
           wrap.addEventListener("pointerup", onUp);
-          wrap.addEventListener("pointercancel", onUp);
-          wrap.addEventListener("pointerleave", onUp);
-          // Keyboard: hold Space/Enter for 800ms.
+          wrap.addEventListener("pointercancel", () => {
+            clearTimers();
+            resetFill();
+            holdFired = false;
+          });
+          wrap.addEventListener("pointerleave", () => {
+            clearTimers();
+            resetFill();
+          });
+
+          // Keyboard mirrors the pointer state machine.
           let keyHeld = false;
           wrap.addEventListener("keydown", (event) => {
             if ((event.key === " " || event.key === "Enter") && !keyHeld) {

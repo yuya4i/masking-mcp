@@ -674,10 +674,11 @@
 
     /* Stagger-in animation applied when rows are first rendered after
        an LLM augmentation completes. Each row gets its animation-delay
-       set inline by applyAggregated(). Uses ``both`` fill + explicit
+       set inline by applyAggregated(). Uses both-fill + explicit
        from/to so a row NEVER gets stuck at opacity:0 — if animation
        is disabled (prefers-reduced-motion, Shadow DOM glitches) the
-       default styles stay visible. */
+       default styles stay visible.
+       NB: no backticks inside this CSS template literal. */
     .row.row-staggered {
       animation: row-stagger-in 0.32s ease-out both;
     }

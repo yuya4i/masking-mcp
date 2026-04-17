@@ -472,6 +472,12 @@
     const TIMEOUT_DELAY_MS = 2000;
     let warmupTries = 0;
     let timeoutTries = 0;
+    const callStart = Date.now();
+    console.debug(
+      "[mask-mcp] llm fetch start:",
+      url,
+      "timeout=" + (config.timeoutMs || 120000) + "ms",
+    );
     while (true) {
       try {
         const resp = await chrome.runtime.sendMessage({
@@ -487,6 +493,11 @@
             ? j?.choices?.[0]?.message?.content
             : j?.message?.content;
           result = result || null;
+          console.debug(
+            `[mask-mcp] llm fetch OK in ${Date.now() - callStart}ms, content=${
+              result ? result.length + " chars" : "EMPTY"
+            }${result ? "" : " (check num_predict / think settings)"}`,
+          );
           break;
         }
         const warming =

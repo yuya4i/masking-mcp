@@ -290,11 +290,17 @@
       const build =
         mode === "replace" ? prompts.buildReplacePrompt : prompts.buildDetectPrompt;
       const { system, user } = build(text);
-      // Give the inner bridge a window equal to the LLM fetch timeout
-      // plus a 15s buffer for SW round-trip + retry delays. Without
-      // this the page-side Promise resolves to null at 5s while the
-      // SW is still waiting on Ollama.
-      const innerBudget = (cfg.timeoutMs || 60000) + 15000;
+      // Give the inner bridge enough time to cover the full SW
+      // retry loop: up to 6 warming-up retries + 2 abort retries,
+      // each with its own cfg.timeoutMs fetch window. Budget:
+      //   (timeoutMs * 3) + 30s buffer
+      // → for the 120s default this is ~6.5 min, which covers
+      // even the slowest 4B cold-start scenarios while still
+      // bounding how long a stuck request can hang.
+      const innerBudget = (cfg.timeoutMs || 120000) * 3 + 30000;
+      LOG(
+        `llm ${mode}: inner bridge budget ${Math.round(innerBudget / 1000)}s (fetch timeout ${Math.round((cfg.timeoutMs || 120000) / 1000)}s)`,
+      );
       const callResp = await request(
         "llm-call",
         { system, user, config: cfg },

@@ -126,11 +126,77 @@ BUILTIN_PATTERNS: dict[str, list[tuple[str, str]]] = {
         ),
     ],
     # --- API キー / シークレット ---
+    # Keep the generic catch-alls at the top for back-compat, then layer
+    # on ~25 vendor-specific well-known token prefixes. Mirror of
+    # ``browser-extension/engine/patterns.js`` — MUST be kept in sync.
     "API_KEY": [
+        # Generic catch-alls
         ("API_KEY", r"(?:sk|pk|api[_\-]?key|access[_\-]?key)[_\-][\w\-]{20,}"),
         (
             "SECRET",
             r"(?:password|secret|token|api_key|apikey|access_token)\s*[=:]\s*\S{8,}",
+        ),
+        # OpenAI — classic / project / service-account / legacy-null
+        ("API_KEY", r"\bsk-(?:proj|svcacct|None)-[A-Za-z0-9_\-]{20,}"),
+        ("API_KEY", r"\bsk-[A-Za-z0-9]{32,}\b"),
+        # Anthropic
+        ("API_KEY", r"\bsk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_\-]{80,}"),
+        # Notion — new ntn_ integration tokens + legacy secret_
+        ("API_KEY", r"\bntn_[A-Za-z0-9]{40,}\b"),
+        ("API_KEY", r"\bsecret_[A-Za-z0-9]{43}\b"),
+        # GitHub — classic PAT family + fine-grained PAT
+        ("API_KEY", r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\b"),
+        ("API_KEY", r"\bgithub_pat_[A-Za-z0-9_]{80,}\b"),
+        # Slack — bot / user / app / admin / refresh
+        ("API_KEY", r"\bxox[baprs]-[A-Za-z0-9\-]{10,}"),
+        # Google Cloud / Firebase
+        ("API_KEY", r"\bAIza[A-Za-z0-9_\-]{35}\b"),
+        ("API_KEY", r"\bya29\.[A-Za-z0-9_\-]{40,}"),
+        # AWS — access key IDs
+        ("API_KEY", r"\b(?:AKIA|ASIA|AROA|AIDA|ANPA|ANVA|APKA|ABIA|ACCA)[A-Z0-9]{16}\b"),
+        # Hugging Face
+        ("API_KEY", r"\bhf_[A-Za-z0-9]{34,}\b"),
+        # Stripe — secret / publishable / restricted + webhook secret
+        ("API_KEY", r"\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{24,}\b"),
+        ("API_KEY", r"\bwhsec_[A-Za-z0-9]{32,}\b"),
+        # Twilio — Account SID (AC) + API Key SID (SK)
+        ("API_KEY", r"\b(?:AC|SK)[a-f0-9]{32}\b"),
+        # SendGrid
+        ("API_KEY", r"\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}\b"),
+        # Groq
+        ("API_KEY", r"\bgsk_[A-Za-z0-9]{40,}\b"),
+        # Replicate
+        ("API_KEY", r"\br8_[A-Za-z0-9]{37,}\b"),
+        # Tavily
+        ("API_KEY", r"\btvly-[A-Za-z0-9]{16,}\b"),
+        # GitLab — personal access token / runner token
+        ("API_KEY", r"\b(?:glpat|glrt)-[A-Za-z0-9_\-]{20,}"),
+        # Mailgun
+        ("API_KEY", r"\bkey-[a-f0-9]{32}\b"),
+        # npm
+        ("API_KEY", r"\bnpm_[A-Za-z0-9]{36}\b"),
+        # Fireworks AI
+        ("API_KEY", r"\bfw_[A-Za-z0-9]{24,}\b"),
+        # Airtable — personal access tokens
+        ("API_KEY", r"\bpat[A-Za-z0-9]{14}\.[a-f0-9]{64}\b"),
+        # Linear
+        ("API_KEY", r"\blin_(?:api|oauth)_[A-Za-z0-9]{32,}\b"),
+        # Figma
+        ("API_KEY", r"\bfigd_[A-Za-z0-9_\-]{40,}"),
+        # Discord bot token
+        ("API_KEY", r"\b[MN][A-Za-z\d]{23}\.[\w\-]{6}\.[\w\-]{27,}\b"),
+        # Cloudflare tokens
+        ("API_KEY", r"\bcf-[A-Za-z0-9_\-]{40,}"),
+        # JWT (three base64url segments)
+        ("API_KEY", r"\beyJ[A-Za-z0-9_\-]+\.eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+"),
+        # Authorization: Bearer <token>
+        ("API_KEY", r"\bBearer\s+[A-Za-z0-9\-_.~+/]{16,}=*"),
+        # Generic Authorization / X-Api-Key header value
+        ("API_KEY", r"(?i)(?:Authorization|X-Api-Key)\s*:\s*\S{16,}"),
+        # PEM private keys (RSA / EC / OpenSSH / generic)
+        (
+            "SECRET",
+            r"-----BEGIN(?:\s[A-Z]+)?\s(?:RSA|EC|OPENSSH|DSA|PGP)?\s?PRIVATE KEY-----[\s\S]*?-----END(?:\s[A-Z]+)?\s(?:RSA|EC|OPENSSH|DSA|PGP)?\s?PRIVATE KEY-----",
         ),
     ],
     # --- プロジェクト名 / 内部識別子 ---

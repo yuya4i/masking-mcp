@@ -1,5 +1,22 @@
 # pii-masking (旧 local-mask-mcp / mask-mcp)
 
+![Python 3.11](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
+![Pydantic v2](https://img.shields.io/badge/Pydantic-v2-E92063?logo=pydantic&logoColor=white)
+![uv](https://img.shields.io/badge/uv-0.11-DE5FE9?logo=python&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Presidio](https://img.shields.io/badge/Presidio-MS-5E5CE6)
+![SudachiPy](https://img.shields.io/badge/SudachiPy-core-E60012)
+![pytesseract](https://img.shields.io/badge/pytesseract-OCR-4B5563)
+![FastMCP](https://img.shields.io/badge/FastMCP-stdio-7C3AED)
+![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4?logo=googlechrome&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-local--LLM-000000?logo=ollama&logoColor=white)
+![Qwen3](https://img.shields.io/badge/Qwen3-1.7b%20%2F%204b-615CED)
+![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)
+![Ruff](https://img.shields.io/badge/lint-Ruff-D7FF64?logo=ruff&logoColor=black)
+
+**使用技術スタック**: Python 3.11 + FastAPI (async) / Pydantic v2 / uv (frozen lockfile) を Docker Compose で包み、Microsoft Presidio + SudachiPy + 正規表現プリセット ~40 種で PII 検出、`pytesseract` で PDF OCR、`FastMCP` で Claude Desktop 等へ MCP stdio を提供。ブラウザ側は Chrome MV3 拡張 (Shadow DOM サイドバー) + オプションで Ollama / LM Studio / llama.cpp 経由のローカル LLM (Qwen3 推奨)。
+
 `pii-masking` は、生成AIへ送信する前にローカルPC上で個人情報を検出・マスクするための軽量ゲートウェイ + Chrome 拡張機能です。MCP対応クライアント向けのツール提供と、OpenAI、Claude、Manus、その他プロバイダ向けのローカルHTTPプロキシ、ブラウザ UI 上の対話的レビュー機能を統合しています。
 
 > **リポジトリ名の変遷**: `local-mask-mcp` → `mask-mcp` → `pii-masking`。Git remote の旧 URL (`masking-mcp.git`) は新しい URL (`pii-masking.git`) に redirect されます。
@@ -89,6 +106,43 @@
 | 組織名 | PROPER_NOUN_ORG | グーグル | Sudachi 固有名詞 |
 
 プリセットは `src/app/services/analyzers/presets.py` で定義されています。`enable_preset_patterns: false` に設定すると全てのプリセットパターンが無効化されます。特定カテゴリだけを無効化するには `disabled_pattern_categories` に対象のキーを追加してください (例: `["URL", "DATE"]`)。
+
+## ベンダー別 API キー / シークレット検出 (v0.5.0+)
+
+`API_KEY` カテゴリは汎用 `sk-*` / `pk_*` / `access_key_*` のルールに加えて、**主要 SaaS が公開している固定プレフィックスのトークンを直接認識**します。`browser-extension/engine/patterns.js` と `src/app/services/analyzers/presets.py` で同じ内容を保持しています (必ず両方を同時に更新すること)。
+
+| Vendor | プレフィックス / フォーマット | 用途 |
+|---|---|---|
+| OpenAI | `sk-<32+>` / `sk-proj-...` / `sk-svcacct-...` / `sk-None-...` | プロジェクト/サービス/レガシー各種キー |
+| Anthropic | `sk-ant-api03-<80+>` / `sk-ant-admin01-<80+>` | Claude API / Admin |
+| Notion | `ntn_<40+>` / `secret_<43>` | Integration token (新/旧) |
+| GitHub | `ghp_<36>` / `gho_<36>` / `ghu_<36>` / `ghs_<36>` / `ghr_<36>` / `github_pat_<80+>` | PAT / OAuth / 内部トークン / fine-grained PAT |
+| Slack | `xoxb-*` / `xoxp-*` / `xoxa-*` / `xoxr-*` / `xoxs-*` | Bot / User / App / Refresh / Session |
+| Google | `AIza[A-Za-z0-9_\-]{35}` / `ya29.<40+>` | GCP / Firebase API key / OAuth access token |
+| AWS | `AKIA` / `ASIA` / `AROA` / `AIDA` / `ANPA` / `ANVA` / `APKA` / `ABIA` / `ACCA` + `[A-Z0-9]{16}` | IAM / STS / Federated access key IDs |
+| Hugging Face | `hf_<34+>` | Access token |
+| Stripe | `sk_live_*` / `sk_test_*` / `pk_live_*` / `pk_test_*` / `rk_live_*` / `rk_test_*` / `whsec_*` | Secret / Publishable / Restricted / Webhook |
+| Twilio | `AC<32 hex>` / `SK<32 hex>` | Account SID / API Key SID |
+| SendGrid | `SG.<22>.<43>` | API key (2 segments) |
+| Groq | `gsk_<40+>` | API key |
+| Replicate | `r8_<37+>` | API key |
+| Tavily | `tvly-<16+>` | Search API key |
+| GitLab | `glpat-<20+>` / `glrt-<20+>` | Personal access / Runner token |
+| Mailgun | `key-<32 hex>` | Private API key |
+| npm | `npm_<36>` | Automation / publishing token |
+| Fireworks AI | `fw_<24+>` | API key |
+| Airtable | `pat<14>.<64 hex>` | Personal access token |
+| Linear | `lin_api_<32+>` / `lin_oauth_<32+>` | API key / OAuth |
+| Figma | `figd_<40+>` | Personal access token |
+| Discord | `[MN][A-Za-z\d]{23}.<6>.<27+>` | Bot token |
+| Cloudflare | `cf-<40+>` | API token |
+| JWT | `eyJ...·eyJ...·...` | 三分割 base64url (Supabase anon/service-role 等も該当) |
+| HTTP header | `Bearer <16+>` / `Authorization: ...` / `X-Api-Key: ...` | リクエストヘッダ書式 |
+| 証明書 | `-----BEGIN … PRIVATE KEY-----` ブロック | RSA / EC / OpenSSH / PGP / DSA |
+
+これらは全て `entity_type` を `API_KEY` (PEM 鍵のみ `SECRET`) として出力し、[severity 分類](#重要度-severity-分類) で **critical** 扱いです — サイドバーでは赤枠 + ロック、送信前に必ずユーザー確認が入ります。
+
+ローカル LLM を有効にしている場合でも、これらの構造化トークンは **regex の安全網** として常に検出されます。LLM が「これは API キーではない」と判断しても、regex による critical 検出は残るため取りこぼしが起きません。
 
 ## ビジネスドキュメント向けプリセット
 

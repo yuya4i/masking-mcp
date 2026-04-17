@@ -329,6 +329,13 @@ function renderRecommendList(installedModels) {
       tag.className = "llm-recommend-installed";
       tag.textContent = "✓ インストール済";
       action.appendChild(tag);
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "btn-delete";
+      delBtn.textContent = "削除";
+      delBtn.title = `${rec.name} を Ollama から削除`;
+      delBtn.addEventListener("click", () => deleteModel(rec.name, row));
+      action.appendChild(delBtn);
     } else {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -344,6 +351,54 @@ function renderRecommendList(installedModels) {
     row.appendChild(badge);
     row.appendChild(action);
     container.appendChild(row);
+  }
+}
+
+// Delete an installed model from Ollama via DELETE /api/delete.
+// Fires after an explicit confirm() — there's no undo (the model
+// files are removed from disk) so the guard is deliberate.
+async function deleteModel(modelName, rowEl) {
+  const baseUrl = normalizeUrl($("llm-url").value);
+  if (!baseUrl) {
+    alert("先に URL を設定してください");
+    return;
+  }
+  if (!confirm(`${modelName} を Ollama から削除します。\n\nこの操作は元に戻せません (モデルファイルが実際に削除されます)。続行しますか?`)) {
+    return;
+  }
+  const actionEl = rowEl.querySelector(".llm-recommend-action");
+  while (actionEl.firstChild) actionEl.removeChild(actionEl.firstChild);
+  const progress = document.createElement("span");
+  progress.className = "llm-recommend-progress";
+  progress.textContent = "削除中…";
+  actionEl.appendChild(progress);
+
+  try {
+    const resp = await fetch(baseUrl + "/api/delete", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: modelName }),
+    });
+    if (!resp.ok) {
+      throw new Error(`${resp.status} ${resp.statusText}`);
+    }
+    progress.textContent = "✓ 削除しました";
+    progress.style.color = "var(--ok)";
+    // If the user was using this model, clear the stored selection.
+    try {
+      const stored = await chrome.storage.local.get("localLlmModel");
+      if (stored.localLlmModel === modelName) {
+        await chrome.storage.local.set({ localLlmModel: "" });
+      }
+    } catch (_) {}
+    setTimeout(() => testLlm(), 600);
+  } catch (err) {
+    progress.textContent = "失敗: " + (err?.message || err);
+    progress.style.color = "var(--err)";
+    setTimeout(() => {
+      const currentModels = [...($("llm-model").options || [])].map((o) => o.value);
+      renderRecommendList(currentModels);
+    }, 3000);
   }
 }
 

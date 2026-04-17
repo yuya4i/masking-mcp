@@ -444,6 +444,21 @@ main {
   color: var(--muted);
   cursor: default;
 }
+.llm-recommend-action .btn-delete {
+  padding: 4px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--err);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.llm-recommend-action .btn-delete:hover {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: var(--err);
+}
 .llm-recommend-installed {
   font-size: 10.5px;
   color: var(--ok);

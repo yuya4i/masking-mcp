@@ -21,7 +21,7 @@
 
 > **リポジトリ名の変遷**: `local-mask-mcp` → `mask-mcp` → `pii-masking`。Git remote の旧 URL (`masking-mcp.git`) は新しい URL (`pii-masking.git`) に redirect されます。
 
-> **現在の進捗**: Milestone 1–9 まで `main` にマージ済。最新リリースは **拡張機能 v0.5.0 (ローカル LLM 連携)** + ゲートウェイ側 v1.0。実装履歴は [browser-extension/CHANGELOG.md](./browser-extension/CHANGELOG.md)、ロードマップ (Milestone 10 以降の follow-up) は [TODO.md](./TODO.md) を参照してください。
+> **現在の進捗**: Milestone 1–9 まで `main` にマージ済。最新リリースは **拡張機能 v0.5.1 (Claude.ai 相対 URL 対応 + adapter カバレッジ強化)** + ゲートウェイ側 v1.0。対応済みチャット UI: Claude.ai / ChatGPT / Gemini / Manus の 4 サービス (いずれも送信インターセプト確認済)。実装履歴は [browser-extension/CHANGELOG.md](./browser-extension/CHANGELOG.md)、ロードマップ (Milestone 10 以降の follow-up) は [TODO.md](./TODO.md) を参照してください。
 
 ## アーキテクチャ概要
 

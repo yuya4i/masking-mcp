@@ -1,4 +1,4 @@
-# pii-masking (旧 local-mask-mcp / mask-mcp)
+# pii-masking
 
 `pii-masking` は、生成AIへ送信する前にローカルPC上で個人情報を検出・マスクするための軽量ゲートウェイ + Chrome 拡張機能です。MCP対応クライアント向けのツール提供と、OpenAI、Claude、Manus、その他プロバイダ向けのローカルHTTPプロキシ、ブラウザ UI 上の対話的レビュー機能を統合しています。
 

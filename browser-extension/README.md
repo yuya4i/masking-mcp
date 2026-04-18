@@ -1,8 +1,6 @@
-# 🛡️ PII Guard — Browser Extension
+# PII Guard — Browser Extension
 
-> **🌐 Language / 言語**: [🇯🇵 日本語 (root README)](../README.md) ・ [🇺🇸 English (root README)](../README.en.md)
->
-> This extension-specific README is in English — the root README above has the same content in both languages.
+Root README: [日本語](../README.md) / [English](../README.en.md). This file is English-only and covers extension-internal detail; the root READMEs cover the same material with gateway and MCP context.
 
 Chrome MV3 extension that masks PII in outbound AI-service traffic
 before it leaves the browser. Targets Claude.ai, ChatGPT, Gemini,

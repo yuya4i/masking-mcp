@@ -43,7 +43,19 @@ from __future__ import annotations
 
 
 BUILTIN_PATTERNS: dict[str, list[tuple[str, str]]] = {
-    # --- 住所 (Japanese addresses) ---
+    # --- 都道府県 + 市区町村単体 (兵庫県明石市 / 東京都渋谷区 等) ---
+    # 中間 char class は [市区町村郡] を除外することで "最初の suffix"
+    # で止まる。除外がないと「明石市大久保町」のように町名まで
+    # 貪欲に飲み込まれる。街区番地まで続くフル住所は ADDRESS が
+    # longer span を取るため衝突しない。
+    "PREFECTURE_CITY": [
+        (
+            "PREFECTURE_CITY",
+            r"(?:北海道|(?:東京|京都|大阪)(?:都|府)|.{2,3}県)"
+            r"(?:[^\s、。,市区町村郡]{1,6}[市区町村郡])",
+        ),
+    ],
+    # --- 住所 (Japanese addresses — prefecture + city + street) ---
     "ADDRESS": [
         (
             "ADDRESS",
@@ -362,7 +374,8 @@ def get_preset_patterns(
 
 #: Human-readable checklist for documentation / introspection.
 CATEGORY_DESCRIPTIONS: dict[str, str] = {
-    "ADDRESS": "日本語住所 (都道府県+市区町村)",
+    "PREFECTURE_CITY": "都道府県+市区町村単体 (例: 兵庫県明石市, 東京都渋谷区)",
+    "ADDRESS": "日本語住所 (都道府県+市区町村+番地)",
     "AGE": "年齢 (〇〇歳/才)",
     "GENDER": "性別 (男性/女性)",
     "MONETARY_AMOUNT": "金額 (円/ドル/$¥)",

@@ -92,6 +92,7 @@ LABEL_TO_CLASSIFICATION: Final[dict[str, str]] = {
     "URL": "contact",
     "IP_ADDRESS": "contact",
     "ADDRESS": "contact",          # a full street/postal address
+    "PREFECTURE_CITY": "contact",  # 都道府県+市区町村単体 (street なし)
     "POSTAL_CODE": "contact",
     # ---- identifier -----------------------------------------------------
     "EMPLOYEE_ID": "identifier",

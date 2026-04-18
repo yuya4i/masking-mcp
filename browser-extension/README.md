@@ -1,4 +1,8 @@
-# PII Guard — Browser Extension
+# 🛡️ PII Guard — Browser Extension
+
+> **🌐 Language / 言語**: [🇯🇵 日本語 (root README)](../README.md) ・ [🇺🇸 English (root README)](../README.en.md)
+>
+> This extension-specific README is in English — the root README above has the same content in both languages.
 
 Chrome MV3 extension that masks PII in outbound AI-service traffic
 before it leaves the browser. Targets Claude.ai, ChatGPT, Gemini,
@@ -13,9 +17,14 @@ point it at:
 | Gateway | standalone + FastAPI gateway (Presidio / Sudachi) | `make up` (`127.0.0.1:8081`) |
 | Local-LLM (v0.5.0+) | standalone + Ollama / LM Studio / llama.cpp | Ollama daemon on `127.0.0.1:11434` (LAN OK) |
 
-The dev build shipped on `feat/local-llm-proxy-v0.5.0` is
-`v1.1.0 / 0.5.0-dev` — **not** the current Web-Store build
-(`v1.0.0 / PII Guard`). Local-LLM mode is opt-in and experimental.
+**Current releases**:
+
+| Channel | Version | Source |
+|---|---|---|
+| Chrome Web Store (public) | `v1.0.1 / PII Guard` — standalone-only | `dist/browser-extension-store/` (produced by `scripts/build-store.sh`) |
+| Dev build (local LLM) | `v0.5.1-dev` — includes local-LLM proxy + `http://*/*` host permission | `browser-extension/` (this directory, unpacked load) |
+
+The dev build is *not* what ships to the Store — see [Building the Chrome Web Store variant](#building-the-chrome-web-store-variant) below. Local-LLM mode is opt-in and experimental.
 
 ## Install (developer mode)
 

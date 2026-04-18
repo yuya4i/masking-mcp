@@ -72,6 +72,7 @@ LABEL_TO_SEVERITY: Final[dict[str, str]] = {
     # but not a direct identity vector.
     "LOCATION": "medium",
     "PROPER_NOUN_LOCATION": "medium",
+    "PREFECTURE_CITY": "medium",
     "PROPER_NOUN_ORG": "medium",
     "ORGANIZATION": "medium",
     "COMPANY": "medium",

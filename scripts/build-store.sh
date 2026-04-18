@@ -84,8 +84,10 @@ if grep -q '"http://\*/\*"' "$DIST/manifest.json"; then
   fail "Store manifest still contains http://*/* — edit manifest.store.json"
 fi
 
-# 6b. no STORE-STRIP markers remain
-leftover=$(grep -rl "STORE-STRIP:" "$DIST" 2>/dev/null || true)
+# 6b. no STORE-STRIP markers remain in code files. README and docs may
+# mention the marker convention as prose — scan .js/.html/.json only.
+leftover=$(find "$DIST" -type f \( -name "*.js" -o -name "*.html" -o -name "*.json" \) \
+  -exec grep -l "STORE-STRIP:" {} + 2>/dev/null || true)
 if [ -n "$leftover" ]; then
   fail "STORE-STRIP markers leaked through: $leftover"
 fi
@@ -95,10 +97,13 @@ if [ -f "$DIST/manifest.store.json" ]; then
   fail "manifest.store.json still present in dist"
 fi
 
-# 6d. no references to deleted LLM engine files
+# 6d. no references to deleted LLM engine files in code (docs may describe
+# the build pipeline's behaviour — scan .js/.html/.json only).
 for dead in "engine/surrogates.js" "engine/llm-prompts.js"; do
-  if grep -rl "$dead" "$DIST" >/dev/null 2>&1; then
-    fail "remaining reference to deleted file '$dead' in dist — add STORE-STRIP markers around it"
+  hits=$(find "$DIST" -type f \( -name "*.js" -o -name "*.html" -o -name "*.json" \) \
+    -exec grep -l "$dead" {} + 2>/dev/null || true)
+  if [ -n "$hits" ]; then
+    fail "remaining reference to deleted file '$dead' in $hits — add STORE-STRIP markers around it"
   fi
 done
 

@@ -310,6 +310,8 @@ Windows タスクスケジューラに `MaskMcpGatewayAutostart` が登録され
 | 英語 PERSON / LOCATION / ORGANIZATION | 未対応 | 高 (Presidio NER) |
 
 標準では hybrid モードで動作し、ゲートウェイが `127.0.0.1:8081` で応答すればゲートウェイを使い、応答しなければ自動的に standalone エンジンへフォールバックします。
+検出が100%というわけではありません。あくまで補助的なツールとして利用して下さい。
+
 
 ## 使い方 (Gateway API)
 

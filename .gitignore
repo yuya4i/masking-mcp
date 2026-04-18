@@ -19,3 +19,6 @@ __pycache__/
 # OS / editor
 .DS_Store
 *.swp
+
+# build artifacts (Chrome Web Store variant — produced by scripts/build-store.sh)
+dist/

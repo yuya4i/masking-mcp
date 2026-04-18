@@ -116,8 +116,13 @@
     "engine/aggregate.js",
     "engine/force-mask.js",
     "engine/blocklist.js",
+    // STORE-STRIP:START — LLM-only engine files (dev build). The
+    // Chrome Web Store variant strips this block + deletes the two
+    // .js files via scripts/build-store.sh so no `http://*/*` LAN
+    // fetch path ever ships to Store users.
     "engine/surrogates.js",
     "engine/llm-prompts.js",
+    // STORE-STRIP:END
     "engine/engine.js",
     "engine/bundle.js",
   ];

@@ -27,6 +27,7 @@
     URL: "contact",
     IP_ADDRESS: "contact",
     ADDRESS: "contact",
+    PREFECTURE_CITY: "contact",
     POSTAL_CODE: "contact",
     // ---- identifier -----------------------------------------------------
     EMPLOYEE_ID: "identifier",

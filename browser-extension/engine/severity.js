@@ -24,6 +24,7 @@
     // ---- medium ---------------------------------------------------------
     LOCATION: "medium",
     PROPER_NOUN_LOCATION: "medium",
+    PREFECTURE_CITY: "medium",
     PROPER_NOUN_ORG: "medium",
     ORGANIZATION: "medium",
     COMPANY: "medium",

@@ -49,6 +49,40 @@ The dev build shipped on `feat/local-llm-proxy-v0.5.0` is
    extension icon badge should increment; the masked payload is what
    actually leaves your browser.
 
+## Building the Chrome Web Store variant
+
+The `browser-extension/` tree is the **dev build** — it includes the
+local-LLM proxy, `http://*/*` host permission, and the options-page
+LLM config card. None of that ships to the Web Store. Instead a
+single repo-root script produces a Store-only distributable from the
+same source tree.
+
+```bash
+./scripts/build-store.sh
+# → dist/browser-extension-store/         (unpacked, ready to Load unpacked)
+# → dist/browser-extension-store.zip      (upload to Developer Dashboard)
+```
+
+The script:
+
+1. copies `browser-extension/` → `dist/browser-extension-store/`
+2. replaces `manifest.json` with `manifest.store.json`
+   (no `http://*/*`, 6 chat-provider hosts only, no LLM engine files
+   in `web_accessible_resources`)
+3. deletes `engine/surrogates.js` and `engine/llm-prompts.js`
+4. strips every `STORE-STRIP:START … STORE-STRIP:END` block
+   (HTML `<!-- -->` and JS `//` comment forms both supported) —
+   currently one block in `content.js` (2 `ENGINE_FILES` entries)
+   and one in `options.html` (the entire **ローカル LLM 連携** card)
+5. validates the result: no `http://*/*` in manifest, no markers
+   leftover, no references to deleted files, manifest parses as
+   JSON, every `.js` passes `node --check`
+6. zips the dist for Web-Store upload
+
+If validation fails the script aborts loudly. To add a new dev-only
+code block to either tree, wrap it in `STORE-STRIP` markers and add
+one more entry to the "delete" step if it's a whole file.
+
 ## Supported services
 
 | Service | URL pattern | Status |

@@ -68,6 +68,10 @@
         </div>
       </section>
 
+      <!-- STORE-STRIP:START — Entire local-LLM card is dev-only.
+           scripts/build-store.sh deletes this block so the Chrome Web
+           Store variant never exposes a UI requiring http://*/* host
+           permission. -->
       <section class="card">
         <h2>
           ローカル LLM 連携
@@ -123,6 +127,7 @@
           <input type="number" id="llm-timeout" class="llm-number" min="2000" max="240000" step="1000" value="120000" />
         </div>
       </section>
+      <!-- STORE-STRIP:END -->
 
       <section class="card">
         <h2>エンジン</h2>

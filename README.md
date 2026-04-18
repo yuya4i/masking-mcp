@@ -17,7 +17,7 @@
 ![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)
 ![Ruff](https://img.shields.io/badge/lint-Ruff-D7FF64?logo=ruff&logoColor=black)
 
-生成 AI サービスへ送信する前に、ローカル PC 上で個人情報を検出・マスクする軽量ゲートウェイ + Chrome 拡張機能です。ブラウザ拡張 (Chrome MV3) が Claude.ai / ChatGPT / Manus の送信を横取りし、PII を検出します。オプションで FastAPI ゲートウェイ (Docker) と Presidio / SudachiPy / プリセット正規表現による多段アナライザを使用でき、さらに Ollama / LM Studio / llama.cpp によるローカル LLM を接続すれば文脈考慮型の追加検出と AI 置換モードが利用できます (v0.5.0+)。検出結果は送信直前にサイドバーでユーザー確認され、確定したものだけマスク済みペイロードとして送信されます。第三者サーバーへの送信はありません。
+生成 AI サービスへ送信する前に、ローカル PC 上で個人情報を検出・マスクする軽量ゲートウェイ + Chrome 拡張機能です。ブラウザ拡張 (Chrome MV3) が Claude.ai / ChatGPT / Manus の送信を横取りし、PII を検出します。オプションで FastAPI ゲートウェイ (Docker) と Presidio / SudachiPy / プリセット正規表現による多段アナライザを使用でき、さらに Ollama / LM Studio / llama.cpp によるローカル LLM を接続すれば文脈考慮型の追加検出と AI 置換モードが利用できます (v0.5.0+)。検出結果は送信直前にサイドバーでユーザー確認され、確定したものだけマスク済みペイロードとして送信されます。第三者サーバーへの送信はありません。(100%の検出が可能というわけではありません。補助的なツールとして利用ください。)
 
 現在のリリースは Chrome Web Store 公開版 `v1.0.1` (standalone-only) および dev ビルド `v0.5.1-dev` (local-LLM 対応) です。実装履歴は [CHANGELOG](./browser-extension/CHANGELOG.md)、ロードマップは [TODO.md](./TODO.md) を参照してください。
 

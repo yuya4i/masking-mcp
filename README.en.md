@@ -19,7 +19,18 @@
 
 A lightweight gateway and Chrome extension that detect and mask PII on the local machine before it is sent to generative AI services. The browser extension (Chrome MV3) intercepts outbound traffic on Claude.ai, ChatGPT, Gemini, and Manus and detects PII. Optionally, a FastAPI gateway (Docker) can be used for multi-stage analyzers based on Presidio, SudachiPy, and preset regular expressions; connecting a local LLM (Ollama, LM Studio, or llama.cpp) adds context-aware detection and an AI-replace mode (v0.5.0+). Detections are surfaced in a sidebar right before the send fires, and only confirmed items are transmitted as a masked payload. Nothing is sent to a third-party server.(This does not guarantee 100% detection. Please use it solely as a supplementary tool.)
 
-Current releases are the Chrome Web Store public build (`v1.0.1`, standalone only) and the dev build (`v0.5.1-dev`, local-LLM capable). See the [CHANGELOG](./browser-extension/CHANGELOG.md) and [TODO.md](./TODO.md) for history and roadmap.
+Current releases are the Chrome Web Store public build (`v1.1.0`, standalone-only, ships the dictionary fallback + drag-and-drop force-mask feature) and the dev build (`v1.4.0`, local-LLM capable). See the [CHANGELOG](./browser-extension/CHANGELOG.md) and [TODO.md](./TODO.md) for history and roadmap.
+
+### Highlights of v1.1.0 (Chrome Web Store public build)
+
+- **Static dictionary fallback layer** — detects top-50 Japanese surnames, all 47 prefectures, the 20 designated cities, major country names (JP + EN notations), and curated Western first names even when Sudachi is not enabled.
+- **New category `PREFECTURE_CITY`** — "兵庫県明石市" as a standalone category distinct from full street addresses.
+- **Drag-and-drop force-mask** — select text in the chat page, drag onto the sidebar, pick one of 9 categories, and the value is masked across every future submission. Dragging an already-detected value scrolls + highlights the existing row instead.
+- **Real-time re-aggregation on force-list change** — if "田中" is already detected and the user adds "田中 太郎", the overlap resolver picks the broader span and the count updates immediately.
+- **Categories collapsed by default** + all-expand / all-collapse toggle — keeps the sidebar scannable when many detections accumulate.
+- **Claude.ai relative URL support** (matches the queued v1.0.1 hotfix).
+- **30+ vendor-specific API key detectors** (added Perplexity / OpenRouter).
+- **Console log prefix renamed to `[pii-guard]`** for branding consistency.
 
 ## Table of contents
 

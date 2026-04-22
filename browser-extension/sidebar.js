@@ -1075,6 +1075,29 @@
       box-shadow: 0 0 0 rgba(79, 70, 229, 0.2);
     }
 
+    /* --- 全展開 / 全折畳 toggle ----------------------------------------- */
+    .collapse-toggle {
+      flex: 0 0 auto;
+      align-self: flex-start;
+      margin-bottom: 8px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 10px;
+      cursor: pointer;
+      transition: background var(--ease-fast), color var(--ease-fast),
+        border-color var(--ease-fast);
+    }
+    .collapse-toggle:hover,
+    .collapse-toggle:focus-visible {
+      background: var(--row-bg-hover);
+      border-color: var(--primary);
+      color: var(--text);
+      outline: none;
+    }
+
     /* --- Drop zone (drag text here to force-mask) ---------------------- */
     .drop-zone {
       flex: 0 0 auto;
@@ -1580,6 +1603,28 @@
       }
       body.appendChild(sevTabs);
 
+      // --- 全展開 / 全折畳トグル ---
+      // カテゴリは標準で折りたたみ状態なので、一発で全部見たい場合や
+      // 逆に畳み直したいケースに対応する小さなリンクを 1 本置く。
+      const collapseToggle = document.createElement("button");
+      collapseToggle.type = "button";
+      collapseToggle.className = "collapse-toggle";
+      collapseToggle.textContent = "\u25BE\u3000\u3059\u3079\u3066\u5C55\u958B"; // ▾ すべて展開
+      collapseToggle.setAttribute("aria-label", "\u30AB\u30C6\u30B4\u30EA\u306E\u4E00\u62EC\u5C55\u958B / \u6298\u308A\u305F\u305F\u307F");
+      let allExpanded = false;
+      collapseToggle.addEventListener("click", () => {
+        allExpanded = !allExpanded;
+        const cats = categoriesWrap.querySelectorAll(".category");
+        for (const c of cats) {
+          if (allExpanded) c.classList.remove("is-collapsed");
+          else c.classList.add("is-collapsed");
+        }
+        collapseToggle.textContent = allExpanded
+          ? "\u25B8\u3000\u3059\u3079\u3066\u6298\u308A\u305F\u305F\u3080" // ▸ すべて折りたたむ
+          : "\u25BE\u3000\u3059\u3079\u3066\u5C55\u958B";                // ▾ すべて展開
+      });
+      body.appendChild(collapseToggle);
+
       // --- Drop zone + category popover ---
       // サイドバー全体を drop target にしつつ、視覚ヒントとして
       // 常に見える細いバーを置く。drop 発生時に category 選択
@@ -1616,6 +1661,12 @@
       function scrollToAndFlashRow(rowKey) {
         const ctl = rowControls.get(rowKey);
         if (!ctl || !ctl.row) return;
+        // 対象行が折りたたまれているカテゴリ配下なら自動で展開してから
+        // スクロール。section.category → 親を辿って is-collapsed を解除。
+        const categoryEl = ctl.row.closest(".category");
+        if (categoryEl && categoryEl.classList.contains("is-collapsed")) {
+          categoryEl.classList.remove("is-collapsed");
+        }
         try {
           ctl.row.scrollIntoView({ behavior: "smooth", block: "center" });
         } catch (_) {
@@ -1813,6 +1864,11 @@
         const items = categoryMap.get(categoryName) || [];
         const wrap = document.createElement("section");
         wrap.className = "category";
+        // デフォルトは折りたたみ状態で描画 — 検出件数が多いときに
+        // リスト全体が縦に伸びて該当行を探しづらくなる問題への対処。
+        // 「全展開」ボタンで一括展開、該当行ジャンプ時はそのカテゴリ
+        // だけ自動展開される (後述 scrollToAndFlashRow を参照)。
+        wrap.classList.add("is-collapsed");
         const isLocked = items.every((r) => r.locked) && items.length > 0;
         if (isLocked) wrap.classList.add("is-locked");
 

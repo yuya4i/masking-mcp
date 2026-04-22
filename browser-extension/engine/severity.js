@@ -56,6 +56,17 @@
     POSTAL_CODE: "low",
     SKU: "low",
     KATAKANA_NAME: "low",
+    // USER_DEFINED_* — user-selected category maps to the category's
+    // default severity (PERSON→high, CREDENTIAL→critical, etc.).
+    USER_DEFINED_PERSON: "high",
+    USER_DEFINED_LOCATION: "medium",
+    USER_DEFINED_ORGANIZATION: "medium",
+    USER_DEFINED_CONTACT: "high",
+    USER_DEFINED_FINANCIAL: "critical",
+    USER_DEFINED_CREDENTIAL: "critical",
+    USER_DEFINED_IDENTITY: "low",
+    USER_DEFINED_INTERNAL_ID: "medium",
+    USER_DEFINED_OTHER: "medium",
   };
 
   function severityFor(label) {

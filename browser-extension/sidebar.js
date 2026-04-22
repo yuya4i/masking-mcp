@@ -1074,6 +1074,98 @@
       transform: scale(0.97);
       box-shadow: 0 0 0 rgba(79, 70, 229, 0.2);
     }
+
+    /* --- Drop zone (drag text here to force-mask) ---------------------- */
+    .drop-zone {
+      flex: 0 0 auto;
+      margin-bottom: 10px;
+      padding: 10px 12px;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      background: var(--row-bg);
+      color: var(--text-muted);
+      font-size: 11px;
+      text-align: center;
+      transition: background var(--ease-fast), border-color var(--ease-fast),
+        color var(--ease-fast);
+      user-select: none;
+    }
+    .drop-zone.dragover {
+      background: rgba(79, 70, 229, 0.08);
+      border-color: var(--primary);
+      color: var(--primary);
+      border-style: solid;
+    }
+    .drop-zone .drop-hint {
+      pointer-events: none;
+    }
+
+    /* --- Drop popover (category picker after drop) -------------------- */
+    .drop-popover {
+      flex: 0 0 auto;
+      margin-bottom: 10px;
+      padding: 12px;
+      border: 1px solid var(--primary);
+      border-radius: 8px;
+      background: var(--bg-panel);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+      font-size: 12px;
+    }
+    .drop-popover-header {
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+    .drop-popover-value {
+      display: inline-block;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+      font-weight: 600;
+      vertical-align: bottom;
+    }
+    .drop-popover-chips {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .drop-popover-chip {
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--row-bg);
+      color: var(--text);
+      font-size: 11px;
+      cursor: pointer;
+      text-align: left;
+      transition: background var(--ease-fast), border-color var(--ease-fast),
+        transform var(--ease-fast);
+    }
+    .drop-popover-chip:hover {
+      border-color: var(--primary);
+      background: rgba(79, 70, 229, 0.08);
+    }
+    .drop-popover-chip:active { transform: scale(0.97); }
+    .drop-popover-chip[data-sev="critical"] { border-left: 3px solid var(--sev-critical); }
+    .drop-popover-chip[data-sev="high"]     { border-left: 3px solid var(--sev-high); }
+    .drop-popover-chip[data-sev="medium"]   { border-left: 3px solid var(--sev-medium); }
+    .drop-popover-chip[data-sev="low"]      { border-left: 3px solid var(--sev-low); }
+    .drop-popover-cancel {
+      width: 100%;
+      padding: 6px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .drop-popover-cancel:hover {
+      background: var(--row-bg-hover);
+      color: var(--text);
+    }
   `;
 
   // Normalise severity to one of the four tiers the CSS knows about.
@@ -1420,6 +1512,115 @@
       }
       body.appendChild(sevTabs);
 
+      // --- Drop zone + category popover ---
+      // サイドバー全体を drop target にしつつ、視覚ヒントとして
+      // 常に見える細いバーを置く。drop 発生時に category 選択
+      // popover に切り替わる。
+      const dropZone = document.createElement("div");
+      dropZone.className = "drop-zone";
+      const dropHint = document.createElement("span");
+      dropHint.className = "drop-hint";
+      dropHint.textContent = "\u2795 チャットのテキストをここにドラッグしてマスク対象に追加";
+      dropZone.appendChild(dropHint);
+      body.appendChild(dropZone);
+
+      const dropPopover = document.createElement("div");
+      dropPopover.className = "drop-popover";
+      dropPopover.hidden = true;
+      body.appendChild(dropPopover);
+
+      function closeDropPopover() {
+        dropPopover.replaceChildren();
+        dropPopover.hidden = true;
+      }
+
+      function openDropPopover(value) {
+        dropPopover.replaceChildren();
+        const header = document.createElement("div");
+        header.className = "drop-popover-header";
+        const valEl = document.createElement("div");
+        valEl.className = "drop-popover-value";
+        valEl.textContent = '"' + value + '"';
+        valEl.title = value;
+        const hint = document.createElement("small");
+        hint.textContent = " をマスクするカテゴリを選択:";
+        header.appendChild(valEl);
+        header.appendChild(hint);
+        dropPopover.appendChild(header);
+
+        const chipsWrap = document.createElement("div");
+        chipsWrap.className = "drop-popover-chips";
+        // category → default severity (sidebar 色付けと一致)
+        const CAT_CHOICES = [
+          { cat: "PERSON", sev: "high", label: "人名 / PERSON" },
+          { cat: "LOCATION", sev: "medium", label: "地名 / LOCATION" },
+          { cat: "ORGANIZATION", sev: "medium", label: "組織 / ORGANIZATION" },
+          { cat: "CONTACT", sev: "high", label: "連絡先 / CONTACT" },
+          { cat: "FINANCIAL", sev: "critical", label: "金融 / FINANCIAL" },
+          { cat: "CREDENTIAL", sev: "critical", label: "認証 / CREDENTIAL" },
+          { cat: "IDENTITY", sev: "low", label: "属性 / IDENTITY" },
+          { cat: "INTERNAL_ID", sev: "medium", label: "社内 ID" },
+          { cat: "OTHER", sev: "medium", label: "その他" },
+        ];
+        for (const { cat, sev, label } of CAT_CHOICES) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "drop-popover-chip";
+          btn.dataset.sev = sev;
+          btn.dataset.cat = cat;
+          btn.textContent = label + " (" + sev + ")";
+          btn.addEventListener("click", () => {
+            // content.js へ直接通知 (allowlist と同じルート)
+            try {
+              window.postMessage({
+                source: "mask-mcp-inpage",
+                type: "add-forcelist",
+                value,
+                category: cat,
+              }, "*");
+            } catch (_) {}
+            closeDropPopover();
+          });
+          chipsWrap.appendChild(btn);
+        }
+        dropPopover.appendChild(chipsWrap);
+
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "drop-popover-cancel";
+        cancel.textContent = "キャンセル";
+        cancel.addEventListener("click", closeDropPopover);
+        dropPopover.appendChild(cancel);
+        dropPopover.hidden = false;
+      }
+
+      // panel 全体で drag を受ける。dragover の preventDefault を
+      // 呼ばないと drop が発生しないので、全イベントで抑止する。
+      const onDragEnter = (e) => {
+        e.preventDefault();
+        dropZone.classList.add("dragover");
+      };
+      const onDragOver = (e) => { e.preventDefault(); };
+      const onDragLeave = (e) => {
+        // panel 外に出るタイミング以外でも leave が fire することがあるので、
+        // ターゲットが panel 外のときだけハイライトを解除。
+        if (!panel.contains(e.relatedTarget)) {
+          dropZone.classList.remove("dragover");
+        }
+      };
+      const onDrop = (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("dragover");
+        const raw = e.dataTransfer && e.dataTransfer.getData("text/plain");
+        const value = typeof raw === "string" ? raw.trim() : "";
+        if (!value) return;
+        openDropPopover(value);
+      };
+      panel.addEventListener("dragenter", onDragEnter);
+      panel.addEventListener("dragover", onDragOver);
+      panel.addEventListener("dragleave", onDragLeave);
+      panel.addEventListener("drop", onDrop);
+
       function applySevFilter() {
         const cats = categoriesWrap.querySelectorAll(".category");
         for (const cat of cats) {
@@ -1684,21 +1885,43 @@
         // — the category header already carries the lock icon for
         // the whole group. See renderCategory() above.
 
+        // USER_DEFINED_* 行はユーザー自身がドラッグで追加した force-mask
+        // entry。除外ボタンは「削除」挙動 (storage から entry を消す) に
+        // 切り替える。通常の検出行は従来通り allowlist 追加。
+        const isUserForceRow = typeof row.label === "string"
+          && row.label.startsWith("USER_DEFINED_");
         const excludeBtn = document.createElement("button");
         excludeBtn.className = "exclude-btn";
-        excludeBtn.textContent = "\u2716 \u9664\u5916";
-        excludeBtn.title = "\u30DE\u30B9\u30AD\u30F3\u30B0\u4E0D\u8981\u30EA\u30B9\u30C8\u306B\u8FFD\u52A0";
+        excludeBtn.textContent = isUserForceRow
+          ? "\u2716 \u524a\u9664"   // ✖ 削除
+          : "\u2716 \u9664\u5916";  // ✖ 除外
+        excludeBtn.title = isUserForceRow
+          ? "force-mask list \u304B\u3089\u524A\u9664"
+          : "\u30DE\u30B9\u30AD\u30F3\u30B0\u4E0D\u8981\u30EA\u30B9\u30C8\u306B\u8FFD\u52A0";
         excludeBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           try {
-            window.postMessage({
-              source: "mask-mcp-inpage",
-              type: "add-allowlist",
-              value: row.value,
-            }, "*");
+            if (isUserForceRow) {
+              // label の USER_DEFINED_ プレフィックスを剥がして元カテゴリを復元
+              const cat = row.label.replace(/^USER_DEFINED_/, "") || "OTHER";
+              window.postMessage({
+                source: "mask-mcp-inpage",
+                type: "remove-forcelist",
+                value: row.value,
+                category: cat,
+              }, "*");
+            } else {
+              window.postMessage({
+                source: "mask-mcp-inpage",
+                type: "add-allowlist",
+                value: row.value,
+              }, "*");
+            }
           } catch (_) {}
           setState(false);
-          excludeBtn.textContent = "\u2714 \u9664\u5916\u6E08";
+          excludeBtn.textContent = isUserForceRow
+            ? "\u2714 \u524a\u9664\u6E08"   // ✔ 削除済
+            : "\u2714 \u9664\u5916\u6E08";  // ✔ 除外済
           excludeBtn.disabled = true;
         });
         line2.appendChild(excludeBtn);

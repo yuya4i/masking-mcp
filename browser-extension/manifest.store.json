@@ -43,6 +43,7 @@
         "engine/aggregate.js",
         "engine/force-mask.js",
         "engine/blocklist.js",
+        "engine/user-force-mask.js",
         "engine/engine.js",
         "engine/bundle.js"
       ],

@@ -63,6 +63,8 @@ LABEL_TO_SEVERITY: Final[dict[str, str]] = {
     # Direct personally-identifying data.
     "PERSON": "high",
     "PROPER_NOUN_PERSON": "high",
+    "JP_SURNAME": "high",
+    "WESTERN_FIRST_NAME": "high",
     "EMAIL_ADDRESS": "high",
     "PHONE_NUMBER": "high",
     "ADDRESS": "high",
@@ -73,6 +75,9 @@ LABEL_TO_SEVERITY: Final[dict[str, str]] = {
     "LOCATION": "medium",
     "PROPER_NOUN_LOCATION": "medium",
     "PREFECTURE_CITY": "medium",
+    "JP_PREFECTURE_DICT": "medium",
+    "JP_DESIGNATED_CITY": "medium",
+    "WORLD_COUNTRY": "medium",
     "PROPER_NOUN_ORG": "medium",
     "ORGANIZATION": "medium",
     "COMPANY": "medium",

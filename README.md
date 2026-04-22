@@ -111,6 +111,11 @@
 | 電話番号 | `PHONE_NUMBER` | 090-1234-5678, 03-1234-5678 | Presidio / プリセット |
 | 都道府県+市区町村 | `PREFECTURE_CITY` | 東京都渋谷区 | プリセット正規表現 |
 | 住所 (番地まで) | `ADDRESS` | 東京都渋谷区1丁目2番3号 | プリセット正規表現 |
+| 都道府県 (単体) | `JP_PREFECTURE_DICT` | 東京都 / 大阪府 (47 都道府県) | 静的辞書 |
+| 政令指定都市 (単体) | `JP_DESIGNATED_CITY` | 札幌市 / 横浜市 / 大阪市 (20 市) | 静的辞書 |
+| 主要国名 | `WORLD_COUNTRY` | 日本 / Japan / 米国 / USA / France 等 (G20 + 主要アジア) | 静的辞書 |
+| 日本人苗字 | `JP_SURNAME` | 佐藤 / 鈴木 / 高橋 / 田中 … (top 50) | 静的辞書 |
+| Western first names | `WESTERN_FIRST_NAME` | John / Mary / David 等 (curated) | 静的辞書 |
 | 年齢 | `AGE` | 35歳 | プリセット正規表現 |
 | 性別 | `GENDER` | 男性 / 女性 | プリセット正規表現 |
 | 会社名 | `COMPANY` | 株式会社マスクテスト | プリセット正規表現 |
@@ -130,6 +135,8 @@
 | 組織名 | `PROPER_NOUN_ORG` | グーグル | Sudachi |
 
 **`PREFECTURE_CITY` と `ADDRESS` の使い分け**: 「東京都渋谷区」のような都道府県+市区町村単体は `PREFECTURE_CITY` として検出されます。「東京都渋谷区1丁目2番3号」のように番地まで続く場合は `ADDRESS` が longer span として勝ち、overlap resolver が自動で解決します。
+
+**辞書ベース fallback カテゴリ** (`JP_SURNAME` / `JP_PREFECTURE_DICT` / `JP_DESIGNATED_CITY` / `WORLD_COUNTRY` / `WESTERN_FIRST_NAME`): Sudachi / Presidio を有効にしていない standalone 構成でも、日本の主要苗字・都道府県・政令指定都市・主要国名・Western 名を確実にマスク対象にする静的辞書層です。辞書本体は `browser-extension/engine/dictionaries.js` と `src/app/services/analyzers/dictionaries.py` で同じ内容を保持しています。名を辞書に追加する場合は両方を同時に更新してください。
 
 ### ビジネス文書向け 15 カテゴリ (Milestone 8 Wave A)
 
@@ -197,8 +204,8 @@
 | Severity | 対象ラベル (抜粋) | UI 色 | UI 挙動 |
 |---|---|---|---|
 | critical | `MY_NUMBER`, `PASSPORT`, `DRIVERS_LICENSE`, `CREDIT_CARD`, `BANK_ACCOUNT`, `API_KEY`, `SECRET`, `DB_CONNECTION`, + 動的昇格 | rose `#e11d48` | `force_masked_categories` 由来のロック行のみ長押し (0–1.5s) 必要 |
-| high | `PHONE_NUMBER`, `ADDRESS`, `PATIENT_ID` | orange `#ea580c` | クリックで切替 |
-| medium | `LOCATION`, `PREFECTURE_CITY`, `EMPLOYEE_ID`, `MEMBER_ID`, `CUSTOMER_ID`, `CONTRACT_NUMBER`, `MONETARY_AMOUNT`, `URL`, `IP_ADDRESS` 他 | yellow `#ca8a04` | クリックで切替 |
+| high | `PHONE_NUMBER`, `ADDRESS`, `PATIENT_ID`, `JP_SURNAME`, `WESTERN_FIRST_NAME` | orange `#ea580c` | クリックで切替 |
+| medium | `LOCATION`, `PREFECTURE_CITY`, `JP_PREFECTURE_DICT`, `JP_DESIGNATED_CITY`, `WORLD_COUNTRY`, `EMPLOYEE_ID`, `MEMBER_ID`, `CUSTOMER_ID`, `CONTRACT_NUMBER`, `MONETARY_AMOUNT`, `URL`, `IP_ADDRESS` 他 | yellow `#ca8a04` | クリックで切替 |
 | low | `AGE`, `GENDER`, `DATE`, `BLOOD_TYPE`, `POSTAL_CODE`, `SKU`, `KATAKANA_NAME` | slate `#64748b` | クリックで切替 |
 
 ### Surface-aware 昇格ルール

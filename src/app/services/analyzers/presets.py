@@ -41,6 +41,15 @@ Design decisions
 
 from __future__ import annotations
 
+from app.services.analyzers.dictionaries import (
+    JP_DESIGNATED_CITY_PATTERN,
+    JP_PREFECTURE_PATTERN,
+    JP_SURNAME_PATTERN,
+    WESTERN_FIRST_NAME_PATTERN,
+    WORLD_COUNTRY_EN_PATTERN,
+    WORLD_COUNTRY_JP_PATTERN,
+)
+
 
 BUILTIN_PATTERNS: dict[str, list[tuple[str, str]]] = {
     # --- 都道府県 + 市区町村単体 (兵庫県明石市 / 東京都渋谷区 等) ---
@@ -203,6 +212,10 @@ BUILTIN_PATTERNS: dict[str, list[tuple[str, str]]] = {
         ("API_KEY", r"\blin_(?:api|oauth)_[A-Za-z0-9]{32,}\b"),
         # Figma
         ("API_KEY", r"\bfigd_[A-Za-z0-9_\-]{40,}"),
+        # Perplexity
+        ("API_KEY", r"\bpplx-[A-Za-z0-9]{32,}\b"),
+        # OpenRouter
+        ("API_KEY", r"\bsk-or-v1-[A-Za-z0-9]{40,}\b"),
         # Discord bot token
         ("API_KEY", r"\b[MN][A-Za-z\d]{23}\.[\w\-]{6}\.[\w\-]{27,}\b"),
         # Cloudflare tokens
@@ -350,6 +363,18 @@ BUILTIN_PATTERNS: dict[str, list[tuple[str, str]]] = {
     "LICENSE_NUMBER": [
         ("LICENSE_NUMBER", r"\b(?:LIC|LICENSE)[_\-][\w\-]{4,20}\b"),
     ],
+    # --- 辞書ベース fallback カテゴリ ---
+    # Sudachi / Presidio が無効な standalone 状態でも、主要な日本の
+    # 苗字・都道府県・政令指定都市・主要国名・Western 名を確実に検出。
+    # 辞書本体は app.services.analyzers.dictionaries に定義。
+    "JP_SURNAME": [("JP_SURNAME", JP_SURNAME_PATTERN)],
+    "JP_PREFECTURE_DICT": [("JP_PREFECTURE_DICT", JP_PREFECTURE_PATTERN)],
+    "JP_DESIGNATED_CITY": [("JP_DESIGNATED_CITY", JP_DESIGNATED_CITY_PATTERN)],
+    "WORLD_COUNTRY": [
+        ("WORLD_COUNTRY", WORLD_COUNTRY_JP_PATTERN),
+        ("WORLD_COUNTRY", WORLD_COUNTRY_EN_PATTERN),
+    ],
+    "WESTERN_FIRST_NAME": [("WESTERN_FIRST_NAME", WESTERN_FIRST_NAME_PATTERN)],
 }
 
 
@@ -409,4 +434,10 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "PATENT_NUMBER": "特許番号 (特許/特願/特公/特開, JP/US/EP/WO)",
     "ASSET_NUMBER": "資産番号 / 資産コード",
     "LICENSE_NUMBER": "ライセンス番号 (免許証以外)",
+    # --- 辞書ベース fallback カテゴリ ---
+    "JP_SURNAME": "日本人苗字 (curated top 50、多字のみ)",
+    "JP_PREFECTURE_DICT": "日本の都道府県 (47 完全収録、単体検出用)",
+    "JP_DESIGNATED_CITY": "政令指定都市 (20 完全収録、単体検出用)",
+    "WORLD_COUNTRY": "主要国名 (JP + EN 表記、G20 + 主要アジア諸国)",
+    "WESTERN_FIRST_NAME": "Western first names (business-common, curated)",
 }

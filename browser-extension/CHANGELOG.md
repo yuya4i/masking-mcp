@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.6.0 — Dictionary-based fallback detection layer (2026-04-22)
+
+Adds a curated static dictionary for PII detection that fires even when
+Sudachi / Presidio are disabled (standalone mode). Mirrors the same data
+between `browser-extension/engine/dictionaries.js` and
+`src/app/services/analyzers/dictionaries.py`.
+
+### New categories
+
+- `JP_SURNAME` — top 50 Japanese surnames (multi-char only, unambiguous
+  with common nouns; single-char surnames like 林/森/川 intentionally
+  excluded). severity=high, category=PERSON.
+- `JP_PREFECTURE_DICT` — all 47 prefectures (単体検出用; complements
+  `PREFECTURE_CITY` which requires prefecture+city). severity=medium.
+- `JP_DESIGNATED_CITY` — 20 政令指定都市 complete. severity=medium.
+- `WORLD_COUNTRY` — G20 + major Asian country names, JP + EN notations.
+  severity=medium.
+- `WESTERN_FIRST_NAME` — 26 business-common Western first names,
+  curated to avoid ambiguity with common nouns. severity=high.
+
+### Additional vendor API keys
+
+- Perplexity: `pplx-[A-Za-z0-9]{32,}`
+- OpenRouter: `sk-or-v1-[A-Za-z0-9]{40,}`
+
+### Implementation notes
+
+- ASCII-only boundary assertions `(?<![A-Za-z])...(?![A-Za-z])` used for
+  English patterns (instead of `\b`) so Python's Unicode `\w` doesn't
+  falsely suppress matches next to Japanese characters.
+- `browser-extension/engine/dictionaries.js` loads before `patterns.js`
+  (ENGINE_FILES ordering in content.js); patterns.js reads the
+  pre-compiled regex via the shared `window.__localMaskMCP.engine`
+  namespace, or falls back to `require("./dictionaries.js")` in Node.
+- Store build pipeline (`scripts/build-store.sh`) correctly includes
+  `dictionaries.js` in the distributable. Size delta: +~4 KB uncompressed.
+
 ## 0.5.1 — Claude.ai interception fix + adapter coverage (2026-04-18)
 
 Follow-up patch to v0.5.0 addressing a reproducible "sidebar never

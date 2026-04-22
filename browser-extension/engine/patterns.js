@@ -4,6 +4,14 @@
 "use strict";
 
 (function attach(root) {
+  // Dictionary module (JP surnames / prefectures / world countries / ...).
+  // Loaded via ENGINE_FILES ordering (content.js) before this file, or
+  // required directly in Node/CommonJS contexts (tests).
+  const dicts =
+    (typeof module === "object" && module.exports && typeof require === "function")
+      ? (() => { try { return require("./dictionaries.js"); } catch (_) { return null; } })()
+      : (root && root.__localMaskMCP && root.__localMaskMCP.engine && root.__localMaskMCP.engine.dictionaries) || null;
+
   // Shorthand so the table below stays readable.
   const T = (entity_type, pattern) => ({ entity_type, pattern });
 
@@ -121,6 +129,10 @@
       T("API_KEY", /\blin_(?:api|oauth)_[A-Za-z0-9]{32,}\b/gu),
       // Figma
       T("API_KEY", /\bfigd_[A-Za-z0-9_\-]{40,}/gu),
+      // Perplexity
+      T("API_KEY", /\bpplx-[A-Za-z0-9]{32,}\b/gu),
+      // OpenRouter
+      T("API_KEY", /\bsk-or-v1-[A-Za-z0-9]{40,}\b/gu),
       // Discord bot token
       T("API_KEY", /\b[MN][A-Za-z\d]{23}\.[\w\-]{6}\.[\w\-]{27,}\b/gu),
       // Cloudflare API tokens (40 base64url chars after slash-free prefix)
@@ -202,6 +214,23 @@
       T("ASSET_NUMBER", /資産(?:番号|コード)\s*[:：=]\s*[\w\-]+/gu),
     ],
     LICENSE_NUMBER: [T("LICENSE_NUMBER", /\b(?:LIC|LICENSE)[_\-][\w\-]{4,20}\b/gu)],
+
+    // ---- 辞書ベース fallback カテゴリ (dictionaries.js) -------------
+    // Sudachi / Presidio が有効化されていない standalone 状態でも、
+    // 日本の主要苗字・都道府県・政令指定都市・主要国名・Western 名
+    // を確実にマスク対象にする。各カテゴリは dictionaries.js の
+    // pre-compiled regex を参照。dicts が null の場合 (依存解決失敗)
+    // は黙ってスキップする。
+    ...(dicts ? {
+      JP_SURNAME: [T("JP_SURNAME", dicts.JP_SURNAME_RE)],
+      JP_PREFECTURE_DICT: [T("JP_PREFECTURE_DICT", dicts.JP_PREFECTURE_RE)],
+      JP_DESIGNATED_CITY: [T("JP_DESIGNATED_CITY", dicts.JP_DESIGNATED_CITY_RE)],
+      WORLD_COUNTRY: [
+        T("WORLD_COUNTRY", dicts.WORLD_COUNTRY_JP_RE),
+        T("WORLD_COUNTRY", dicts.WORLD_COUNTRY_EN_RE),
+      ],
+      WESTERN_FIRST_NAME: [T("WESTERN_FIRST_NAME", dicts.WESTERN_FIRST_NAME_RE)],
+    } : {}),
   };
 
   // Mirror of presets.get_preset_patterns(disabled_categories).

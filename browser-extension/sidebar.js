@@ -968,6 +968,29 @@
       border-top: 1px solid var(--border);
       background: var(--bg);
       position: relative;
+      transition: max-height 0.2s ease, padding 0.2s ease, opacity 0.2s ease;
+    }
+    /* ドラッグ popover 表示中はプレビュー本体を折りたたんで
+       カテゴリ選択とリスト表示の画面占有を確保する。
+       h3 (プレビューと書かれた見出し) だけ残して何が折りたたまれているか
+       はユーザーに見えるようにする (cursor: pointer で開閉可能)。 */
+    .preview-section.preview-collapsed {
+      max-height: 28px;
+      padding-top: 6px;
+      padding-bottom: 6px;
+      overflow: hidden;
+      opacity: 0.7;
+    }
+    .preview-section.preview-collapsed h3 {
+      margin-bottom: 0;
+      cursor: pointer;
+    }
+    .preview-section.preview-collapsed h3::after {
+      content: "  \u25B8";  /* ▸ = 折りたたみ中 */
+      color: var(--text-muted);
+    }
+    .preview-section.preview-collapsed .preview {
+      display: none;
     }
     .preview-section::before {
       /* Soft gradient fade at the top edge so content scrolling
@@ -1642,9 +1665,19 @@
       dropPopover.hidden = true;
       body.appendChild(dropPopover);
 
+      function setPreviewCollapsed(flag) {
+        // previewSection はこの関数よりも後で生成されるので、closure 経由で
+        // ランタイム時に参照する。undefined の間 (初期描画中に誤って呼ばれた
+        // 場合) は黙って no-op。
+        const ps = typeof previewSection !== "undefined" ? previewSection : null;
+        if (!ps) return;
+        ps.classList.toggle("preview-collapsed", !!flag);
+      }
+
       function closeDropPopover() {
         dropPopover.replaceChildren();
         dropPopover.hidden = true;
+        setPreviewCollapsed(false);
       }
 
       // ドロップされた value が既に検出済みの aggregated row と一致するか
@@ -1679,6 +1712,7 @@
       }
 
       function showExistingDetectionPopover(value, matches) {
+        setPreviewCollapsed(true);
         dropPopover.replaceChildren();
         const header = document.createElement("div");
         header.className = "drop-popover-header";
@@ -1749,6 +1783,7 @@
       }
 
       function openDropPopover(value) {
+        setPreviewCollapsed(true);
         dropPopover.replaceChildren();
         const header = document.createElement("div");
         header.className = "drop-popover-header";
@@ -2390,6 +2425,14 @@
       previewSection.className = "preview-section";
       const previewTitle = document.createElement("h3");
       previewTitle.textContent = "プレビュー";
+      // 折りたたみ中に見出しをクリックしたら即座に展開できる。
+      // openDropPopover 側が自動で畳んだ状態でもユーザーが明示的に
+      // peek できる逃げ道を確保する。
+      previewTitle.addEventListener("click", () => {
+        if (previewSection.classList.contains("preview-collapsed")) {
+          previewSection.classList.remove("preview-collapsed");
+        }
+      });
       const previewBox = document.createElement("div");
       previewBox.className = "preview";
       previewBox.id = "mcp-sb-preview";

@@ -43,13 +43,18 @@ Follow-up polish on the drag-to-sidebar force-mask flow. Groups PRs
   ...}, row, setState}`). The DOM element lives at
   `ctl.control.element`. Fixed with defensive guards.
 
-### Diagnostics
+### Branding
 
-- `[mask-mcp]` console.debug traces across sidebar.js, content.js,
-  injected.js covering the full forcelist hop chain (chip click →
-  postMessage → storage.set → storage.onChanged → broadcastSettings
-  → injected event → sidebar recompute). Non-invasive, can be kept
-  for future field debugging.
+- Console log prefix renamed from `[mask-mcp]` → `[pii-guard]` across
+  sidebar.js, content.js, injected.js, engine/bundle.js,
+  browser-extension/README.md. Internal protocol identifiers
+  (`mask-mcp-inpage` / `mask-mcp-content` postMessage tags,
+  `mask-mcp:settings-updated` / `mask-mcp:engine-ready` CustomEvent
+  names, `data-mask-mcp-*` DOM attributes, `mask-mcp-flash` CSS
+  keyframe) are unchanged to preserve storage and compat.
+- Verbose diagnostic logs added for the forcelist hop chain (added
+  #22 / #24) removed now that the flow is verified. Operational
+  warnings and gateway/LLM status messages kept.
 
 ## 0.7.0 — Drag-to-sidebar force-mask (2026-04-22)
 

@@ -79,10 +79,10 @@
     const ok = await probeGateway();
     const elapsed = Date.now() - t0;
     if (ok) {
-      console.debug("[mask-mcp] gateway warmup ok in", elapsed + "ms");
+      console.debug("[pii-guard] gateway warmup ok in", elapsed + "ms");
     } else {
       console.debug(
-        "[mask-mcp] gateway unreachable at warmup — standalone engine will handle masking"
+        "[pii-guard] gateway unreachable at warmup — standalone engine will handle masking"
       );
     }
   })();
@@ -135,7 +135,7 @@
   injectScript("sidebar.js");
   injectScript("injected.js");
   console.debug(
-    "[mask-mcp] injected",
+    "[pii-guard] injected",
     ENGINE_FILES.length + 3,
     "scripts (engine + ui + hook)"
   );
@@ -178,11 +178,6 @@
       interactive = true;
       uiMode = "sidebar";
     }
-    console.debug("[mask-mcp] broadcastSettings posting", {
-      interactive, uiMode,
-      allowlistLen: maskAllowlist.length,
-      forceListLen: maskForceList.length,
-    });
     window.postMessage(
       {
         source: TAG_OUT,
@@ -197,7 +192,6 @@
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local") return;
       if ("interactive" in changes || "uiMode" in changes || "maskAllowlist" in changes || "maskForceList" in changes) {
-        console.debug("[mask-mcp] storage.onChanged → rebroadcasting settings", Object.keys(changes));
         broadcastSettings();
       }
     });
@@ -230,7 +224,6 @@
 
     // Force-mask list add — drop-and-pick-category flow from the sidebar.
     if (data.type === "add-forcelist" && typeof data.value === "string") {
-      console.debug("[mask-mcp] content received add-forcelist", { value: data.value, category: data.category });
       (async () => {
         try {
           const { maskForceList = [] } = await chrome.storage.local.get("maskForceList");
@@ -244,12 +237,9 @@
           if (v && !normalized.some((e) => e.value === v && e.category === cat)) {
             normalized.push({ value: v, category: cat });
             await chrome.storage.local.set({ maskForceList: normalized });
-            console.debug("[mask-mcp] content wrote maskForceList, entries now =", normalized.length);
-          } else {
-            console.debug("[mask-mcp] content skipped write (empty value or duplicate)");
           }
         } catch (e) {
-          console.debug("[mask-mcp] content add-forcelist failed:", e && e.message ? e.message : e);
+          console.warn("[pii-guard] force-mask add failed:", e && e.message ? e.message : e);
         }
       })();
       return;
@@ -348,14 +338,14 @@
           const elapsed = Date.now() - t0;
           if (elapsed > 1500) {
             console.info(
-              "[mask-mcp] gateway slow:",
+              "[pii-guard] gateway slow:",
               elapsed + "ms",
               "url:",
               url
             );
           }
         } else {
-          console.warn("[mask-mcp] gateway returned", resp.status, "for", url);
+          console.warn("[pii-guard] gateway returned", resp.status, "for", url);
         }
       } finally {
         clearTimeout(timer);
@@ -364,13 +354,13 @@
       const elapsed = Date.now() - t0;
       if (err && err.name === "AbortError") {
         console.warn(
-          "[mask-mcp] gateway timed out after",
+          "[pii-guard] gateway timed out after",
           elapsed + "ms (limit",
           GATEWAY_TIMEOUT_MS + "ms)."
         );
       } else {
         console.warn(
-          "[mask-mcp] gateway call failed after",
+          "[pii-guard] gateway call failed after",
           elapsed + "ms:",
           err?.message || err,
           "url:",
@@ -549,7 +539,7 @@
     let timeoutTries = 0;
     const callStart = Date.now();
     console.debug(
-      "[mask-mcp] llm fetch start:",
+      "[pii-guard] llm fetch start:",
       url,
       "timeout=" + (config.timeoutMs || 120000) + "ms",
     );
@@ -569,7 +559,7 @@
             : j?.message?.content;
           result = result || null;
           console.debug(
-            `[mask-mcp] llm fetch OK in ${Date.now() - callStart}ms, content=${
+            `[pii-guard] llm fetch OK in ${Date.now() - callStart}ms, content=${
               result ? result.length + " chars" : "EMPTY"
             }${result ? "" : " (check num_predict / think settings)"}`,
           );
@@ -583,7 +573,7 @@
         if (warming && warmupTries < WARMUP_MAX) {
           warmupTries++;
           console.debug(
-            `[mask-mcp] llm warming up (${warmupTries}/${WARMUP_MAX}), waiting ${WARMUP_DELAY_MS}ms…`
+            `[pii-guard] llm warming up (${warmupTries}/${WARMUP_MAX}), waiting ${WARMUP_DELAY_MS}ms…`
           );
           await new Promise((r) => setTimeout(r, WARMUP_DELAY_MS));
           continue;
@@ -597,21 +587,21 @@
         if (abortLike && timeoutTries < TIMEOUT_MAX) {
           timeoutTries++;
           console.debug(
-            `[mask-mcp] llm inference timeout (${timeoutTries}/${TIMEOUT_MAX}), retrying…`
+            `[pii-guard] llm inference timeout (${timeoutTries}/${TIMEOUT_MAX}), retrying…`
           );
           await new Promise((r) => setTimeout(r, TIMEOUT_DELAY_MS));
           continue;
         }
         if (resp && resp.status === 403) {
           console.warn(
-            "[mask-mcp] Ollama returned 403 (CORS). Set OLLAMA_ORIGINS=" +
+            "[pii-guard] Ollama returned 403 (CORS). Set OLLAMA_ORIGINS=" +
               "chrome-extension://* or restart ollama with " +
               "OLLAMA_ORIGINS=* env. Docker: `docker run -e OLLAMA_ORIGINS=* ...` " +
               "or `docker exec ollama sh -c 'export OLLAMA_ORIGINS=*'` then restart."
           );
         } else {
           console.debug(
-            "[mask-mcp] llm call non-ok:",
+            "[pii-guard] llm call non-ok:",
             resp && (resp.status || resp.error),
             resp && resp.body && resp.body.slice(0, 200)
           );
@@ -622,12 +612,12 @@
         if (isAbort && timeoutTries < TIMEOUT_MAX) {
           timeoutTries++;
           console.debug(
-            `[mask-mcp] llm inference timeout (${timeoutTries}/${TIMEOUT_MAX}), retrying…`
+            `[pii-guard] llm inference timeout (${timeoutTries}/${TIMEOUT_MAX}), retrying…`
           );
           await new Promise((r) => setTimeout(r, TIMEOUT_DELAY_MS));
           continue;
         }
-        console.debug("[mask-mcp] llm call failed:", err?.message || err);
+        console.debug("[pii-guard] llm call failed:", err?.message || err);
         break;
       }
     }

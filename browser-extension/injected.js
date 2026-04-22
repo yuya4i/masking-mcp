@@ -18,8 +18,8 @@
 (() => {
   "use strict";
 
-  const LOG = (...args) => console.debug("[mask-mcp]", ...args);
-  const WARN = (...args) => console.warn("[mask-mcp]", ...args);
+  const LOG = (...args) => console.debug("[pii-guard]", ...args);
+  const WARN = (...args) => console.warn("[pii-guard]", ...args);
 
   // Query params that commonly carry session credentials. Our diagnostic
   // LOGs echo URLs verbatim, which means JWT/API-key leaks into console
@@ -103,8 +103,6 @@
     // Settings broadcasts are a special "no id" message carrying the
     // latest ``interactive`` flag from chrome.storage.local.
     if (data.type === "settings" && data.settings) {
-      console.debug("[mask-mcp] injected received settings from content, forcelist len =",
-        Array.isArray(data.settings.maskForceList) ? data.settings.maskForceList.length : "n/a");
       NS.settings = {
         ...NS.settings,
         ...data.settings,
@@ -115,10 +113,7 @@
             detail: NS.settings,
           })
         );
-        console.debug("[mask-mcp] injected dispatched mask-mcp:settings-updated");
-      } catch (e) {
-        console.debug("[mask-mcp] injected dispatch failed:", e && e.message);
-      }
+      } catch (_) {}
       return;
     }
     if (typeof data.id !== "string") return;
@@ -230,7 +225,7 @@
         WARN(
           "standalone mode requested but engine unavailable after",
           ENGINE_WAIT_MS + "ms.",
-          "Check DevTools Console for [mask-mcp] engine bundle errors",
+          "Check DevTools Console for [pii-guard] engine bundle errors",
           "or CSP violations blocking chrome-extension:// scripts."
         );
         return null;
@@ -269,7 +264,7 @@
         WARN(
           "standalone mode requested but engine unavailable after",
           ENGINE_WAIT_MS + "ms.",
-          "Check DevTools Console for [mask-mcp] engine bundle errors",
+          "Check DevTools Console for [pii-guard] engine bundle errors",
           "or CSP violations blocking chrome-extension:// scripts."
         );
         return null;

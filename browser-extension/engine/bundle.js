@@ -21,7 +21,7 @@
   const missing = required.filter((k) => typeof engine[k] === "undefined");
   if (missing.length > 0) {
     console.error(
-      "[mask-mcp] engine bundle: missing submodule(s):",
+      "[pii-guard] engine bundle: missing submodule(s):",
       missing.join(", ")
     );
     engine.ready = false;
@@ -30,7 +30,7 @@
   engine.ready = true;
   engine.version = "phase1-0.1.0";
   console.info(
-    "[mask-mcp] engine ready (phase1, standalone), version",
+    "[pii-guard] engine ready (phase1, standalone), version",
     engine.version
   );
   try {

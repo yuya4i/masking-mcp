@@ -2392,9 +2392,22 @@
       // each time the LLM augmentation completes so newly-detected
       // entities appear in the open sidebar. User intent (masked/
       // unmasked per value) is preserved across rebuilds.
+      // baselineAggregated = 「force-list を除いた検出結果」の snapshot。
+      // 初回ペイント・LLM 追加時に更新される。force-list の追加/削除で
+      // live re-detect するとき、この baseline + 最新 force-list を merge
+      // + overlap 解決 + 再集約して表示する。これにより「田中」を既に
+      // 検出している状態で「田中 太郎」を追加すると、両者の重なる箇所は
+      // 「田中 太郎」が勝ち、重ならない「田中」は件数が自動で減る。
+      let baselineAggregated = [];
+
       function applyAggregated(aggArr, opts) {
         opts = opts || {};
         const stagger = !!opts.stagger;
+        // fromForcelist=true の再計算時は baseline を更新しない
+        // (force-list 適用前の snapshot を保持したいため)。
+        if (!opts.fromForcelist) {
+          baselineAggregated = Array.isArray(aggArr) ? aggArr.slice() : [];
+        }
         const preserved = new Map();
         for (const r of rows) preserved.set(r.value, r.masked);
 
@@ -2675,21 +2688,71 @@
 
       document.body.appendChild(host);
 
-      // Live allowlist sync — when the user adds entries via the
-      // options page, our content script broadcasts new settings.
-      // injected.js fires "mask-mcp:settings-updated" on window and
-      // we react here to auto-unmask any open rows whose value
-      // matches a newly-allowlisted entry.
-      function onSettingsUpdated(event) {
-        const next = event && event.detail;
-        if (!next || !Array.isArray(next.maskAllowlist)) return;
-        const allowSet = new Set(next.maskAllowlist);
-        for (const [, ctl] of rowControls) {
-          if (allowSet.has(ctl.row.value) && ctl.row.masked) {
-            ctl.setState(false);
+      // force-list の追加/削除に応じた再検出。baselineAggregated (force-list
+      // 適用前の snapshot) に新 force-list から得た USER_DEFINED 検出を merge、
+      // overlap 解決 + 再集約し、applyAggregated に食わせる。
+      // 例: 文中 "田中さん … 田中 太郎 …" で baseline に JP_SURNAME "田中" × 2
+      //     があり、"田中 太郎" を追加 → 交差する 1 件は "田中 太郎" が勝つ、
+      //     交差しない 1 件は "田中" のまま。件数がリアルタイムで減る。
+      function recomputeWithForcelist(entries) {
+        const engine = window.__localMaskMCP && window.__localMaskMCP.engine;
+        if (!engine || typeof engine.resolveOverlaps !== "function") return;
+        const ufm = engine.userForceMask;
+        const agg = engine.aggregate;
+        if (!ufm || !agg || typeof agg.aggregateDetections !== "function") return;
+        if (typeof originalText !== "string" || originalText.length === 0) return;
+
+        // baseline の aggregated 行を per-occurrence detection 列に展開。
+        // 旧 force-list に由来する USER_DEFINED_* は除外 (毎回 recompute で
+        // 作り直すので二重登録を防ぐ)。
+        const baselineDets = [];
+        for (const row of baselineAggregated) {
+          if (!row || typeof row.label !== "string") continue;
+          if (row.label.startsWith("USER_DEFINED_")) continue;
+          const positions = Array.isArray(row.positions) ? row.positions : [];
+          for (const pos of positions) {
+            if (!Array.isArray(pos) || pos.length < 2) continue;
+            baselineDets.push({
+              entity_type: row.label,
+              start: Number(pos[0]),
+              end: Number(pos[1]),
+              text: String(row.value || ""),
+              score: 1.0,
+              action: row.masked === false ? "allowed" : "masked",
+            });
           }
         }
+        const ufmDets = ufm.detectUserForceMask(originalText, entries);
+        const resolved = engine.resolveOverlaps(baselineDets.concat(ufmDets));
+        const nextAgg = agg.aggregateDetections(resolved);
+        applyAggregated(nextAgg, { fromForcelist: true });
       }
+
+      // Live allowlist + forcelist sync — when the user adds/removes entries
+      // via drag drop / options page, content script broadcasts new settings.
+      function onSettingsUpdated(event) {
+        const next = event && event.detail;
+        if (!next) return;
+        if (Array.isArray(next.maskAllowlist)) {
+          const allowSet = new Set(next.maskAllowlist);
+          for (const [, ctl] of rowControls) {
+            if (allowSet.has(ctl.row.value) && ctl.row.masked) {
+              ctl.setState(false);
+            }
+          }
+        }
+        if (Array.isArray(next.maskForceList)) {
+          // 短時間に複数 storage.onChanged が飛ぶケースに備えて
+          // requestAnimationFrame で deduplicate (必要最小限の再描画)。
+          if (forceListRafId) cancelAnimationFrame(forceListRafId);
+          const entries = next.maskForceList.slice();
+          forceListRafId = requestAnimationFrame(() => {
+            forceListRafId = 0;
+            recomputeWithForcelist(entries);
+          });
+        }
+      }
+      let forceListRafId = 0;
       window.addEventListener("mask-mcp:settings-updated", onSettingsUpdated);
 
       function cleanup() {

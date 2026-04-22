@@ -19,8 +19,8 @@ point it at:
 
 | Channel | Version | Source |
 |---|---|---|
-| Chrome Web Store (public) | `v1.0.1 / PII Guard` — standalone-only | `dist/browser-extension-store/` (produced by `scripts/build-store.sh`) |
-| Dev build (local LLM) | `v0.5.1-dev` — includes local-LLM proxy + `http://*/*` host permission | `browser-extension/` (this directory, unpacked load) |
+| Chrome Web Store (public) | `v1.1.0 / PII Guard` — standalone-only (dictionaries + drag-drop force-mask) | `dist/browser-extension-store/` (produced by `scripts/build-store.sh`) |
+| Dev build (local LLM) | `v1.4.0 / 0.8.0-dev` — includes local-LLM proxy + `http://*/*` host permission | `browser-extension/` (this directory, unpacked load) |
 
 The dev build is *not* what ships to the Store — see [Building the Chrome Web Store variant](#building-the-chrome-web-store-variant) below. Local-LLM mode is opt-in and experimental.
 

@@ -19,7 +19,18 @@
 
 生成 AI サービスへ送信する前に、ローカル PC 上で個人情報を検出・マスクする軽量ゲートウェイ + Chrome 拡張機能です。ブラウザ拡張 (Chrome MV3) が Claude.ai / ChatGPT / Manus の送信を横取りし、PII を検出します。オプションで FastAPI ゲートウェイ (Docker) と Presidio / SudachiPy / プリセット正規表現による多段アナライザを使用でき、さらに Ollama / LM Studio / llama.cpp によるローカル LLM を接続すれば文脈考慮型の追加検出と AI 置換モードが利用できます (v0.5.0+)。検出結果は送信直前にサイドバーでユーザー確認され、確定したものだけマスク済みペイロードとして送信されます。第三者サーバーへの送信はありません。(100%の検出が可能というわけではありません。補助的なツールとして利用ください。)
 
-現在のリリースは Chrome Web Store 公開版 `v1.0.1` (standalone-only) および dev ビルド `v0.5.1-dev` (local-LLM 対応) です。実装履歴は [CHANGELOG](./browser-extension/CHANGELOG.md)、ロードマップは [TODO.md](./TODO.md) を参照してください。
+現在のリリースは Chrome Web Store 公開版 `v1.1.0` (standalone-only。辞書 fallback + ドラッグ & ドロップでマスク対象追加機能を搭載) および dev ビルド `v1.4.0` (local-LLM 対応) です。実装履歴は [CHANGELOG](./browser-extension/CHANGELOG.md)、ロードマップは [TODO.md](./TODO.md) を参照してください。
+
+### v1.1.0 で追加された主な機能 (Chrome Web Store 公開版)
+
+- **静的辞書 fallback 層** — 日本人苗字 top 50、47 都道府県、政令指定都市 20、主要国名 (日英両表記)、Western first names を自動検出 (Sudachi 非依存)
+- **都道府県+市区町村単体の新カテゴリ** `PREFECTURE_CITY` — 「兵庫県明石市」単体がフル住所と区別される
+- **ドラッグ & ドロップでマスク対象に追加** — チャット画面で選択した文字列をサイドバーにドラッグ → 9 カテゴリから選択 → 即座に登録。既検出値のドラッグは該当行へ自動スクロール + ハイライト
+- **force-list 追加時のリアルタイム再集約** — 「田中」検出中に「田中 太郎」を追加すると overlap resolver が広いほうを優先、件数も即反映
+- **カテゴリはデフォルト折りたたみ表示** + 一括展開トグル — 検出件数が多いときの視認性向上
+- **Claude.ai 相対 URL 対応** (v1.0.1 ホットフィックス相当)
+- **30+ ベンダー固有 API キー検出** (Perplexity / OpenRouter 追加)
+- **Console log prefix を `[pii-guard]` にリネーム** (ブランディング統一)
 
 ## 目次
 

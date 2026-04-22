@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.1.0 — Chrome Web Store public release (2026-04-22)
+
+Store manifest bumped v1.0.1 (queued hotfix) → v1.1.0 (feature release).
+Bundles every improvement since v1.0.0 into one Store submission:
+
+- Claude.ai relative-URL send intercept fix (original v1.0.1 hotfix)
+- PREFECTURE_CITY category (都道府県+市区町村単体)
+- Static dictionary fallback layer: JP surnames (top 50), 47
+  prefectures, 20 designated cities, 33 world countries (JP + EN),
+  26 Western first names
+- 30+ vendor-specific API key detectors, with Perplexity + OpenRouter
+  added in this batch
+- Drag-and-drop force-mask with 9-category picker popover
+- Real-time re-detection on force-list change (overlap resolver picks
+  the broader span; count updates immediately)
+- Categories collapsed by default + all-expand toggle
+- Existing-detection drop jumps straight to the row (scroll + flash)
+- Preview pane auto-collapses while the drop popover is open
+- Console log prefix renamed to `[pii-guard]` for branding consistency
+- Verbose diagnostic logs from the forcelist-chain debug campaign
+  removed now that the flow is verified
+- `dist/browser-extension-store.zip` 144KB / 33 files — no `http://*/*`
+  host permission, no LLM engine files, LLM options card stripped
+
+See the 0.x entries below for per-feature design notes.
+
 ## 0.8.0 — Sidebar UX batch: live re-detect + collapse + auto-expand (2026-04-22)
 
 Follow-up polish on the drag-to-sidebar force-mask flow. Groups PRs

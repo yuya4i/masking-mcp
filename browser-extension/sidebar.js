@@ -1693,21 +1693,24 @@
       // を取得できるので、scrollIntoView + 一時クラス付与で視覚的に示す。
       function scrollToAndFlashRow(rowKey) {
         const ctl = rowControls.get(rowKey);
-        if (!ctl || !ctl.row) return;
+        // Map の値は { checkbox, control: { element, ... }, row, setState }。
+        // DOM 要素は ctl.control.element (ctl.row はデータオブジェクト)。
+        const rowEl = ctl && ctl.control && ctl.control.element;
+        if (!rowEl || typeof rowEl.closest !== "function") return;
         // 対象行が折りたたまれているカテゴリ配下なら自動で展開してから
         // スクロール。section.category → 親を辿って is-collapsed を解除。
-        const categoryEl = ctl.row.closest(".category");
+        const categoryEl = rowEl.closest(".category");
         if (categoryEl && categoryEl.classList.contains("is-collapsed")) {
           categoryEl.classList.remove("is-collapsed");
         }
         try {
-          ctl.row.scrollIntoView({ behavior: "smooth", block: "center" });
+          rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
         } catch (_) {
-          ctl.row.scrollIntoView();
+          rowEl.scrollIntoView();
         }
-        ctl.row.classList.add("flash-highlight");
+        rowEl.classList.add("flash-highlight");
         setTimeout(() => {
-          ctl.row.classList.remove("flash-highlight");
+          rowEl.classList.remove("flash-highlight");
         }, 2000);
       }
 

@@ -2697,6 +2697,10 @@
       // 例: 文中 "田中さん … 田中 太郎 …" で baseline に JP_SURNAME "田中" × 2
       //     があり、"田中 太郎" を追加 → 交差する 1 件は "田中 太郎" が勝つ、
       //     交差しない 1 件は "田中" のまま。件数がリアルタイムで減る。
+      // 直前の maskForceList (前回 recompute 時の snapshot)。新規追加 entry
+      // を差分で検出してそこへスクロール + フラッシュするために使う。
+      let previousForcelist = [];
+
       function recomputeWithForcelist(entries) {
         const engine = window.__localMaskMCP && window.__localMaskMCP.engine;
         console.debug("[mask-mcp] recomputeWithForcelist called", {
@@ -2744,7 +2748,26 @@
           nextAgg: nextAgg.length,
           newLabels: nextAgg.map((a) => a.label + ":" + a.value),
         });
+        // 追加された entry (前回スナップショットに無く、今回存在するもの)
+        // を差分計算。recompute 後に該当 row をフラッシュするため使う。
+        const prevKey = (e) => e.value + "|" + (e.category || "OTHER");
+        const prevSet = new Set(previousForcelist.map(prevKey));
+        const newlyAdded = entries.filter((e) => e && !prevSet.has(prevKey(e)));
+        previousForcelist = entries.slice();
+
         applyAggregated(nextAgg, { fromForcelist: true });
+
+        // 新規追加があれば、折り畳み状態のカテゴリを自動展開 + 該当 row へ
+        // スクロール + 黄色フラッシュ。見えない所に追加される問題を解決。
+        for (const added of newlyAdded) {
+          const label = "USER_DEFINED_" + (added.category || "OTHER");
+          for (const r of rows) {
+            if (r.value === added.value && r.label === label) {
+              scrollToAndFlashRow(r.key);
+              break; // 複数出現でも先頭行だけ flash で十分
+            }
+          }
+        }
       }
 
       // Live allowlist + forcelist sync — when the user adds/removes entries

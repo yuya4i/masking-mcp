@@ -564,12 +564,14 @@ docker exec -it ollama ollama pull qwen3:4b
 - ユニーク番号タグ: replace モードの出力を `<name_1>`, `<company_2>`, `<hospital_1>` のような 1:1 マッピングで正規化
 - Fail-closed on replace / Fail-open on detect: `AI 置換` モードは LLM が 1 件でも失敗すると outbound リクエスト全体を abort、`検出補助` モードは LLM がタイムアウトしても regex/Sudachi 結果のみで残留
 
-### 推奨モデル (v0.5.0+)
+### 推奨モデル (v0.5.0+) — **Qwen3 系を前提にチューニング**
+
+検出プロンプトは `browser-extension/engine/llm-prompts.js` で Qwen3 の特性 (JSON grammar 追従、CJK+EN 混在耐性、`<think>` トークン抑止) に合わせて最適化されています。他モデル (Llama3 / Gemma2 / Phi3.5) でも動作しますが、精度と応答速度の安定性で **Qwen3:4b 以上を推奨**。
 
 | Model | Size | VRAM | Badge |
 |---|---|---|---|
 | `qwen3:1.7b` | 1.1 GB | ~1.5 GB | 軽量 |
-| `qwen3:4b` | 2.5 GB | ~3 GB | 推奨 |
+| `qwen3:4b` | 2.5 GB | ~3 GB | **推奨** |
 | `qwen3:8b` | 4.7 GB | ~5 GB | 高精度 |
 | `qwen3:14b` | 8.2 GB | ~9 GB | 最高精度 |
 | `gemma3:4b` | 2.5 GB | ~3 GB | 代替 |

@@ -48,8 +48,8 @@ The dev build is *not* what ships to the Store — see [Building the Chrome Web 
    the browser devtools console and look for:
 
    ```
-   [mask-mcp] content script installed on claude.ai
-   [mask-mcp] injected hooks installed on claude.ai
+   [pii-guard] content script installed on claude.ai
+   [pii-guard] injected hooks installed on claude.ai
    ```
 
 6. Type a message containing PII (e.g. `田中太郎に連絡`). The
@@ -100,12 +100,12 @@ one more entry to the "delete" step if it's a whole file.
 | Manus | `manus.im`, `*.manus.im` + `*.butterfly-effect.dev` | working — fetch + Socket.IO WebSocket |
 
 If you hit a missed case, the `console.debug` logs in devtools
-will show `[mask-mcp]` entries tagged with the adapter name.
+will show `[pii-guard]` entries tagged with the adapter name.
 Specifically useful for triage:
 
-    [mask-mcp] provider POST (adapter matched):        <url>
-    [mask-mcp] provider POST (NO adapter match):       <url>
-    [mask-mcp] <adapter>: adapter matched but body had no user text —
+    [pii-guard] provider POST (adapter matched):        <url>
+    [pii-guard] provider POST (NO adapter match):       <url>
+    [pii-guard] <adapter>: adapter matched but body had no user text —
         keys: <top-level-keys>                         <url>
 
 Paste any of those (deduped per URL) into an issue and we can

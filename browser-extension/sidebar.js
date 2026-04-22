@@ -1756,7 +1756,6 @@
           btn.textContent = label + " (" + sev + ")";
           btn.addEventListener("click", () => {
             // content.js へ直接通知 (allowlist と同じルート)
-            console.debug("[mask-mcp] drop chip clicked, posting add-forcelist", { value, category: cat });
             try {
               window.postMessage({
                 source: "mask-mcp-inpage",
@@ -1764,9 +1763,7 @@
                 value,
                 category: cat,
               }, "*");
-            } catch (e) {
-              console.debug("[mask-mcp] postMessage failed", e);
-            }
+            } catch (_) {}
             closeDropPopover();
           });
           chipsWrap.appendChild(btn);
@@ -2703,15 +2700,6 @@
 
       function recomputeWithForcelist(entries) {
         const engine = window.__localMaskMCP && window.__localMaskMCP.engine;
-        console.debug("[mask-mcp] recomputeWithForcelist called", {
-          entries,
-          hasEngine: !!engine,
-          hasResolveOverlaps: typeof (engine && engine.resolveOverlaps) === "function",
-          hasUFM: !!(engine && engine.userForceMask),
-          hasAggregate: !!(engine && engine.aggregate),
-          originalTextLen: typeof originalText === "string" ? originalText.length : -1,
-          baselineLen: baselineAggregated.length,
-        });
         if (!engine || typeof engine.resolveOverlaps !== "function") return;
         const ufm = engine.userForceMask;
         const agg = engine.aggregate;
@@ -2741,13 +2729,6 @@
         const ufmDets = ufm.detectUserForceMask(originalText, entries);
         const resolved = engine.resolveOverlaps(baselineDets.concat(ufmDets));
         const nextAgg = agg.aggregateDetections(resolved);
-        console.debug("[mask-mcp] forcelist recompute", {
-          baselineDets: baselineDets.length,
-          ufmDets: ufmDets.length,
-          resolved: resolved.length,
-          nextAgg: nextAgg.length,
-          newLabels: nextAgg.map((a) => a.label + ":" + a.value),
-        });
         // 追加された entry (前回スナップショットに無く、今回存在するもの)
         // を差分計算。recompute 後に該当 row をフラッシュするため使う。
         const prevKey = (e) => e.value + "|" + (e.category || "OTHER");
@@ -2774,12 +2755,6 @@
       // via drag drop / options page, content script broadcasts new settings.
       function onSettingsUpdated(event) {
         const next = event && event.detail;
-        console.debug("[mask-mcp] settings-updated received", {
-          hasDetail: !!next,
-          hasAllowlist: Array.isArray(next && next.maskAllowlist),
-          hasForceList: Array.isArray(next && next.maskForceList),
-          forceListLen: Array.isArray(next && next.maskForceList) ? next.maskForceList.length : -1,
-        });
         if (!next) return;
         if (Array.isArray(next.maskAllowlist)) {
           const allowSet = new Set(next.maskAllowlist);

@@ -1166,6 +1166,74 @@
       background: var(--row-bg-hover);
       color: var(--text);
     }
+    /* "既に検出済み" ポップオーバー: マッチしたラベル一覧 */
+    .drop-popover-existing {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .drop-popover-existing li {
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: var(--row-bg);
+      border-left: 3px solid var(--border);
+      font-size: 11px;
+      color: var(--text);
+    }
+    .drop-popover-existing li[data-sev="critical"] { border-left-color: var(--sev-critical); }
+    .drop-popover-existing li[data-sev="high"]     { border-left-color: var(--sev-high); }
+    .drop-popover-existing li[data-sev="medium"]   { border-left-color: var(--sev-medium); }
+    .drop-popover-existing li[data-sev="low"]      { border-left-color: var(--sev-low); }
+    .drop-popover-existing-label {
+      font-weight: 600;
+    }
+    .drop-popover-existing-meta {
+      color: var(--text-muted);
+    }
+    .drop-popover-actions {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .drop-popover-action {
+      flex: 1;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--row-bg);
+      color: var(--text);
+      font-size: 11px;
+      cursor: pointer;
+      transition: background var(--ease-fast), border-color var(--ease-fast),
+        transform var(--ease-fast);
+    }
+    .drop-popover-action:hover {
+      border-color: var(--primary);
+      background: rgba(79, 70, 229, 0.08);
+    }
+    .drop-popover-action:active { transform: scale(0.97); }
+    .drop-popover-action.primary {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+    .drop-popover-action.primary:hover {
+      background: var(--primary-hover);
+      border-color: var(--primary-hover);
+    }
+
+    /* 該当行にジャンプした瞬間の一時ハイライト (2 秒フェード) */
+    .row.flash-highlight {
+      animation: mask-mcp-flash 2s ease-out;
+    }
+    @keyframes mask-mcp-flash {
+      0%   { background: rgba(251, 191, 36, 0.55); box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.4); }
+      80%  { background: rgba(251, 191, 36, 0.12); box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
+      100% { background: transparent; box-shadow: none; }
+    }
   `;
 
   // Normalise severity to one of the four tiers the CSS knows about.
@@ -1534,6 +1602,101 @@
         dropPopover.hidden = true;
       }
 
+      // ドロップされた value が既に検出済みの aggregated row と一致するか
+      // 走査する。完全一致 (case-sensitive) でマッチさせる — 既存 force-mask
+      // の match 戦略と揃える。同じ value で複数ラベル (PERSON + JP_SURNAME
+      // の重複など) がヒットすることもあるので配列で返す。
+      function findExistingMatches(value) {
+        if (!value || !Array.isArray(rows) || rows.length === 0) return [];
+        return rows.filter((r) => r && r.value === value);
+      }
+
+      // 該当行までスクロール + ハイライト。rowControls Map 経由で DOM ノード
+      // を取得できるので、scrollIntoView + 一時クラス付与で視覚的に示す。
+      function scrollToAndFlashRow(rowKey) {
+        const ctl = rowControls.get(rowKey);
+        if (!ctl || !ctl.row) return;
+        try {
+          ctl.row.scrollIntoView({ behavior: "smooth", block: "center" });
+        } catch (_) {
+          ctl.row.scrollIntoView();
+        }
+        ctl.row.classList.add("flash-highlight");
+        setTimeout(() => {
+          ctl.row.classList.remove("flash-highlight");
+        }, 2000);
+      }
+
+      function showExistingDetectionPopover(value, matches) {
+        dropPopover.replaceChildren();
+        const header = document.createElement("div");
+        header.className = "drop-popover-header";
+        const valEl = document.createElement("div");
+        valEl.className = "drop-popover-value";
+        valEl.textContent = '"' + value + '"';
+        valEl.title = value;
+        const hint = document.createElement("small");
+        hint.textContent = " は既にマスク対象として検出済みです:";
+        header.appendChild(valEl);
+        header.appendChild(hint);
+        dropPopover.appendChild(header);
+
+        const list = document.createElement("ul");
+        list.className = "drop-popover-existing";
+        for (const m of matches) {
+          const li = document.createElement("li");
+          li.dataset.sev = m.severity || "low";
+          const label = document.createElement("span");
+          label.className = "drop-popover-existing-label";
+          label.textContent = m.label;
+          const meta = document.createElement("small");
+          meta.className = "drop-popover-existing-meta";
+          const sev = m.severity ? " / " + m.severity : "";
+          const count = m.count ? " × " + m.count + "\u56DE" : "";
+          meta.textContent = " (" + m.category + sev + count + ")";
+          li.appendChild(label);
+          li.appendChild(meta);
+          list.appendChild(li);
+        }
+        dropPopover.appendChild(list);
+
+        const actions = document.createElement("div");
+        actions.className = "drop-popover-actions";
+
+        const jumpBtn = document.createElement("button");
+        jumpBtn.type = "button";
+        jumpBtn.className = "drop-popover-action primary";
+        jumpBtn.textContent = "\u8A72\u5F53\u884C\u3092\u8868\u793A";
+        jumpBtn.addEventListener("click", () => {
+          // 最初にマッチした行までスクロール。複数マッチでも先頭を優先。
+          scrollToAndFlashRow(matches[0].key);
+          closeDropPopover();
+        });
+        actions.appendChild(jumpBtn);
+
+        const forceBtn = document.createElement("button");
+        forceBtn.type = "button";
+        forceBtn.className = "drop-popover-action";
+        forceBtn.textContent = "\u3053\u306E\u307E\u307E\u5F37\u5236\u8FFD\u52A0";
+        forceBtn.title = "既存検出とは別に force-mask list にも登録";
+        forceBtn.addEventListener("click", () => {
+          closeDropPopover();
+          openDropPopover(value);
+        });
+        actions.appendChild(forceBtn);
+
+        dropPopover.appendChild(actions);
+
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "drop-popover-cancel";
+        cancel.textContent = "\u9589\u3058\u308B";
+        cancel.addEventListener("click", closeDropPopover);
+        dropPopover.appendChild(cancel);
+
+        dropPopover.hidden = false;
+      }
+
       function openDropPopover(value) {
         dropPopover.replaceChildren();
         const header = document.createElement("div");
@@ -1614,7 +1777,13 @@
         const raw = e.dataTransfer && e.dataTransfer.getData("text/plain");
         const value = typeof raw === "string" ? raw.trim() : "";
         if (!value) return;
-        openDropPopover(value);
+        // 既に検出済みかどうかで popover の振り分けを変える。
+        const existing = findExistingMatches(value);
+        if (existing.length > 0) {
+          showExistingDetectionPopover(value, existing);
+        } else {
+          openDropPopover(value);
+        }
       };
       panel.addEventListener("dragenter", onDragEnter);
       panel.addEventListener("dragover", onDragOver);

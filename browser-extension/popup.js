@@ -54,6 +54,10 @@ async function loadDetectionCount() {
   }
 }
 
+// STORE-STRIP:START — local-LLM popup indicator (dev build only).
+// The Store bundle has no `http://*/*` host permission and no LLM
+// UI, so this function's LLM_FETCH call would not be reachable.
+// Stripped so reviewers see no localhost references in popup.js.
 async function loadLlmIndicator() {
   const el = $("llm-indicator");
   if (!el) return;
@@ -90,13 +94,25 @@ async function loadLlmIndicator() {
     el.className = "value status-err";
   }
 }
+// STORE-STRIP:END
 
 document.addEventListener("DOMContentLoaded", () => {
+  // バージョン表示を manifest から自動反映 — ハードコード文字列が
+  // 古いままにならないよう runtime に寄せる。
+  try {
+    const el = $("version");
+    if (el) {
+      const v = chrome.runtime.getManifest().version;
+      el.textContent = "v" + v;
+    }
+  } catch (_) {}
   loadEnabled();
   loadInteractive();
   loadUiMode();
   loadDetectionCount();
+  // STORE-STRIP:START
   loadLlmIndicator();
+  // STORE-STRIP:END
 
   $("enabled-toggle").addEventListener("change", (e) => {
     saveEnabled(e.target.checked);

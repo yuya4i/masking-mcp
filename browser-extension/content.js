@@ -275,11 +275,15 @@
       handleBackendProbe(data);
     } else if (data.type === "hybrid-pref") {
       handleHybridPref(data);
-    } else if (data.type === "llm-config") {
+    }
+    // STORE-STRIP:START — local-LLM message routes (dev build only).
+    else if (data.type === "llm-config") {
       handleLlmConfig(data);
     } else if (data.type === "llm-call") {
       handleLlmCall(data);
-    } else if (data.type === "detection-count") {
+    }
+    // STORE-STRIP:END
+    else if (data.type === "detection-count") {
       // Fire-and-forget badge update.
       try {
         chrome.runtime.sendMessage({
@@ -437,6 +441,11 @@
   // the user-configured LLM URL; it asks us via postMessage and we
   // execute the fetch from the isolated content script (which holds
   // the host_permissions grant for http://*/*).
+  // STORE-STRIP:START — local-LLM handlers (dev build only). Everything
+  // inside relies on `http://*/*` host permission which the Store
+  // variant does not request, and on storage keys (`localLlm*`) that
+  // the Store build never writes. Stripped wholesale to avoid any
+  // reviewer concern about LAN/localhost references in the shipped JS.
   async function handleLlmConfig(data) {
     const { id } = data;
     let cfg = null;
@@ -623,6 +632,7 @@
     }
     window.postMessage({ source: TAG_OUT, id, type: "llm-call-result", result }, "*");
   }
+  // STORE-STRIP:END
 
   async function handleIsEnabled(data) {
     const { id } = data;

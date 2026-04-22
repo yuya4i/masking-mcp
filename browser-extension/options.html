@@ -140,8 +140,11 @@
           <code class="endpoint" id="engine-version">v0.5.0-dev (phase1)</code>
         </div>
         <p class="hint" style="margin-top:12px">
-          PII 検出はブラウザ内で完結します。LLM 連携が有効な場合、入力テキストは
+          PII 検出はブラウザ内で完結します。
+          <!-- STORE-STRIP:START — LLM 連携の補足 (dev build only) -->
+          LLM 連携が有効な場合、入力テキストは
           <strong>あなたが指定したローカル/LAN 内の Ollama サーバーのみ</strong>に送信されます。
+          <!-- STORE-STRIP:END -->
           第三者サーバーへの自動送信はありません。
         </p>
       </section>

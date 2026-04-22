@@ -41,9 +41,14 @@ chrome.runtime.onInstalled.addListener(async () => {
     "enabled",
     "interactive",
     "uiMode",
+    // STORE-STRIP:START — local-LLM storage keys (dev build only).
+    // The Chrome Web Store variant has no `http://*/*` host permission
+    // and ships no LLM UI, so these keys are stripped from the
+    // default-value migration too.
     "localLlmEnabled",
     "localLlmMode",
     "localLlmTimeoutMs",
+    // STORE-STRIP:END
   ]);
   const patch = {};
   if (typeof stored.enabled !== "boolean") patch.enabled = true;
@@ -51,12 +56,13 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (stored.uiMode !== "sidebar" && stored.uiMode !== "modal") {
     patch.uiMode = "sidebar";
   }
-  // v0.5.0 — local LLM proxy defaults.
+  // STORE-STRIP:START — local-LLM default value migrations.
   if (typeof stored.localLlmEnabled !== "boolean") patch.localLlmEnabled = false;
   if (stored.localLlmMode !== "detect" && stored.localLlmMode !== "replace") {
     patch.localLlmMode = "detect";
   }
   if (typeof stored.localLlmTimeoutMs !== "number") patch.localLlmTimeoutMs = 120000;
+  // STORE-STRIP:END
   if (Object.keys(patch).length > 0) {
     await chrome.storage.local.set(patch);
   }
@@ -88,6 +94,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // STORE-STRIP:START — local-LLM fetch proxy (dev build only).
+  // The Chrome Web Store variant has no `http://*/*` host permission
+  // so LAN/localhost fetches would be impossible anyway. We strip the
+  // handler from the Store bundle to eliminate any reviewer concern
+  // about the extension attempting to reach `http://localhost:*`.
+  //
   // v0.5.0 — LLM fetch proxy. Chrome's Private Network Access (PNA)
   // blocks HTTPS-page content scripts from calling http://localhost,
   // even with host_permissions. The service worker is in a privileged
@@ -156,6 +168,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })();
     return true; // keep the channel open for async response
   }
+  // STORE-STRIP:END
 
   return false;
 });

@@ -116,6 +116,12 @@ async function loadUiMode() {
   if (target) target.checked = true;
 }
 
+// STORE-STRIP:START — Local LLM section (dev build only).
+// The Chrome Web Store variant strips this entire block so nothing
+// in the Store bundle references http://localhost:11434, `ollama`
+// tags, or LLM_FETCH messages. The corresponding UI card in
+// options.html is stripped separately (line ~71-130 there).
+
 // --- Local LLM section -------------------------------------------------
 
 function setLlmStatus(state, text) {
@@ -545,12 +551,24 @@ async function loadLlmSettings() {
   }
 }
 
+// STORE-STRIP:END
+
 document.addEventListener("DOMContentLoaded", () => {
+  // version / engine-version のプレースホルダを manifest から自動反映。
+  try {
+    const v = "v" + chrome.runtime.getManifest().version;
+    const versionEl = $("version");
+    if (versionEl) versionEl.textContent = v;
+    const engineEl = $("engine-version");
+    if (engineEl) engineEl.textContent = v;
+  } catch (_) {}
   loadAllowlist();
   loadEnabled();
   loadInteractive();
   loadUiMode();
+  // STORE-STRIP:START
   loadLlmSettings();
+  // STORE-STRIP:END
 
   $("allowlist-add-btn").addEventListener("click", () => {
     const input = $("allowlist-input");
@@ -587,7 +605,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // LLM event wiring.
+  // STORE-STRIP:START — LLM event wiring (dev build only).
   $("llm-enabled").addEventListener("change", (e) => {
     chrome.storage.local.set({ localLlmEnabled: e.target.checked });
     if (!e.target.checked) setLlmStatus("unknown", "無効化中");
@@ -611,4 +629,5 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.storage.local.set({ localLlmTimeoutMs: n });
     e.target.value = n;
   });
+  // STORE-STRIP:END
 });

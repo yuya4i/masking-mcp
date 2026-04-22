@@ -103,20 +103,22 @@
     // Settings broadcasts are a special "no id" message carrying the
     // latest ``interactive`` flag from chrome.storage.local.
     if (data.type === "settings" && data.settings) {
+      console.debug("[mask-mcp] injected received settings from content, forcelist len =",
+        Array.isArray(data.settings.maskForceList) ? data.settings.maskForceList.length : "n/a");
       NS.settings = {
         ...NS.settings,
         ...data.settings,
       };
-      // Notify open UI surfaces (e.g. sidebar) so they can apply
-      // live-updated settings (allowlist additions etc.) without
-      // requiring a re-render trigger.
       try {
         window.dispatchEvent(
           new CustomEvent("mask-mcp:settings-updated", {
             detail: NS.settings,
           })
         );
-      } catch (_) {}
+        console.debug("[mask-mcp] injected dispatched mask-mcp:settings-updated");
+      } catch (e) {
+        console.debug("[mask-mcp] injected dispatch failed:", e && e.message);
+      }
       return;
     }
     if (typeof data.id !== "string") return;

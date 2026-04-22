@@ -178,6 +178,11 @@
       interactive = true;
       uiMode = "sidebar";
     }
+    console.debug("[mask-mcp] broadcastSettings posting", {
+      interactive, uiMode,
+      allowlistLen: maskAllowlist.length,
+      forceListLen: maskForceList.length,
+    });
     window.postMessage(
       {
         source: TAG_OUT,
@@ -192,6 +197,7 @@
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local") return;
       if ("interactive" in changes || "uiMode" in changes || "maskAllowlist" in changes || "maskForceList" in changes) {
+        console.debug("[mask-mcp] storage.onChanged → rebroadcasting settings", Object.keys(changes));
         broadcastSettings();
       }
     });
@@ -223,9 +229,8 @@
     }
 
     // Force-mask list add — drop-and-pick-category flow from the sidebar.
-    // value は trim しない (先頭末尾の空白を含めて検出したいケースもあるが、
-    // UI 経由で来る値は事前 trim 済みの想定)。
     if (data.type === "add-forcelist" && typeof data.value === "string") {
+      console.debug("[mask-mcp] content received add-forcelist", { value: data.value, category: data.category });
       (async () => {
         try {
           const { maskForceList = [] } = await chrome.storage.local.get("maskForceList");
@@ -239,8 +244,13 @@
           if (v && !normalized.some((e) => e.value === v && e.category === cat)) {
             normalized.push({ value: v, category: cat });
             await chrome.storage.local.set({ maskForceList: normalized });
+            console.debug("[mask-mcp] content wrote maskForceList, entries now =", normalized.length);
+          } else {
+            console.debug("[mask-mcp] content skipped write (empty value or duplicate)");
           }
-        } catch (_) {}
+        } catch (e) {
+          console.debug("[mask-mcp] content add-forcelist failed:", e && e.message ? e.message : e);
+        }
       })();
       return;
     }

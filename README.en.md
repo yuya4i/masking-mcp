@@ -111,6 +111,11 @@ Presets are enabled by default (`enable_preset_patterns: true`). Disable a categ
 | Phone | `PHONE_NUMBER` | 090-1234-5678, 03-1234-5678 | Presidio / preset |
 | Prefecture + city | `PREFECTURE_CITY` | 兵庫県明石市 / 東京都渋谷区 | Preset regex |
 | Full address | `ADDRESS` | 兵庫県明石市大久保町1丁目2番3号 | Preset regex |
+| Prefecture (bare) | `JP_PREFECTURE_DICT` | 兵庫県 / 東京都 (all 47 prefectures) | Static dictionary |
+| Designated city (bare) | `JP_DESIGNATED_CITY` | 札幌市 / 横浜市 / 大阪市 (20 cities) | Static dictionary |
+| World country | `WORLD_COUNTRY` | 日本 / Japan / 米国 / USA / France (G20 + major Asian) | Static dictionary |
+| Japanese surname | `JP_SURNAME` | 佐藤 / 鈴木 / 高橋 / 田中 … (top 50) | Static dictionary |
+| Western first name | `WESTERN_FIRST_NAME` | John / Mary / David (curated) | Static dictionary |
 | Age | `AGE` | 35歳 | Preset regex |
 | Gender | `GENDER` | 男性 / 女性 | Preset regex |
 | Company | `COMPANY` | 株式会社マスクテスト | Preset regex |
@@ -130,6 +135,8 @@ Presets are enabled by default (`enable_preset_patterns: true`). Disable a categ
 | Organization | `PROPER_NOUN_ORG` | グーグル | Sudachi |
 
 `PREFECTURE_CITY` vs `ADDRESS`: the "prefecture + city" form alone (for example, `兵庫県明石市`) is detected as `PREFECTURE_CITY`. When a street suffix follows (for example, `兵庫県明石市大久保町1丁目2番3号`), `ADDRESS` wins via longer-span resolution in the sweep-line overlap resolver.
+
+**Dictionary-based fallback categories** (`JP_SURNAME` / `JP_PREFECTURE_DICT` / `JP_DESIGNATED_CITY` / `WORLD_COUNTRY` / `WESTERN_FIRST_NAME`): a static dictionary layer that catches common Japanese surnames, all 47 prefectures, the 20 designated cities, major country names, and curated Western first names — even when Sudachi / Presidio are disabled (standalone mode). Dictionaries live in `browser-extension/engine/dictionaries.js` and `src/app/services/analyzers/dictionaries.py`; both must be updated together when adding entries.
 
 ### Business-doc presets (Milestone 8 Wave A — 15 extra categories)
 
@@ -197,8 +204,8 @@ Each detection carries `category` (display bucket), `classification` (linguistic
 | Severity | Labels (excerpt) | UI colour | UI behaviour |
 |---|---|---|---|
 | critical | `MY_NUMBER`, `PASSPORT`, `DRIVERS_LICENSE`, `CREDIT_CARD`, `BANK_ACCOUNT`, `API_KEY`, `SECRET`, `DB_CONNECTION`, + dynamic escalation | rose `#e11d48` | Long-press (0–1.5 s) required only on locked rows from `force_masked_categories` |
-| high | `PHONE_NUMBER`, `ADDRESS`, `PATIENT_ID` | orange `#ea580c` | Click to toggle |
-| medium | `LOCATION`, `PREFECTURE_CITY`, `EMPLOYEE_ID`, `MEMBER_ID`, `CUSTOMER_ID`, `CONTRACT_NUMBER`, `MONETARY_AMOUNT`, `URL`, `IP_ADDRESS`, etc. | yellow `#ca8a04` | Click to toggle |
+| high | `PHONE_NUMBER`, `ADDRESS`, `PATIENT_ID`, `JP_SURNAME`, `WESTERN_FIRST_NAME` | orange `#ea580c` | Click to toggle |
+| medium | `LOCATION`, `PREFECTURE_CITY`, `JP_PREFECTURE_DICT`, `JP_DESIGNATED_CITY`, `WORLD_COUNTRY`, `EMPLOYEE_ID`, `MEMBER_ID`, `CUSTOMER_ID`, `CONTRACT_NUMBER`, `MONETARY_AMOUNT`, `URL`, `IP_ADDRESS`, etc. | yellow `#ca8a04` | Click to toggle |
 | low | `AGE`, `GENDER`, `DATE`, `BLOOD_TYPE`, `POSTAL_CODE`, `SKU`, `KATAKANA_NAME` | slate `#64748b` | Click to toggle |
 
 ### Surface-aware escalation

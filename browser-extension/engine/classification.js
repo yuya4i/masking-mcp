@@ -16,6 +16,8 @@
     PERSON: "proper_noun",
     PROPER_NOUN_PERSON: "proper_noun",
     KATAKANA_NAME: "proper_noun",
+    JP_SURNAME: "proper_noun",
+    WESTERN_FIRST_NAME: "proper_noun",
     LOCATION: "proper_noun",
     PROPER_NOUN_LOCATION: "proper_noun",
     ORGANIZATION: "proper_noun",
@@ -28,6 +30,9 @@
     IP_ADDRESS: "contact",
     ADDRESS: "contact",
     PREFECTURE_CITY: "contact",
+    JP_PREFECTURE_DICT: "contact",
+    JP_DESIGNATED_CITY: "contact",
+    WORLD_COUNTRY: "contact",
     POSTAL_CODE: "contact",
     // ---- identifier -----------------------------------------------------
     EMPLOYEE_ID: "identifier",

@@ -35,6 +35,7 @@
         "injected.js",
         "review-modal.js",
         "sidebar.js",
+        "engine/dictionaries.js",
         "engine/patterns.js",
         "engine/classification.js",
         "engine/severity.js",

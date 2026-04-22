@@ -109,6 +109,9 @@
   // bundle.js launcher that flips engine.ready = true.
   // Each file is a MV3-safe script (no ES6 import / eval).
   const ENGINE_FILES = [
+    // dictionaries.js must load BEFORE patterns.js — patterns.js references
+    // dicts.JP_SURNAME_RE etc. at BUILTIN_PATTERNS construction time.
+    "engine/dictionaries.js",
     "engine/patterns.js",
     "engine/classification.js",
     "engine/severity.js",

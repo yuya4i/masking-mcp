@@ -81,6 +81,8 @@ LABEL_TO_CLASSIFICATION: Final[dict[str, str]] = {
     "PERSON": "proper_noun",
     "PROPER_NOUN_PERSON": "proper_noun",
     "KATAKANA_NAME": "proper_noun",  # Sudachi validation may demote
+    "JP_SURNAME": "proper_noun",
+    "WESTERN_FIRST_NAME": "proper_noun",
     "LOCATION": "proper_noun",
     "PROPER_NOUN_LOCATION": "proper_noun",
     "ORGANIZATION": "proper_noun",
@@ -93,6 +95,9 @@ LABEL_TO_CLASSIFICATION: Final[dict[str, str]] = {
     "IP_ADDRESS": "contact",
     "ADDRESS": "contact",          # a full street/postal address
     "PREFECTURE_CITY": "contact",  # 都道府県+市区町村単体 (street なし)
+    "JP_PREFECTURE_DICT": "contact",  # 47 都道府県の単体検出 (dictionary fallback)
+    "JP_DESIGNATED_CITY": "contact",  # 政令指定都市 20 の単体検出
+    "WORLD_COUNTRY": "contact",       # 主要国名 (JP + EN)
     "POSTAL_CODE": "contact",
     # ---- identifier -----------------------------------------------------
     "EMPLOYEE_ID": "identifier",

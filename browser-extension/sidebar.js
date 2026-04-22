@@ -1711,76 +1711,9 @@
         }, 2000);
       }
 
-      function showExistingDetectionPopover(value, matches) {
-        setPreviewCollapsed(true);
-        dropPopover.replaceChildren();
-        const header = document.createElement("div");
-        header.className = "drop-popover-header";
-        const valEl = document.createElement("div");
-        valEl.className = "drop-popover-value";
-        valEl.textContent = '"' + value + '"';
-        valEl.title = value;
-        const hint = document.createElement("small");
-        hint.textContent = " は既にマスク対象として検出済みです:";
-        header.appendChild(valEl);
-        header.appendChild(hint);
-        dropPopover.appendChild(header);
-
-        const list = document.createElement("ul");
-        list.className = "drop-popover-existing";
-        for (const m of matches) {
-          const li = document.createElement("li");
-          li.dataset.sev = m.severity || "low";
-          const label = document.createElement("span");
-          label.className = "drop-popover-existing-label";
-          label.textContent = m.label;
-          const meta = document.createElement("small");
-          meta.className = "drop-popover-existing-meta";
-          const sev = m.severity ? " / " + m.severity : "";
-          const count = m.count ? " × " + m.count + "\u56DE" : "";
-          meta.textContent = " (" + m.category + sev + count + ")";
-          li.appendChild(label);
-          li.appendChild(meta);
-          list.appendChild(li);
-        }
-        dropPopover.appendChild(list);
-
-        const actions = document.createElement("div");
-        actions.className = "drop-popover-actions";
-
-        const jumpBtn = document.createElement("button");
-        jumpBtn.type = "button";
-        jumpBtn.className = "drop-popover-action primary";
-        jumpBtn.textContent = "\u8A72\u5F53\u884C\u3092\u8868\u793A";
-        jumpBtn.addEventListener("click", () => {
-          // 最初にマッチした行までスクロール。複数マッチでも先頭を優先。
-          scrollToAndFlashRow(matches[0].key);
-          closeDropPopover();
-        });
-        actions.appendChild(jumpBtn);
-
-        const forceBtn = document.createElement("button");
-        forceBtn.type = "button";
-        forceBtn.className = "drop-popover-action";
-        forceBtn.textContent = "\u3053\u306E\u307E\u307E\u5F37\u5236\u8FFD\u52A0";
-        forceBtn.title = "既存検出とは別に force-mask list にも登録";
-        forceBtn.addEventListener("click", () => {
-          closeDropPopover();
-          openDropPopover(value);
-        });
-        actions.appendChild(forceBtn);
-
-        dropPopover.appendChild(actions);
-
-        const cancel = document.createElement("button");
-        cancel.type = "button";
-        cancel.className = "drop-popover-cancel";
-        cancel.textContent = "\u9589\u3058\u308B";
-        cancel.addEventListener("click", closeDropPopover);
-        dropPopover.appendChild(cancel);
-
-        dropPopover.hidden = false;
-      }
+      // 既存検出マッチ時は popover を出さず、scrollToAndFlashRow で
+      // 行を直接ハイライトする方針 (見づらさ軽減)。
+      // 旧 showExistingDetectionPopover は onDrop 内で直接呼ばないため削除。
 
       function openDropPopover(value) {
         setPreviewCollapsed(true);
@@ -1863,10 +1796,13 @@
         const raw = e.dataTransfer && e.dataTransfer.getData("text/plain");
         const value = typeof raw === "string" ? raw.trim() : "";
         if (!value) return;
-        // 既に検出済みかどうかで popover の振り分けを変える。
         const existing = findExistingMatches(value);
         if (existing.length > 0) {
-          showExistingDetectionPopover(value, existing);
+          // 既に検出済みの場合は popover を経由せず、その行まで直接
+          // スクロール + 黄色フラッシュ。複数マッチは先頭を採用。
+          // 親カテゴリが折りたたみ状態なら scrollToAndFlashRow 側で
+          // 自動展開してくれる。
+          scrollToAndFlashRow(existing[0].key);
         } else {
           openDropPopover(value);
         }

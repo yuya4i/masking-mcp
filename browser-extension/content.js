@@ -119,6 +119,7 @@
     "engine/aggregate.js",
     "engine/force-mask.js",
     "engine/blocklist.js",
+    "engine/user-force-mask.js",
     // STORE-STRIP:START — LLM-only engine files (dev build). The
     // Chrome Web Store variant strips this block + deletes the two
     // .js files via scripts/build-store.sh so no `http://*/*` LAN
@@ -149,14 +150,29 @@
     let interactive = true;
     let uiMode = "sidebar";
     let maskAllowlist = [];
+    let maskForceList = [];
     try {
-      const stored = await chrome.storage.local.get(["interactive", "uiMode", "maskAllowlist"]);
+      const stored = await chrome.storage.local.get([
+        "interactive", "uiMode", "maskAllowlist", "maskForceList",
+      ]);
       interactive = stored.interactive !== false;
       if (stored.uiMode === "modal" || stored.uiMode === "sidebar") {
         uiMode = stored.uiMode;
       }
       if (Array.isArray(stored.maskAllowlist)) {
         maskAllowlist = stored.maskAllowlist.filter((v) => typeof v === "string");
+      }
+      if (Array.isArray(stored.maskForceList)) {
+        // サイドバー drop で追加された user force-mask list。
+        // 各 entry は { value: string, category: string } の最小形式。
+        // 互換: 古い文字列配列はカテゴリなし (OTHER) で読み込む。
+        maskForceList = stored.maskForceList
+          .map((e) => typeof e === "string"
+            ? { value: e, category: "OTHER" }
+            : (e && typeof e.value === "string")
+              ? { value: e.value, category: typeof e.category === "string" ? e.category : "OTHER" }
+              : null)
+          .filter(Boolean);
       }
     } catch (_) {
       interactive = true;
@@ -166,7 +182,7 @@
       {
         source: TAG_OUT,
         type: "settings",
-        settings: { interactive, uiMode, maskAllowlist },
+        settings: { interactive, uiMode, maskAllowlist, maskForceList },
       },
       "*"
     );
@@ -175,7 +191,7 @@
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local") return;
-      if ("interactive" in changes || "uiMode" in changes || "maskAllowlist" in changes) {
+      if ("interactive" in changes || "uiMode" in changes || "maskAllowlist" in changes || "maskForceList" in changes) {
         broadcastSettings();
       }
     });
@@ -201,6 +217,47 @@
             maskAllowlist.push(v);
             await chrome.storage.local.set({ maskAllowlist });
           }
+        } catch (_) {}
+      })();
+      return;
+    }
+
+    // Force-mask list add — drop-and-pick-category flow from the sidebar.
+    // value は trim しない (先頭末尾の空白を含めて検出したいケースもあるが、
+    // UI 経由で来る値は事前 trim 済みの想定)。
+    if (data.type === "add-forcelist" && typeof data.value === "string") {
+      (async () => {
+        try {
+          const { maskForceList = [] } = await chrome.storage.local.get("maskForceList");
+          const normalized = maskForceList.map((e) =>
+            typeof e === "string"
+              ? { value: e, category: "OTHER" }
+              : { value: e.value, category: e.category || "OTHER" }
+          );
+          const v = data.value;
+          const cat = typeof data.category === "string" ? data.category : "OTHER";
+          if (v && !normalized.some((e) => e.value === v && e.category === cat)) {
+            normalized.push({ value: v, category: cat });
+            await chrome.storage.local.set({ maskForceList: normalized });
+          }
+        } catch (_) {}
+      })();
+      return;
+    }
+
+    // Force-mask list remove — ( value + category ) ペアで一致を削除。
+    if (data.type === "remove-forcelist" && typeof data.value === "string") {
+      (async () => {
+        try {
+          const { maskForceList = [] } = await chrome.storage.local.get("maskForceList");
+          const v = data.value;
+          const cat = typeof data.category === "string" ? data.category : null;
+          const next = maskForceList.filter((e) => {
+            const ev = typeof e === "string" ? e : e.value;
+            const ec = typeof e === "string" ? "OTHER" : (e.category || "OTHER");
+            return !(ev === v && (cat === null || ec === cat));
+          });
+          await chrome.storage.local.set({ maskForceList: next });
         } catch (_) {}
       })();
       return;

@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.7.0 — Drag-to-sidebar force-mask (2026-04-22)
+
+Adds a drag-and-drop flow for manually flagging text that the detection
+pipeline missed or needs to force-mask regardless of context.
+
+### UX
+
+- The sidebar now shows a dashed "drop zone" bar below the severity filter
+  tabs: "テキストをここにドラッグしてマスク対象に追加".
+- Any text selection from the host page (chat composer, previous AI
+  response, anywhere with contenteditable/textarea drag support) can be
+  dropped onto the sidebar.
+- On drop, a small inline popover shows 9 category chips (PERSON /
+  LOCATION / ORGANIZATION / CONTACT / FINANCIAL / CREDENTIAL / IDENTITY /
+  INTERNAL_ID / OTHER) colour-coded by each category's default severity.
+  Clicking a chip commits the entry.
+
+### Persistence
+
+- New storage key: `chrome.storage.local.maskForceList`.
+- Format: `[{ value: string, category: string }]`. Matches are
+  case-sensitive and exact (no regex expansion, no fuzzy/substring —
+  strict to avoid unexpected mass-masking).
+- Global scope (same list applies on every supported service).
+- Cross-tab live sync via `chrome.storage.onChanged` → `broadcastSettings`
+  → `mask-mcp:settings-updated` CustomEvent.
+
+### Engine
+
+- New module `engine/user-force-mask.js`. `detectUserForceMask(text,
+  entries)` emits one detection per occurrence, with entity_type =
+  `USER_DEFINED_<CATEGORY>`.
+- `engine.runPipeline` merges these with regex/dictionary detections BEFORE
+  the common-noun blocklist, so blocklist remains the final safety net.
+- `USER_DEFINED_*` labels are registered in category / severity /
+  classification maps so they render in their chosen category's section
+  with the proper severity colour.
+
+### Row-level management
+
+- Rows in the sidebar whose label starts with `USER_DEFINED_` now show a
+  `✖ 削除` button instead of `✖ 除外`. Clicking sends `remove-forcelist`
+  which removes the entry from `maskForceList`. This closes the
+  add-remove loop without needing the options page.
+
+### Files
+
+- new: `browser-extension/engine/user-force-mask.js`
+- modified: `browser-extension/{content,injected,sidebar}.js`
+- modified: `browser-extension/engine/{engine,categories,severity,classification}.js`
+- modified: `browser-extension/manifest{,.store}.json` (new resource entry)
+
 ## 0.6.0 — Dictionary-based fallback detection layer (2026-04-22)
 
 Adds a curated static dictionary for PII detection that fires even when

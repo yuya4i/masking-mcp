@@ -17,9 +17,10 @@
       load("aggregate", "./aggregate");
       load("forceMask", "./force-mask");
       load("blocklist", "./blocklist");
+      load("userForceMask", "./user-force-mask");
     }
     const ns = (root && root.__localMaskMCP && root.__localMaskMCP.engine) || {};
-    for (const k of ["patterns","classification","severity","categories","aggregate","forceMask","blocklist"]) {
+    for (const k of ["patterns","classification","severity","categories","aggregate","forceMask","blocklist","userForceMask"]) {
       d[k] = d[k] || ns[k];
     }
     return d;
@@ -81,6 +82,13 @@
     const bl = opts.commonNounBlocklist instanceof Set ? opts.commonNounBlocklist
       : new Set(opts.commonNounBlocklist || deps.blocklist.DEFAULT_COMMON_NOUN_BLOCKLIST);
     let dets = collectDetections(text, { disabledCategories: opts.disabledCategories });
+    // ユーザーがサイドバー drop で登録した force-mask list を regex 検出と merge。
+    // blocklist より前に積んでおくことで、ブロックリストに入った語を
+    // 誤ってユーザーが追加してしまっても blocklist 側が最終的に勝つ
+    // (= blocklist が常に最上位の安全装置、という既存不変を維持)。
+    if (deps.userForceMask && Array.isArray(opts.userForceMaskEntries) && opts.userForceMaskEntries.length > 0) {
+      dets = dets.concat(deps.userForceMask.detectUserForceMask(text, opts.userForceMaskEntries));
+    }
     if (bl.size > 0) dets = dets.filter((d) => !bl.has(d.text));
     if (minScore > 0.0) dets = dets.filter((d) => d.score >= minScore);
     if (opts.enabledPiiClasses) {

@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.8.0 — Sidebar UX batch: live re-detect + collapse + auto-expand (2026-04-22)
+
+Follow-up polish on the drag-to-sidebar force-mask flow. Groups PRs
+#18 through #24 which iterated on real user feedback.
+
+### Layout
+
+- **Categories default to collapsed** (#18). The sidebar used to show
+  every row expanded; with larger inputs this buried the rows users
+  wanted to reach. Header only by default, click / bulk toggle to
+  expand.
+- **▾ すべて展開 / ▸ すべて折りたたむ toggle** above the drop zone (#18).
+- **Preview pane auto-collapses while drop popover is open** (#19).
+  Popover would otherwise share vertical space with a fixed preview
+  at the bottom and squeeze the category list. Preview restores on
+  popover close; click the "プレビュー" heading to peek while open.
+
+### Live re-detect
+
+- **Force-list change triggers in-place re-detection** (#22). Adding
+  or removing a force-mask entry no longer requires resending the
+  message — the sidebar recomputes with the existing baseline and
+  renders immediately.
+- **Longest-span wins** on overlap (#22). If "田中" is already
+  detected and user adds "田中 太郎" via drag-drop, the overlapping
+  "田中" is absorbed into the broader mask and the JP_SURNAME count
+  drops accordingly. Non-overlapping "田中" occurrences stay.
+- **Auto-expand + yellow flash on newly-added row** (#24). New entries
+  land in their chosen category even when that category is collapsed
+  — `scrollToAndFlashRow` expands it, scrolls, and runs the 2s flash
+  so users can't miss the change.
+
+### Drag-drop interaction fixes
+
+- **Existing detections skip the popover** (#20). Dragging a word that
+  already has a detection scrolls + flashes the existing row directly
+  instead of showing a list-of-matches popover. Less visual clutter.
+- **scrollToAndFlashRow uses the right DOM reference** (#21). The
+  `rowControls` Map value shape had drifted from its inline comment
+  (`{checkbox, row}`) to the real one (`{checkbox, control: {element,
+  ...}, row, setState}`). The DOM element lives at
+  `ctl.control.element`. Fixed with defensive guards.
+
+### Diagnostics
+
+- `[mask-mcp]` console.debug traces across sidebar.js, content.js,
+  injected.js covering the full forcelist hop chain (chip click →
+  postMessage → storage.set → storage.onChanged → broadcastSettings
+  → injected event → sidebar recompute). Non-invasive, can be kept
+  for future field debugging.
+
 ## 0.7.0 — Drag-to-sidebar force-mask (2026-04-22)
 
 Adds a drag-and-drop flow for manually flagging text that the detection

@@ -60,38 +60,61 @@
 
 ## 実行手順
 
-### 1. データ生成 (数秒)
+### ワンショット (推奨)
 
 ```bash
 cd experiments/privacy-filter-ja
+huggingface-cli login            # 初回のみ
+./run_pipeline.sh                # 全 6 フェーズ (venv → 生成 → prepare → train → eval → publish)
+```
+
+`run_pipeline.sh` は以下を自動化します:
+
+| Phase | 内容 | 所要時間目安 |
+|---|---|---|
+| 0 | preflight (python / GPU / HF CLI 確認) | 数秒 |
+| 1 | venv 作成 + `pip install -r train/requirements.txt` | 1-3 分 (初回) |
+| 2 | データ生成 + バリデーション | 数秒 |
+| 3 | tokenize + HF Dataset prep | 1-5 分 |
+| 4 | **GPU 学習** (RTX 4090 24GB, bf16) | 2-6 時間 |
+| 5 | 評価 (char-span F1 per category) | 数秒 |
+| 6 | HF Hub へ push (model + dataset) | 2-5 分 |
+
+主なオプション:
+
+```bash
+./run_pipeline.sh --count 10000                 # データ量を減らす (テスト用)
+./run_pipeline.sh --skip-publish                # HF に上げずローカル検証まで
+./run_pipeline.sh --skip-train --skip-publish   # データ生成のみ
+./run_pipeline.sh --from 4                      # 学習からレジューム (prepare 後)
+./run_pipeline.sh --private                     # HF repo を private で作成
+./run_pipeline.sh --repo my-org/privacy-filter-ja  # 別名で公開
+./run_pipeline.sh --help
+```
+
+### ステップ分解 (手動実行したい場合)
+
+```bash
+# 1) データ生成
 python data/generator.py --count 30000 --seed 42 --out data/generated.jsonl
 python data/validate.py data/seed.jsonl data/generated.jsonl
-```
 
-### 2. 学習 (2-6 時間 on RTX 4090)
-
-```bash
-cd train
-python -m venv .venv && source .venv/bin/activate
+# 2) 学習準備 + 学習
+cd train && python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python prepare.py --in ../data/generated.jsonl --out ../dataset/
+python prepare.py --config train-config.yaml
 python train.py --config train-config.yaml
-```
 
-### 3. 評価
-
-```bash
+# 3) 評価
 python ../eval/eval.py --model ../checkpoints/best --test ../eval/test.jsonl
-```
 
-### 4. HF Hub へ公開
-
-```bash
+# 4) HF Hub
 huggingface-cli login
 python ../publish/push_to_hub.py \
   --model ../checkpoints/best \
   --repo yuya4i/privacy-filter-ja \
-  --dataset-repo yuya4i/privacy-filter-ja-dataset
+  --dataset-repo yuya4i/privacy-filter-ja-dataset \
+  --dataset-dir ../dataset
 ```
 
 ## ライセンス

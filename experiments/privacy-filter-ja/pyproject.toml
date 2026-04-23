@@ -6,7 +6,11 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 dependencies = [
-    "transformers>=4.46,<5",
+    # transformers 5.x is required for the ``openai_privacy_filter``
+    # model_type — 4.x does not register this architecture and
+    # AutoModelForTokenClassification.from_pretrained("openai/privacy-filter")
+    # fails with a ValueError. See tests/test_model_loading.py.
+    "transformers>=5.6,<6",
     "tokenizers>=0.20",
     "datasets>=3.0",
     "accelerate>=1.0",
@@ -22,6 +26,11 @@ dependencies = [
 # dependencies without looking for a build backend.
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
 
 # Default index is PyPI. On Linux + CUDA 12.x users can override
 # torch to the pre-built GPU wheels by uncommenting the block below:

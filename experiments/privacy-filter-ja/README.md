@@ -58,6 +58,17 @@
   HF Hub: yuya4i/privacy-filter-ja
 ```
 
+## 前提: `uv`
+
+依存解決は [uv](https://github.com/astral-sh/uv) を使います。インストール:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# shell を開き直すか: source ~/.bashrc
+```
+
+`pyproject.toml` が依存の単一ソース。`run_pipeline.sh` は `uv sync` で `.venv/` + deps を自動作成 (pip 比 10 倍以上高速)。
+
 ## 実行手順
 
 ### ワンショット (推奨)
@@ -65,15 +76,15 @@
 ```bash
 cd experiments/privacy-filter-ja
 huggingface-cli login            # 初回のみ
-./run_pipeline.sh                # 全 6 フェーズ (venv → 生成 → prepare → train → eval → publish)
+./run_pipeline.sh                # 全 6 フェーズ (uv sync → 生成 → prepare → train → eval → publish)
 ```
 
 `run_pipeline.sh` は以下を自動化します:
 
 | Phase | 内容 | 所要時間目安 |
 |---|---|---|
-| 0 | preflight (python / GPU / HF CLI 確認) | 数秒 |
-| 1 | venv 作成 + `pip install -r train/requirements.txt` | 1-3 分 (初回) |
+| 0 | preflight (uv / python / GPU / HF CLI 確認) | 数秒 |
+| 1 | `uv sync` (venv 作成 + 依存解決) | 30 秒-2 分 (初回), 数秒 (2 回目以降) |
 | 2 | データ生成 + バリデーション | 数秒 |
 | 3 | tokenize + HF Dataset prep | 1-5 分 |
 | 4 | **GPU 学習** (RTX 4090 24GB, bf16) | 2-6 時間 |
@@ -95,27 +106,34 @@ huggingface-cli login            # 初回のみ
 ### ステップ分解 (手動実行したい場合)
 
 ```bash
+cd experiments/privacy-filter-ja
+uv sync                              # venv + 依存
+
 # 1) データ生成
-python data/generator.py --count 30000 --seed 42 --out data/generated.jsonl
-python data/validate.py data/seed.jsonl data/generated.jsonl
+uv run python data/generator.py --count 30000 --seed 42 --out data/generated.jsonl
+uv run python data/validate.py data/seed.jsonl data/generated.jsonl
 
 # 2) 学習準備 + 学習
-cd train && python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python prepare.py --config train-config.yaml
-python train.py --config train-config.yaml
+uv run python train/prepare.py --config train/train-config.yaml
+uv run python train/train.py   --config train/train-config.yaml
 
 # 3) 評価
-python ../eval/eval.py --model ../checkpoints/best --test ../eval/test.jsonl
+uv run python eval/eval.py --model checkpoints/best --test eval/test.jsonl
 
 # 4) HF Hub
 huggingface-cli login
-python ../publish/push_to_hub.py \
-  --model ../checkpoints/best \
+uv run python publish/push_to_hub.py \
+  --model checkpoints/best \
   --repo yuya4i/privacy-filter-ja \
   --dataset-repo yuya4i/privacy-filter-ja-dataset \
-  --dataset-dir ../dataset
+  --dataset-dir dataset
 ```
+
+> `uv run` は venv を activate せずに `.venv` の python を呼びます。手動で `source .venv/bin/activate` してから `python script.py` でも同じ。
+
+### CUDA / PyTorch の wheel 指定
+
+デフォルトの `uv sync` は PyPI からプラットフォーム用 torch を取得。CUDA 12.x に明示的に合わせたい場合は `pyproject.toml` の `[tool.uv.sources]` セクションをアンコメントしてください (コメントあり)。
 
 ## ライセンス
 

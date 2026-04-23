@@ -1,0 +1,35 @@
+[project]
+name = "privacy-filter-ja"
+version = "0.1.0"
+description = "Japanese PII detection — fine-tune of openai/privacy-filter (Apache 2.0)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "transformers>=4.46,<5",
+    "tokenizers>=0.20",
+    "datasets>=3.0",
+    "accelerate>=1.0",
+    "torch>=2.4",
+    "pyyaml>=6",
+    "scikit-learn>=1.5",
+    "seqeval>=1.2.2",
+    "huggingface-hub>=0.27",
+]
+
+# App mode — this is not a distributable Python package, just a
+# collection of scripts. uv sync still creates .venv/ and installs
+# dependencies without looking for a build backend.
+[tool.uv]
+package = false
+
+# Default index is PyPI. On Linux + CUDA 12.x users can override
+# torch to the pre-built GPU wheels by uncommenting the block below:
+#
+# [[tool.uv.index]]
+# name = "pytorch-cu124"
+# url  = "https://download.pytorch.org/whl/cu124"
+# explicit = true
+#
+# [tool.uv.sources]
+# torch = { index = "pytorch-cu124" }

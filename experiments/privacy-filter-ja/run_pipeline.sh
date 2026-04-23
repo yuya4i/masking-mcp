@@ -2,13 +2,16 @@
 # run_pipeline.sh — one-shot pipeline for privacy-filter-ja.
 #
 # Phases (all can be skipped individually):
-#   0. preflight   — python / torch / GPU / HF CLI sanity checks
-#   1. venv        — create .venv/, pip install requirements.txt
+#   0. preflight   — uv / python / torch / GPU / HF CLI sanity checks
+#   1. venv        — uv sync (reads pyproject.toml, writes .venv/)
 #   2. generate    — data/generator.py → data/generated.jsonl + validate
 #   3. prepare     — train/prepare.py → dataset/ + labels.json
 #   4. train       — train/train.py → checkpoints/best
 #   5. eval        — eval/eval.py → eval/eval-results.txt
 #   6. publish     — publish/push_to_hub.py (requires HF login)
+#
+# Dependency management is via `uv` (https://github.com/astral-sh/uv).
+# Source of truth: pyproject.toml at the same directory as this script.
 #
 # Usage:
 #   ./run_pipeline.sh                          # full pipeline w/ defaults
@@ -108,6 +111,17 @@ if [[ "$FROM_PHASE" -gt 5 ]]; then DO_EVAL=false;     fi
 # ==================== phase 0: preflight ====================
 phase "0/6" "preflight checks"
 
+# uv is the primary dep manager. Fall back to pip only if --no-venv is set.
+if [[ "$USE_VENV" == true ]]; then
+  if ! command -v uv >/dev/null; then
+    warn "uv not found. install with:"
+    warn "  curl -LsSf https://astral.sh/uv/install.sh | sh"
+    warn "  (macOS/Linux) — then reopen shell or source ~/.bashrc"
+    die  "uv is required for the default pipeline (or pass --no-venv)"
+  fi
+  say "uv:     $(uv --version | awk '{print $2}')"
+fi
+
 command -v python3 >/dev/null || die "python3 not found"
 PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 say "python: $PY_VER"
@@ -116,28 +130,26 @@ say "python: $PY_VER"
 
 command -v nvidia-smi >/dev/null && GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1) \
   || GPU_NAME="none"
-say "gpu: $GPU_NAME"
+say "gpu:    $GPU_NAME"
 [[ "$GPU_NAME" == "none" ]] && [[ "$DO_TRAIN" == true ]] \
   && warn "no GPU detected — training will fall back to CPU (extremely slow)"
 
-# ==================== phase 1: venv ====================
+# ==================== phase 1: venv via uv ====================
 PY=python3
 if [[ "$USE_VENV" == true ]]; then
-  phase "1/6" "virtualenv + deps"
-  if [[ ! -d "$VENV_DIR" ]]; then
-    say "creating venv at $VENV_DIR"
-    python3 -m venv "$VENV_DIR"
+  phase "1/6" "uv sync (venv + deps)"
+  # `uv sync` reads pyproject.toml, creates/updates $VENV_DIR, and
+  # resolves+installs the dependency set in one step. ~10× faster
+  # than pip and produces a lockfile (uv.lock) alongside.
+  if [[ "$VENV_DIR" != ".venv" ]]; then
+    UV_PROJECT_ENVIRONMENT="$VENV_DIR" uv sync --quiet
   else
-    say "reusing existing venv at $VENV_DIR"
+    uv sync --quiet
   fi
   # shellcheck disable=SC1090,SC1091
   source "$VENV_DIR/bin/activate"
   PY="python"
-  say "pip install (quiet)..."
-  "$PY" -m pip install --upgrade pip >/dev/null
-  "$PY" -m pip install -r train/requirements.txt >/dev/null
-  "$PY" -m pip install huggingface_hub pyyaml >/dev/null
-  ok "deps installed"
+  ok "deps synced into $VENV_DIR"
 else
   warn "skipping venv — using system python"
 fi

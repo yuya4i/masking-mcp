@@ -1,8 +1,0 @@
-transformers>=4.46,<5
-tokenizers>=0.20
-datasets>=3.0
-accelerate>=1.0
-torch>=2.4
-pyyaml>=6
-scikit-learn>=1.5
-seqeval>=1.2.2

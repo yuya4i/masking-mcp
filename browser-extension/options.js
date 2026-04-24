@@ -116,7 +116,6 @@ async function loadUiMode() {
   if (target) target.checked = true;
 }
 
-// STORE-STRIP:START — Local LLM section (dev build only).
 // The Chrome Web Store variant strips this entire block so nothing
 // in the Store bundle references http://localhost:11434, `ollama`
 // tags, or LLM_FETCH messages. The corresponding UI card in
@@ -135,6 +134,67 @@ function normalizeUrl(raw) {
   let url = raw.trim().replace(/\/+$/, "");
   if (!/^https?:\/\//i.test(url)) url = "http://" + url;
   return url;
+}
+
+// Build a chrome.permissions origin pattern from a user-entered URL.
+// chrome.permissions accepts full match patterns like "http://host:port/*"
+// or "https://host/*" — it rejects bare origins, trailing-slash-free
+// forms, and non-http(s) schemes. Returns null if the URL cannot be
+// turned into a valid pattern.
+function toOriginPattern(rawUrl) {
+  const normalized = normalizeUrl(rawUrl);
+  if (!normalized) return null;
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch (_) {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  if (!parsed.host) return null;
+  // Form: "<scheme>://<host>[:port]/*" — origin already excludes path.
+  return parsed.origin + "/*";
+}
+
+// Request (or confirm) host permission for the user-provided LLM URL.
+// MUST be called synchronously from a user gesture handler (click /
+// keyup / change) — otherwise Chrome rejects the request with
+// "This function must be called during a user gesture."
+//
+// Resolution order:
+//   1. If `chrome.permissions` is unavailable (unexpected extension
+//      context), log a warning and return true so callers fall back
+//      to attempting the fetch directly. This keeps dev builds with
+//      `host_permissions: ["http://*/*"]` working even in edge cases.
+//   2. If the origin is already granted (dev build, or user has
+//      already approved), `chrome.permissions.contains()` returns
+//      true — we short-circuit without prompting.
+//   3. Otherwise call `chrome.permissions.request()` which shows the
+//      Chrome permission dialog. Returns the user's decision.
+async function ensureLlmHostPermission(rawUrl) {
+  const pattern = toOriginPattern(rawUrl);
+  if (!pattern) return false;
+  if (!chrome || !chrome.permissions || typeof chrome.permissions.request !== "function") {
+    console.warn(
+      "[pii-guard] chrome.permissions API unavailable — falling back to direct fetch for",
+      pattern
+    );
+    return true;
+  }
+  try {
+    const already = await chrome.permissions.contains({ origins: [pattern] });
+    if (already) return true;
+  } catch (err) {
+    console.warn("[pii-guard] chrome.permissions.contains failed:", err);
+    // Fall through and try request() — contains() failure shouldn't block.
+  }
+  try {
+    const granted = await chrome.permissions.request({ origins: [pattern] });
+    return granted === true;
+  } catch (err) {
+    console.warn("[pii-guard] chrome.permissions.request failed:", err);
+    return false;
+  }
 }
 
 async function swFetch(url, timeoutMs) {
@@ -184,6 +244,16 @@ async function testLlm() {
   const url = normalizeUrl(rawUrl);
   if (!url) {
     setLlmStatus("unknown", "URL 未設定");
+    return;
+  }
+  // Gate fetch behind host permission. In the Store variant no LLM
+  // host is granted at install time, so we request it from this
+  // click-handler user gesture. In dev builds where http://*/* is
+  // already in host_permissions, `contains()` returns true and no
+  // dialog is shown.
+  const granted = await ensureLlmHostPermission(url);
+  if (!granted) {
+    setLlmStatus("err", "ホスト権限が拒否されました (" + url + ")");
     return;
   }
   setLlmStatus("checking", "接続確認中...");
@@ -369,6 +439,15 @@ async function deleteModel(modelName, rowEl) {
     alert("先に URL を設定してください");
     return;
   }
+  // Called from a button click, so we're inside a user gesture and
+  // can request host permission if the Store variant hasn't granted
+  // it yet. Do the permission check BEFORE confirm() so we don't
+  // ask the user to confirm an action we know will fail.
+  const granted = await ensureLlmHostPermission(baseUrl);
+  if (!granted) {
+    alert("Ollama サーバーへのアクセス権限が拒否されました: " + baseUrl);
+    return;
+  }
   if (!confirm(`${modelName} を Ollama から削除します。\n\nこの操作は元に戻せません (モデルファイルが実際に削除されます)。続行しますか?`)) {
     return;
   }
@@ -418,6 +497,14 @@ async function pullModel(modelName, rowEl) {
   const baseUrl = normalizeUrl($("llm-url").value);
   if (!baseUrl) {
     alert("先に URL を設定してください");
+    return;
+  }
+  // Same user-gesture permission gate as deleteModel. Runs before
+  // we show any progress UI so we don't briefly flash a spinner
+  // and then hit a fetch error.
+  const granted = await ensureLlmHostPermission(baseUrl);
+  if (!granted) {
+    alert("Ollama サーバーへのアクセス権限が拒否されました: " + baseUrl);
     return;
   }
   const actionEl = rowEl.querySelector(".llm-recommend-action");
@@ -551,7 +638,6 @@ async function loadLlmSettings() {
   }
 }
 
-// STORE-STRIP:END
 
 document.addEventListener("DOMContentLoaded", () => {
   // version / engine-version のプレースホルダを manifest から自動反映。
@@ -566,9 +652,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadEnabled();
   loadInteractive();
   loadUiMode();
-  // STORE-STRIP:START
   loadLlmSettings();
-  // STORE-STRIP:END
 
   $("allowlist-add-btn").addEventListener("click", () => {
     const input = $("allowlist-input");
@@ -605,11 +689,35 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // STORE-STRIP:START — LLM event wiring (dev build only).
-  $("llm-enabled").addEventListener("change", (e) => {
-    chrome.storage.local.set({ localLlmEnabled: e.target.checked });
-    if (!e.target.checked) setLlmStatus("unknown", "無効化中");
-    else if ($("llm-url").value) testLlm();
+  $("llm-enabled").addEventListener("change", async (e) => {
+    // Turning OFF is unconditional — no permission needed.
+    if (!e.target.checked) {
+      await chrome.storage.local.set({ localLlmEnabled: false });
+      setLlmStatus("unknown", "無効化中");
+      return;
+    }
+    // Turning ON: we're still inside the change-event user gesture,
+    // so we can prompt for host permission if not already granted.
+    const url = normalizeUrl($("llm-url").value);
+    if (!url) {
+      // No URL configured yet — allow enable; testLlm() / fetches will
+      // re-request permission once the user enters a URL and clicks
+      // 接続確認.
+      await chrome.storage.local.set({ localLlmEnabled: true });
+      setLlmStatus("unknown", "URL 未設定");
+      return;
+    }
+    const granted = await ensureLlmHostPermission(url);
+    if (!granted) {
+      // Revert the toggle and keep stored flag at false. Setting
+      // .checked directly here doesn't re-fire the change event.
+      e.target.checked = false;
+      await chrome.storage.local.set({ localLlmEnabled: false });
+      setLlmStatus("err", "ホスト権限が拒否されました — LLM を有効化できません");
+      return;
+    }
+    await chrome.storage.local.set({ localLlmEnabled: true });
+    testLlm();
   });
   $("llm-test-btn").addEventListener("click", testLlm);
   $("llm-url").addEventListener("change", (e) => {
@@ -629,5 +737,4 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.storage.local.set({ localLlmTimeoutMs: n });
     e.target.value = n;
   });
-  // STORE-STRIP:END
 });

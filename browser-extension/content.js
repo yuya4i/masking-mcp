@@ -108,6 +108,12 @@
   // cross-engine deps) must load before engine.js and the final
   // bundle.js launcher that flips engine.ready = true.
   // Each file is a MV3-safe script (no ES6 import / eval).
+  //
+  // v1.2.0: LLM engine files (surrogates.js, llm-prompts.js) now ship
+  // to the Chrome Web Store build as well. Any LAN/localhost fetch they
+  // eventually drive is gated by `optional_host_permissions: ["http://*/*"]`
+  // in manifest.store.json — the user must approve that host at runtime
+  // from the options page before the LLM proxy paths can succeed.
   const ENGINE_FILES = [
     // dictionaries.js must load BEFORE patterns.js — patterns.js references
     // dicts.JP_SURNAME_RE etc. at BUILTIN_PATTERNS construction time.
@@ -120,13 +126,8 @@
     "engine/force-mask.js",
     "engine/blocklist.js",
     "engine/user-force-mask.js",
-    // STORE-STRIP:START — LLM-only engine files (dev build). The
-    // Chrome Web Store variant strips this block + deletes the two
-    // .js files via scripts/build-store.sh so no `http://*/*` LAN
-    // fetch path ever ships to Store users.
     "engine/surrogates.js",
     "engine/llm-prompts.js",
-    // STORE-STRIP:END
     "engine/engine.js",
     "engine/bundle.js",
   ];
@@ -276,14 +277,11 @@
     } else if (data.type === "hybrid-pref") {
       handleHybridPref(data);
     }
-    // STORE-STRIP:START — local-LLM message routes (dev build only).
     else if (data.type === "llm-config") {
       handleLlmConfig(data);
     } else if (data.type === "llm-call") {
       handleLlmCall(data);
-    }
-    // STORE-STRIP:END
-    else if (data.type === "detection-count") {
+    } else if (data.type === "detection-count") {
       // Fire-and-forget badge update.
       try {
         chrome.runtime.sendMessage({
@@ -439,13 +437,15 @@
 
   // v0.5.0 — Local LLM proxy. The page world never directly calls
   // the user-configured LLM URL; it asks us via postMessage and we
-  // execute the fetch from the isolated content script (which holds
-  // the host_permissions grant for http://*/*).
-  // STORE-STRIP:START — local-LLM handlers (dev build only). Everything
-  // inside relies on `http://*/*` host permission which the Store
-  // variant does not request, and on storage keys (`localLlm*`) that
-  // the Store build never writes. Stripped wholesale to avoid any
-  // reviewer concern about LAN/localhost references in the shipped JS.
+  // execute the fetch from the isolated content script (which, after
+  // the user grants `http://*/*` via permissions.request() from the
+  // options page, holds the runtime host permission).
+  //
+  // v1.2.0: the handlers below ship to the Chrome Web Store build too.
+  // They are no-ops until the user (a) sets localLlmEnabled + URL from
+  // the options page, and (b) approves the `http://*/*` optional host
+  // permission prompt. Without those, handleLlmConfig returns
+  // `config: null` and handleLlmCall short-circuits.
   async function handleLlmConfig(data) {
     const { id } = data;
     let cfg = null;
@@ -632,7 +632,6 @@
     }
     window.postMessage({ source: TAG_OUT, id, type: "llm-call-result", result }, "*");
   }
-  // STORE-STRIP:END
 
   async function handleIsEnabled(data) {
     const { id } = data;

@@ -68,10 +68,6 @@
         </div>
       </section>
 
-      <!-- STORE-STRIP:START — Entire local-LLM card is dev-only.
-           scripts/build-store.sh deletes this block so the Chrome Web
-           Store variant never exposes a UI requiring http://*/* host
-           permission. -->
       <section class="card">
         <h2>
           ローカル LLM 連携
@@ -127,7 +123,6 @@
           <input type="number" id="llm-timeout" class="llm-number" min="2000" max="240000" step="1000" value="120000" />
         </div>
       </section>
-      <!-- STORE-STRIP:END -->
 
       <section class="card">
         <h2>エンジン</h2>
@@ -141,10 +136,8 @@
         </div>
         <p class="hint" style="margin-top:12px">
           PII 検出はブラウザ内で完結します。
-          <!-- STORE-STRIP:START — LLM 連携の補足 (dev build only) -->
           LLM 連携が有効な場合、入力テキストは
           <strong>あなたが指定したローカル/LAN 内の Ollama サーバーのみ</strong>に送信されます。
-          <!-- STORE-STRIP:END -->
           第三者サーバーへの自動送信はありません。
         </p>
       </section>

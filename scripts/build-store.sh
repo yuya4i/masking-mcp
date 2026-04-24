@@ -6,14 +6,20 @@
 #   1. Clean dist/browser-extension-store/ and dist/browser-extension-store.zip.
 #   2. Copy browser-extension/ → dist/browser-extension-store/.
 #   3. Overwrite manifest.json with manifest.store.json.
-#   4. Delete LLM-only engine files (surrogates.js, llm-prompts.js).
+#   4. (v1.2.0: retained) LLM engine files (surrogates.js, llm-prompts.js)
+#      now SHIP to the Store build. They are gated at runtime by
+#      `optional_host_permissions: ["http://*/*"]`, so the Store install
+#      itself never requests LAN host permission — users grant it from
+#      the options page when they opt into local-LLM integration.
 #   5. Strip `STORE-STRIP:START … STORE-STRIP:END` blocks from every
 #      .js / .html file in the dist — see strip_markers() below.
+#      The LLM blocks in content.js + options.html were unwrapped for
+#      v1.2.0; the machinery stays here for any future dev-only blocks.
 #   6. Validate the result:
 #       - manifest.store.json not present (it's been inlined)
-#       - no `http://*/*` permission leaked through
+#       - no `http://*/*` in `host_permissions` (optional_host_permissions OK)
 #       - no remaining STORE-STRIP markers
-#       - no remaining references to deleted LLM files
+#       - LLM engine files present and referenced (flipped from v1.1.0)
 #   7. Zip the dist/ for Web Store upload.
 #
 # Non-goals: minification, tree-shaking, source maps. The extension
@@ -42,9 +48,13 @@ say "[3/7] swapping manifest.json → manifest.store.json"
 [ -f "$DIST/manifest.store.json" ] || fail "manifest.store.json missing in source"
 mv "$DIST/manifest.store.json" "$DIST/manifest.json"
 
-# ---------- 4. Delete LLM-only engine files ----------
-say "[4/7] removing LLM-only engine files"
-rm -f "$DIST/engine/llm-prompts.js" "$DIST/engine/surrogates.js"
+# ---------- 4. Retain LLM engine files (v1.2.0) ----------
+# v1.0.x / v1.1.x deleted engine/llm-prompts.js + engine/surrogates.js here
+# so no `http://*/*` LAN fetch path shipped to Store users. As of v1.2.0
+# the Store variant ships LocalLLM too, gated by `optional_host_permissions`
+# in manifest.store.json — the user must approve http://*/* at runtime
+# from the options page before any LAN fetch can occur.
+say "[4/7] retaining LLM engine files (gated by optional_host_permissions)"
 
 # ---------- 5. Strip STORE-STRIP blocks ----------
 #
@@ -79,9 +89,17 @@ done < <(find "$DIST" -type f \( -name "*.js" -o -name "*.html" \) -print0)
 # ---------- 6. Validate ----------
 say "[6/7] validating result"
 
-# 6a. manifest must no longer contain http://*/*
-if grep -q '"http://\*/\*"' "$DIST/manifest.json"; then
-  fail "Store manifest still contains http://*/* — edit manifest.store.json"
+# 6a. manifest must not grant http://*/* at install time. v1.2.0 allows
+# `http://*/*` in `optional_host_permissions` (runtime-requested for
+# LocalLLM), but it MUST NOT appear in `host_permissions`.
+if command -v python3 >/dev/null; then
+  python3 - "$DIST/manifest.json" <<'PY' || fail "Store manifest still grants http://*/* at install time — move it to optional_host_permissions"
+import json, sys
+m = json.load(open(sys.argv[1]))
+hp = m.get("host_permissions", []) or []
+if "http://*/*" in hp:
+    sys.exit(1)
+PY
 fi
 
 # 6b. no STORE-STRIP markers remain in code files. README and docs may
@@ -97,14 +115,13 @@ if [ -f "$DIST/manifest.store.json" ]; then
   fail "manifest.store.json still present in dist"
 fi
 
-# 6d. no references to deleted LLM engine files in code (docs may describe
-# the build pipeline's behaviour — scan .js/.html/.json only).
-for dead in "engine/surrogates.js" "engine/llm-prompts.js"; do
-  hits=$(find "$DIST" -type f \( -name "*.js" -o -name "*.html" -o -name "*.json" \) \
-    -exec grep -l "$dead" {} + 2>/dev/null || true)
-  if [ -n "$hits" ]; then
-    fail "remaining reference to deleted file '$dead' in $hits — add STORE-STRIP markers around it"
-  fi
+# 6d. LLM engine files are EXPECTED in v1.2.0+ Store build. Verify they
+# exist on disk and are referenced from the manifest's
+# web_accessible_resources (so content.js can inject them).
+for expected in "engine/surrogates.js" "engine/llm-prompts.js"; do
+  [ -f "$DIST/$expected" ] || fail "expected LLM engine file '$expected' missing from Store build"
+  grep -q "$expected" "$DIST/manifest.json" \
+    || fail "LLM engine file '$expected' not declared in manifest web_accessible_resources"
 done
 
 # 6e. manifest parses as valid JSON

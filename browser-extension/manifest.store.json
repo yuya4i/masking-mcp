@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PII Guard",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "AIチャット送信前にローカルで個人情報を自動検出しマスキング。完全オフライン動作・外部送信なし。",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
@@ -12,6 +12,7 @@
     "https://gemini.google.com/*",
     "https://*.manus.im/*"
   ],
+  "optional_host_permissions": ["http://*/*"],
   "background": {
     "service_worker": "background.js"
   },
@@ -44,6 +45,8 @@
         "engine/force-mask.js",
         "engine/blocklist.js",
         "engine/user-force-mask.js",
+        "engine/surrogates.js",
+        "engine/llm-prompts.js",
         "engine/engine.js",
         "engine/bundle.js"
       ],

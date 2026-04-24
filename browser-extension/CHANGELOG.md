@@ -1,5 +1,81 @@
 # Changelog
 
+## 1.2.0 — LocalLLM on Chrome Web Store via optional_host_permissions (2026-04-24)
+
+Store manifest bumped v1.1.0 → v1.2.0. Reunites the LocalLLM
+integration with the Web Store build — previously stripped in v1.1.0
+because `http://*/*` as an install-time `host_permissions` entry was
+incompatible with Store review expectations for a chat-assistant
+extension.
+
+### Headline
+
+- **LocalLLM (Ollama / LM Studio / llama.cpp) now ships to the Chrome
+  Web Store build**, disabled by default, enabled at runtime via
+  `chrome.permissions.request`. No host access is granted at install
+  time; the user authorises the exact LLM URL they configured when
+  they flip the master switch or press 接続確認.
+
+### Background
+
+v1.1.0 stripped LLM support out of the Store variant entirely because
+declaring `http://*/*` in `host_permissions` (install-time) risked
+Store rejection — that pattern effectively asks for access to every
+HTTP site on install, which is a red flag for reviewers even though
+the actual SW is host-locked to the user-chosen URL.
+
+v1.2.0 moves `http://*/*` to `optional_host_permissions` in
+`manifest.store.json`. Install now requires no host access at all for
+LLM. When the user explicitly configures an LLM endpoint and toggles
+the feature on, Chrome shows its native permission prompt for **only
+that URL**, and the user consents per-install. Denial gracefully
+disables the feature with `localLlmEnabled` flipped back to `false`.
+
+### User-visible changes
+
+- **ローカル LLM 連携 card is back in the Store build's options
+  page** — same UI as the dev build. Previously hidden behind
+  `STORE-STRIP` markers.
+- **Permission prompt on enable / 接続確認** — Chrome shows its
+  native "この拡張機能に <URL> へのアクセスを許可しますか？" dialog
+  exactly once per URL per profile. Granted hosts are remembered by
+  Chrome until the user revokes them from `chrome://extensions`.
+- **Denial → graceful disable** — if the user dismisses / denies the
+  prompt, the options page reverts `localLlmEnabled` to `false`,
+  shows an inline explanation, and leaves the URL field intact so
+  the user can retry.
+- **Host-lock + sender-ID protections unchanged** — the service
+  worker still rejects any fetch whose host does not match
+  `chrome.storage.local.localLlmUrl`, and still drops messages from
+  foreign extension IDs.
+
+### Technical notes
+
+- `engine/surrogates.js` and `engine/llm-prompts.js` now ship in the
+  Store bundle (previously deleted by `scripts/build-store.sh`).
+- `manifest.store.json` — added
+  `optional_host_permissions: ["http://*/*"]`. `host_permissions`
+  still lists only the 5 chat-provider hosts.
+- `STORE-STRIP:START … STORE-STRIP:END` markers removed around LLM
+  blocks in `content.js` (2 ENGINE_FILES entries) and `options.html`
+  (the entire ローカル LLM 連携 card).
+- `scripts/build-store.sh` updated: no longer deletes
+  `engine/surrogates.js` / `engine/llm-prompts.js`; `STORE-STRIP`
+  scrub step narrowed to the remaining dev-only blocks (none after
+  this PR, but the mechanism stays in place for future use).
+- `options.js` gained `requestLlmHostPermission(url)` which wraps
+  `chrome.permissions.request({origins: [toOriginPattern(url)]})`
+  and handles denial / revocation.
+
+### Security posture (unchanged from v0.5.0)
+
+- **No LLM traffic to the extension developer** — the SW refuses any
+  host other than the user-configured URL.
+- **No third-party cloud** — Anthropic, OpenAI, and friends never
+  receive LLM queries.
+- **Fail-closed on replace mode** / **fail-open on detect mode** —
+  unchanged.
+
 ## 1.1.0 — Chrome Web Store public release (2026-04-22)
 
 Store manifest bumped v1.0.1 (queued hotfix) → v1.1.0 (feature release).

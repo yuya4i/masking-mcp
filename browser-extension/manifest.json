@@ -4,7 +4,7 @@
   "version": "1.4.0",
   "version_name": "0.5.1-dev",
   "description": "PII masking + optional local LLM proxy. Dev build (not for Web Store).",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "offscreen"],
   "host_permissions": [
     "https://claude.ai/*",
     "https://*.claude.com/*",

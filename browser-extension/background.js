@@ -24,43 +24,54 @@
 // the on-disk model cache (transformers.js IndexedDB). The fresh
 // build is fast (~1-2s) since the WASM + weights are already on disk.
 
-// transformers.js — token-classification pipeline used by ML_DETECT.
-// Static import so module SW resolves at startup. The vendored bundle
-// includes onnxruntime-web; no peer dependency to satisfy. The WASM
-// binary path must be set BEFORE the first pipeline() call so the
-// runtime knows where to fetch its threading worker from.
-import {
-  pipeline as transformersPipeline,
-  env as transformersEnv,
-} from "./vendor/transformers/transformers.min.js";
+// ML inference is hosted in an offscreen document, NOT in this
+// service worker. Reason: onnxruntime-web internally uses dynamic
+// `import()` to load its WASM threading worker, which the HTML spec
+// forbids on `ServiceWorkerGlobalScope`. An offscreen document is a
+// hidden DOM-bearing extension context where dynamic imports are
+// allowed; see browser-extension/offscreen.{html,js}.
+//
+// The SW's role for ML is reduced to:
+//   1. Lazily create the offscreen document on first ML_DETECT /
+//      ML_PREWARM.
+//   2. Forward the message there with target:"offscreen".
+//   3. Relay the offscreen response back to the original sender.
+const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
+let creatingOffscreenPromise = null;
 
-// Point the WASM loader at our bundled file. Without this it would
-// try to fetch from a CDN, which violates MV3 default CSP.
-transformersEnv.backends.onnx.wasm.wasmPaths =
-  chrome.runtime.getURL("vendor/transformers/");
-// Allow remote model fetches (HF Hub) — gated by optional_host_permissions
-// in the manifest, the user grants this at runtime when they enable ML.
-transformersEnv.allowRemoteModels = true;
-transformersEnv.allowLocalModels = false;
-
-// Lazy NER pipeline — built on first ML_DETECT, cached for SW lifetime.
-const ML_MODEL_ID = "Xenova/distilbert-base-multilingual-cased-ner-hrl";
-let mlPipelinePromise = null;
-function getMlPipeline() {
-  if (!mlPipelinePromise) {
-    // q8 = int8 quantized (~135MB). Heavy first download, fast after.
-    mlPipelinePromise = transformersPipeline(
-      "token-classification",
-      ML_MODEL_ID,
-      { dtype: "q8" }
-    ).catch((err) => {
-      // Drop the cached promise so the next call retries (e.g., user
-      // grants permission after an initial denial).
-      mlPipelinePromise = null;
-      throw err;
-    });
+async function ensureOffscreenDocument() {
+  if (
+    typeof chrome.offscreen?.hasDocument === "function" &&
+    (await chrome.offscreen.hasDocument())
+  ) {
+    return;
   }
-  return mlPipelinePromise;
+  if (creatingOffscreenPromise) {
+    await creatingOffscreenPromise;
+    return;
+  }
+  creatingOffscreenPromise = chrome.offscreen.createDocument({
+    url: OFFSCREEN_DOCUMENT_PATH,
+    // "WORKERS" is the documented justification for hosting code that
+    // can't run in the service worker because of platform restrictions
+    // (here: dynamic import in the WASM backend).
+    reasons: ["WORKERS"],
+    justification:
+      "Run transformers.js NER pipeline (ONNX Runtime Web) for in-browser PII detection. " +
+      "The WASM backend uses dynamic import which is forbidden in service workers.",
+  });
+  try {
+    await creatingOffscreenPromise;
+  } finally {
+    creatingOffscreenPromise = null;
+  }
+}
+
+async function relayToOffscreen(payload) {
+  await ensureOffscreenDocument();
+  // The offscreen listener filters on target:"offscreen" so the SW's
+  // own onMessage listener doesn't catch the relay and infinite-loop.
+  return chrome.runtime.sendMessage({ target: "offscreen", ...payload });
 }
 
 const BADGE_BG_OK = "#2166cc";
@@ -212,48 +223,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // keep the channel open for async response
   }
 
-  // ML_DETECT — run the bundled NER pipeline against the supplied text.
-  // Returns aggregated entity spans (PER/LOC/ORG/MISC) with start/end
-  // character offsets ready for the engine to merge into its detection
-  // pipeline. Sender-id locked like LLM_FETCH so foreign extensions
-  // can't piggy-back on this handler.
-  if (message.type === "ML_DETECT") {
+  // ML_DETECT / ML_PREWARM — relay to the offscreen document. The SW
+  // does not run inference itself; see ensureOffscreenDocument() above
+  // for the rationale. Skip messages the offscreen has already
+  // re-targeted at itself (target:"offscreen") so the relay doesn't
+  // bounce in a loop.
+  if (
+    (message.type === "ML_DETECT" || message.type === "ML_PREWARM") &&
+    message.target !== "offscreen"
+  ) {
     (async () => {
       if (sender && sender.id && sender.id !== chrome.runtime.id) {
         sendResponse({ ok: false, error: "forbidden: foreign sender" });
         return;
       }
-      const text = typeof message.text === "string" ? message.text : "";
-      if (!text) {
-        sendResponse({ ok: true, entities: [] });
-        return;
-      }
       try {
-        const ner = await getMlPipeline();
-        // aggregation_strategy "simple" merges B-X / I-X subwords into
-        // single span objects: { entity_group, score, word, start, end }.
-        const raw = await ner(text, { aggregation_strategy: "simple" });
-        const entities = Array.isArray(raw) ? raw : [];
-        sendResponse({ ok: true, entities, modelId: ML_MODEL_ID });
-      } catch (err) {
-        sendResponse({ ok: false, error: err?.message || String(err) });
-      }
-    })();
-    return true;
-  }
-
-  // ML_PREWARM — kick off pipeline build without running inference.
-  // The options page calls this on toggle ON so the heavy model
-  // download starts immediately, not on the first user input.
-  if (message.type === "ML_PREWARM") {
-    (async () => {
-      if (sender && sender.id && sender.id !== chrome.runtime.id) {
-        sendResponse({ ok: false, error: "forbidden" });
-        return;
-      }
-      try {
-        await getMlPipeline();
-        sendResponse({ ok: true, modelId: ML_MODEL_ID });
+        const resp = await relayToOffscreen({
+          type: message.type,
+          text: typeof message.text === "string" ? message.text : "",
+        });
+        sendResponse(resp || { ok: false, error: "no response from offscreen" });
       } catch (err) {
         sendResponse({ ok: false, error: err?.message || String(err) });
       }

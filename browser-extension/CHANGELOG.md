@@ -1,5 +1,79 @@
 # Changelog
 
+## 1.3.0 — In-browser ML model (NER) as a non-LLM detection option (2026-04-28)
+
+Adds **transformers.js + Xenova/distilbert-base-multilingual-cased-ner-hrl**
+running entirely inside the extension as a third detection backend
+alongside regex and the optional LocalLLM. Disabled by default; users
+opt in via a settings flag and the model downloads on first use.
+
+### Architecture
+
+- The full transformers.js bundle (`transformers.min.js`, 868 KB) and
+  ONNX Runtime WASM (`ort-wasm-simd-threaded.jsep.wasm`, 21 MB) ship in
+  the extension package under `vendor/transformers/`. Total Store zip
+  grew from 176 KB → 5.3 MB compressed (22 MB unpacked).
+- **Inference runs in the service worker** (background.js, now an ES
+  module). Content scripts post `{type: "ML_DETECT", text}` messages
+  and receive aggregated entity spans back. SW caches the pipeline
+  in memory across calls; survives re-init by re-reading the model
+  from on-disk transformers.js cache.
+- The model itself (~135 MB int8 q8) is **not bundled** — transformers.js
+  fetches it from HF Hub on first use and caches in IndexedDB. This
+  needs runtime host permission for `huggingface.co` /
+  `cdn-lfs.huggingface.co` / `cdn-lfs-us-1.hf.co`, which is requested
+  via `chrome.permissions.request()` when the user enables ML mode.
+
+### New / changed files
+
+- `vendor/transformers/` — vendored transformers.js v3.5+ (Apache-2.0).
+- `engine/onnx-detector.js` — content-script-side wrapper that sends
+  ML_DETECT messages and maps NER entity_groups (PER/LOC/ORG) back to
+  PROPER_NOUN_PERSON / PROPER_NOUN_LOCATION / PROPER_NOUN_ORG so the
+  existing severity / category / classification maps cover them
+  without modification.
+- `background.js` — gains `ML_DETECT` and `ML_PREWARM` handlers,
+  switches to ES module via manifest "type": "module", uses static
+  `import` for transformers.js.
+- `engine/engine.js` — refactored into `collectRawDetections` +
+  `finishPipeline`; added `runPipelineAsync` that awaits the ML
+  detector when `opts.mlEnabled`. `maskAggregated` and `maskSanitize`
+  are now async.
+- `injected.js` — `engineOpts()` reads `mlEnabled` from settings and
+  passes through; both engine entry points are now `await`-ed.
+- `content.js` — broadcasts `mlEnabled` in the settings payload,
+  re-broadcasts on `chrome.storage.onChanged`.
+- `manifest.json` / `manifest.store.json` — `optional_host_permissions`
+  for HF Hub origins, `content_security_policy.extension_pages` with
+  `wasm-unsafe-eval`, vendor files in `web_accessible_resources`,
+  background SW marked `"type": "module"`. Store version bumped
+  v1.2.0 → v1.3.0.
+
+### How to enable (no UI yet — Phase 0a MVP)
+
+```js
+// In an extension page (popup / options / chrome://extensions devtools):
+await chrome.permissions.request({
+  origins: [
+    "https://huggingface.co/*",
+    "https://cdn-lfs.huggingface.co/*",
+    "https://cdn-lfs-us-1.hf.co/*",
+  ],
+});
+await chrome.storage.local.set({ mlEnabled: true });
+chrome.runtime.sendMessage({ type: "ML_PREWARM" }, console.log);
+```
+
+The next time a chat composer fires, the engine will append NER
+detections to the regex / dictionary / force-mask results before
+the overlap resolver merges them.
+
+### Phase 0b (next)
+
+- Options page UI for the ML toggle (permission request flow,
+  download progress, model-loaded status).
+- Model size disclosure in PRIVACY.md and Store listing description.
+
 ## 1.2.0 — LocalLLM on Chrome Web Store via optional_host_permissions (2026-04-24)
 
 Store manifest bumped v1.1.0 → v1.2.0. Reunites the LocalLLM

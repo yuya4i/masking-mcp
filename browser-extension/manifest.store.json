@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PII Guard",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "AIチャット送信前にローカルで個人情報を自動検出しマスキング。完全オフライン動作・外部送信なし。",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
@@ -12,9 +12,18 @@
     "https://gemini.google.com/*",
     "https://*.manus.im/*"
   ],
-  "optional_host_permissions": ["http://*/*"],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://huggingface.co/*",
+    "https://cdn-lfs.huggingface.co/*",
+    "https://cdn-lfs-us-1.hf.co/*"
+  ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "content_scripts": [
     {
@@ -48,7 +57,11 @@
         "engine/surrogates.js",
         "engine/llm-prompts.js",
         "engine/engine.js",
-        "engine/bundle.js"
+        "engine/bundle.js",
+        "engine/onnx-detector.js",
+        "vendor/transformers/transformers.min.js",
+        "vendor/transformers/ort-wasm-simd-threaded.jsep.mjs",
+        "vendor/transformers/ort-wasm-simd-threaded.jsep.wasm"
       ],
       "matches": [
         "https://claude.ai/*",

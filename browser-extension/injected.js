@@ -231,7 +231,10 @@
         return null;
       }
       try {
-        return engine.maskSanitize(text, engineOpts());
+        // maskSanitize is async (ML opt-in). The outer ``return await``
+        // is required so a thrown error inside the promise lands in
+        // the catch below rather than escaping the function.
+        return await engine.maskSanitize(text, engineOpts());
       } catch (e) {
         WARN("standalone maskSanitize failed:", e?.message || e);
         return null;
@@ -244,13 +247,14 @@
     return resp.result; // may be null on gateway failure
   }
 
-  // Engine オプション共通化 — ユーザー force-mask list などを注入。
-  // NS.settings.maskForceList は content.js が { value, category } 形式で配布。
+  // Engine オプション共通化 — ユーザー force-mask list と ML フラグを注入。
+  // NS.settings は content.js が chrome.storage.local から配布。
   function engineOpts() {
     const list = Array.isArray(NS.settings && NS.settings.maskForceList)
       ? NS.settings.maskForceList
       : [];
-    return { userForceMaskEntries: list };
+    const mlEnabled = !!(NS.settings && NS.settings.mlEnabled);
+    return { userForceMaskEntries: list, mlEnabled };
   }
 
   async function sanitizeAggregated(text, service, sourceUrl) {
@@ -270,7 +274,7 @@
         return null;
       }
       try {
-        return engine.maskAggregated(text, engineOpts());
+        return await engine.maskAggregated(text, engineOpts());
       } catch (e) {
         WARN("standalone maskAggregated failed:", e?.message || e);
         return null;

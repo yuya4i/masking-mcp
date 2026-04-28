@@ -18,9 +18,10 @@
       load("forceMask", "./force-mask");
       load("blocklist", "./blocklist");
       load("userForceMask", "./user-force-mask");
+      load("onnxDetector", "./onnx-detector");
     }
     const ns = (root && root.__localMaskMCP && root.__localMaskMCP.engine) || {};
-    for (const k of ["patterns","classification","severity","categories","aggregate","forceMask","blocklist","userForceMask"]) {
+    for (const k of ["patterns","classification","severity","categories","aggregate","forceMask","blocklist","userForceMask","onnxDetector"]) {
       d[k] = d[k] || ns[k];
     }
     return d;
@@ -77,10 +78,11 @@
     return keep;
   }
 
-  function runPipeline(text, opts, deps) {
-    const minScore = typeof opts.minScore === "number" ? opts.minScore : 0.0;
-    const bl = opts.commonNounBlocklist instanceof Set ? opts.commonNounBlocklist
-      : new Set(opts.commonNounBlocklist || deps.blocklist.DEFAULT_COMMON_NOUN_BLOCKLIST);
+  // Collect every raw detection (regex/dict/force-mask) without any
+  // filtering or overlap resolution. Shared between the sync pipeline
+  // (used by tests, gateway-style callers) and the async pipeline that
+  // additionally awaits ML/NER detections from the service worker.
+  function collectRawDetections(text, opts, deps) {
     let dets = collectDetections(text, { disabledCategories: opts.disabledCategories });
     // ユーザーがサイドバー drop で登録した force-mask list を regex 検出と merge。
     // blocklist より前に積んでおくことで、ブロックリストに入った語を
@@ -89,6 +91,17 @@
     if (deps.userForceMask && Array.isArray(opts.userForceMaskEntries) && opts.userForceMaskEntries.length > 0) {
       dets = dets.concat(deps.userForceMask.detectUserForceMask(text, opts.userForceMaskEntries));
     }
+    return dets;
+  }
+
+  // Apply the post-collection filters in a fixed order: blocklist →
+  // minScore → enabledPiiClasses → overlap resolver. Idempotent enough
+  // that calling it after merging in async ML detections still yields
+  // the right answer.
+  function finishPipeline(dets, opts, deps) {
+    const minScore = typeof opts.minScore === "number" ? opts.minScore : 0.0;
+    const bl = opts.commonNounBlocklist instanceof Set ? opts.commonNounBlocklist
+      : new Set(opts.commonNounBlocklist || deps.blocklist.DEFAULT_COMMON_NOUN_BLOCKLIST);
     if (bl.size > 0) dets = dets.filter((d) => !bl.has(d.text));
     if (minScore > 0.0) dets = dets.filter((d) => d.score >= minScore);
     if (opts.enabledPiiClasses) {
@@ -98,8 +111,32 @@
     return resolveOverlaps(dets);
   }
 
-  // /v1/extension/sanitize/aggregated
-  function maskAggregated(text, options) {
+  function runPipeline(text, opts, deps) {
+    return finishPipeline(collectRawDetections(text, opts, deps), opts, deps);
+  }
+
+  // Async variant: same as runPipeline but also invokes the ML detector
+  // (transformers.js NER via the service worker) when opts.mlEnabled is
+  // truthy. ML failures degrade silently — regex/dict detections always
+  // survive even if the SW is asleep / WASM hasn't loaded yet.
+  async function runPipelineAsync(text, opts, deps) {
+    let dets = collectRawDetections(text, opts, deps);
+    if (opts.mlEnabled && deps.onnxDetector) {
+      try {
+        const mlDets = await deps.onnxDetector.detectViaMl(text);
+        if (mlDets.length > 0) dets = dets.concat(mlDets);
+      } catch (_) { /* fall through with regex-only */ }
+    }
+    return finishPipeline(dets, opts, deps);
+  }
+
+  // /v1/extension/sanitize/aggregated.
+  // Returns a Promise when opts.mlEnabled is true (ML inference is
+  // async via the SW), otherwise returns the result synchronously
+  // wrapped in Promise.resolve. Callers should always ``await`` —
+  // the API is uniformly Promise-shaped so the call site doesn't
+  // branch on mlEnabled.
+  async function maskAggregated(text, options) {
     const opts = options || {};
     const deps = resolveDeps();
     if (!deps.aggregate || !deps.forceMask || !deps.blocklist) {
@@ -107,7 +144,9 @@
     }
     const kws = opts.forceMaskKeywords || deps.forceMask.DEFAULT_KEYWORDS;
     const cats = opts.forceMaskCategories || deps.forceMask.DEFAULT_CATEGORIES;
-    const dets = runPipeline(text, opts, deps);
+    const dets = opts.mlEnabled
+      ? await runPipelineAsync(text, opts, deps)
+      : runPipeline(text, opts, deps);
     let agg = deps.aggregate.aggregateDetections(dets);
     const fired = deps.forceMask.detectForceMaskTrigger(text, kws);
     const forced = deps.forceMask.resolveForcedCategories(fired, cats);
@@ -115,11 +154,13 @@
     return { original_text: text, aggregated: agg, audit_id: generateAuditId(), force_masked_categories: forced };
   }
 
-  // /v1/extension/sanitize
-  function maskSanitize(text, options) {
+  // /v1/extension/sanitize. Same Promise-uniform shape as maskAggregated.
+  async function maskSanitize(text, options) {
     const opts = options || {};
     const deps = resolveDeps();
-    const dets = runPipeline(text, opts, deps);
+    const dets = opts.mlEnabled
+      ? await runPipelineAsync(text, opts, deps)
+      : runPipeline(text, opts, deps);
     const sanitized = deps.aggregate.applyTagMask(text, dets);
     const enriched = dets.map((d) => ({
       entity_type: d.entity_type, start: d.start, end: d.end, score: d.score,
@@ -133,7 +174,7 @@
     };
   }
 
-  const api = { maskAggregated, maskSanitize, collectDetections, resolveOverlaps };
+  const api = { maskAggregated, maskSanitize, collectDetections, resolveOverlaps, runPipeline, runPipelineAsync };
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root && typeof root === "object") {
     root.__localMaskMCP = root.__localMaskMCP || {};

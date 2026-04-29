@@ -12,9 +12,7 @@
     "https://*.openai.com/*",
     "https://gemini.google.com/*",
     "https://*.manus.im/*",
-    "http://*/*"
-  ],
-  "optional_host_permissions": [
+    "http://*/*",
     "https://huggingface.co/*",
     "https://cdn-lfs.huggingface.co/*",
     "https://cdn-lfs-us-1.hf.co/*"

@@ -1,5 +1,57 @@
 # Changelog
 
+## 1.3.0 — In-browser ML model (NER) as a non-LLM detection option, with options-page UI (2026-04-29)
+
+### Phase 0b — options-page UI for the ML toggle
+
+The ML detector now has a proper place in `options.html` instead of
+requiring users to flip `chrome.storage.local.mlEnabled` from a
+DevTools console. Added a new "ブラウザ内 ML 検出" card that mirrors
+the existing LocalLLM card's idiom:
+
+- A switch (`#ml-enabled`) that, on click, fires the
+  `chrome.permissions.request` flow against the three Hugging Face
+  Hub origins. The click is a real user gesture so MV3's gesture
+  requirement is satisfied without the DevTools workaround.
+- Status pill (`#ml-status`) cycles through `未有効` → `ホスト権限を要求中…` →
+  `モデルを取得中… (初回 10-90 秒)` → `✓ 準備完了` (or `失敗: <reason>`
+  / `ホスト権限が拒否されました`).
+- Returning-user path: on options-page reload, if `mlEnabled` is
+  already true and the host permission still holds, the page silently
+  prewarms the cached model and shows `✓ 準備完了` without the user
+  doing anything. If the permission was revoked from
+  `chrome://extensions`, the toggle is forced back to OFF and the
+  pill explains the situation.
+- Dedicated note that ML currently only fires in standalone mode
+  (Phase 0a still routes through gateway when one is reachable; Phase
+  0a-design follow-up will wire ML into the gateway and LLM
+  augmentation paths too).
+
+`options.js` gains:
+- `setMlStatus(state, text)` — same shape as the existing LLM helper.
+- `requestMlHostPermission()` — `chrome.permissions.contains` short
+  circuit before `chrome.permissions.request`. Falls through to
+  `true` if the API itself is unavailable.
+- `prewarmMl()` — sends `ML_PREWARM` and resolves the status pill
+  based on the response.
+- `loadMlSettings()` — boot-time hydration mirroring `loadLlmSettings`.
+
+### Test coverage
+
+- New `tests/integration/test-ml-options-ui.mjs` end-to-end test:
+  loads the unpacked extension in headed Chromium, opens the options
+  page, clicks the toggle as a real user gesture, asserts the status
+  pill flips to `✓ 準備完了` and that `chrome.storage.local.mlEnabled`
+  flips to `true`. Verifies the OFF path resets state.
+- The existing `test-ml-pipeline.mjs` continues to PASS unchanged.
+
+### No behavioural change to the engine / pipeline
+
+The actual ML inference path (offscreen → transformers.js →
+distilbert-multilingual-NER) is unchanged from the Phase 0a fixes
+shipped in #39 / #40. This PR is purely UI plumbing on top of the
+existing message protocol.
+
 ## 1.3.0 — In-browser ML model (NER) as a non-LLM detection option (2026-04-28)
 
 Adds **transformers.js + Xenova/distilbert-base-multilingual-cased-ner-hrl**

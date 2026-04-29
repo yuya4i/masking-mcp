@@ -129,6 +129,71 @@ function setLlmStatus(state, text) {
   el.className = "status-pill status-" + state;
 }
 
+// Mirror of setLlmStatus for the ML toggle. Reuses the same .status-X
+// CSS classes (status-ok / status-checking / status-err / status-unknown)
+// so the visual language stays consistent across cards.
+function setMlStatus(state, text) {
+  const el = $("ml-status");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "status-pill status-" + state;
+}
+
+// Three Hugging Face Hub origins the bundled NER model fetches its
+// weights from. Listed in the manifest as `optional_host_permissions`
+// for the Store build (request at runtime via chrome.permissions.request).
+// The dev manifest lists them under regular `host_permissions` so the
+// integration test never needs to click through the prompt.
+const ML_HF_ORIGINS = [
+  "https://huggingface.co/*",
+  "https://cdn-lfs.huggingface.co/*",
+  "https://cdn-lfs-us-1.hf.co/*",
+];
+
+async function requestMlHostPermission() {
+  if (!chrome.permissions || typeof chrome.permissions.request !== "function") {
+    console.warn("[ml] chrome.permissions API unavailable; falling back to true");
+    return true;
+  }
+  try {
+    if (await chrome.permissions.contains({ origins: ML_HF_ORIGINS })) return true;
+  } catch (_) { /* fall through to request */ }
+  try {
+    return await chrome.permissions.request({ origins: ML_HF_ORIGINS });
+  } catch (e) {
+    console.warn("[ml] permission request failed:", e?.message || e);
+    return false;
+  }
+}
+
+// Fire ML_PREWARM and update status as the response (or error) lands.
+// Caller is expected to have already flipped mlEnabled=true and the
+// status pill to "モデル DL 中…".
+function prewarmMl() {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ type: "ML_PREWARM" }, (resp) => {
+        if (chrome.runtime.lastError) {
+          setMlStatus("err", "通信エラー: " + chrome.runtime.lastError.message);
+          resolve(false);
+          return;
+        }
+        if (resp && resp.ok === true) {
+          setMlStatus("ok", "✓ 準備完了");
+          resolve(true);
+          return;
+        }
+        const err = (resp && resp.error) || "不明なエラー";
+        setMlStatus("err", "失敗: " + err);
+        resolve(false);
+      });
+    } catch (e) {
+      setMlStatus("err", "送信エラー: " + (e?.message || e));
+      resolve(false);
+    }
+  });
+}
+
 function normalizeUrl(raw) {
   if (!raw) return "";
   let url = raw.trim().replace(/\/+$/, "");
@@ -610,6 +675,37 @@ async function pullModel(modelName, rowEl) {
   }
 }
 
+// Read mlEnabled from storage and refresh the ML toggle + status pill.
+// If ML is already enabled (returning user), kick off a silent prewarm
+// so the status flips to "✓ 準備完了" once the cached model is loaded
+// — saves the user from having to click anything to confirm health.
+async function loadMlSettings() {
+  const toggle = $("ml-enabled");
+  if (!toggle) return;
+  const stored = await chrome.storage.local.get("mlEnabled");
+  const enabled = stored.mlEnabled === true;
+  toggle.checked = enabled;
+  if (!enabled) {
+    setMlStatus("unknown", "未有効");
+    return;
+  }
+  // Already enabled — confirm permission still granted, then prewarm.
+  const granted =
+    chrome.permissions && chrome.permissions.contains
+      ? await chrome.permissions.contains({ origins: ML_HF_ORIGINS }).catch(() => false)
+      : true;
+  if (!granted) {
+    // Permission was revoked from chrome://extensions. Reset the flag
+    // so detect calls don't fire against an SW that can't reach HF.
+    await chrome.storage.local.set({ mlEnabled: false });
+    toggle.checked = false;
+    setMlStatus("err", "ホスト権限が外れています — もう一度有効化してください");
+    return;
+  }
+  setMlStatus("checking", "モデル準備中…");
+  prewarmMl();
+}
+
 async function loadLlmSettings() {
   const stored = await chrome.storage.local.get([
     "localLlmEnabled",
@@ -653,6 +749,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadInteractive();
   loadUiMode();
   loadLlmSettings();
+  loadMlSettings();
 
   $("allowlist-add-btn").addEventListener("click", () => {
     const input = $("allowlist-input");
@@ -737,4 +834,31 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.storage.local.set({ localLlmTimeoutMs: n });
     e.target.value = n;
   });
+
+  // ML detection toggle. Same gesture-aware pattern as the LLM toggle:
+  // OFF is unconditional; ON requests HF Hub host permission first
+  // (if not already granted), then sets the storage flag, then kicks
+  // off the model prewarm. The first prewarm downloads ~135 MB and
+  // takes 10-90s depending on the network; subsequent loads are cached.
+  const mlToggle = $("ml-enabled");
+  if (mlToggle) {
+    mlToggle.addEventListener("change", async (e) => {
+      if (!e.target.checked) {
+        await chrome.storage.local.set({ mlEnabled: false });
+        setMlStatus("unknown", "未有効");
+        return;
+      }
+      setMlStatus("checking", "ホスト権限を要求中…");
+      const granted = await requestMlHostPermission();
+      if (!granted) {
+        e.target.checked = false;
+        await chrome.storage.local.set({ mlEnabled: false });
+        setMlStatus("err", "ホスト権限が拒否されました");
+        return;
+      }
+      await chrome.storage.local.set({ mlEnabled: true });
+      setMlStatus("checking", "モデルを取得中… (初回 10-90 秒)");
+      prewarmMl();
+    });
+  }
 });

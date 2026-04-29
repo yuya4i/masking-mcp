@@ -125,6 +125,44 @@
       </section>
 
       <section class="card">
+        <h2>
+          ブラウザ内 ML 検出
+          <span class="badge-experimental">v1.3.0</span>
+        </h2>
+        <p class="hint">
+          BERT-NER モデル (DistilBERT-multilingual, ~135 MB) をブラウザに常駐させ、regex / 辞書では取れない人名・地名・組織名を文脈から検出します。
+          <strong>外部 LLM サービスやゲートウェイ不要</strong>で完結し、すべての推論は端末内で実行されます。
+        </p>
+
+        <div class="form-row">
+          <label class="form-label" for="ml-enabled">ML 検出を有効化</label>
+          <label class="switch">
+            <input type="checkbox" id="ml-enabled" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="form-row">
+          <span class="form-label">ステータス</span>
+          <span id="ml-status" class="status-pill status-unknown">未有効</span>
+        </div>
+
+        <div class="form-row" id="ml-model-row">
+          <span class="form-label">モデル</span>
+          <code class="endpoint" id="ml-model-id">Xenova/distilbert-base-multilingual-cased-ner-hrl</code>
+        </div>
+
+        <p class="hint" style="margin-top:8px">
+          初回有効化時に Hugging Face Hub からモデル (約 135 MB) を取得します。
+          ブラウザの IndexedDB にキャッシュされるため 2 回目以降は秒で起動します。
+          無効化してもキャッシュは保持されます (再有効化が早くなる)。
+        </p>
+        <p class="hint" id="ml-standalone-note" style="margin-top:8px;color:var(--text-muted)">
+          現在 ML 検出は <strong>standalone モード</strong> のみで動作します。Docker ゲートウェイが起動中の場合はゲートウェイ側の Sudachi/Presidio が優先されるため、ML を試したい場合はゲートウェイを停止してください。
+        </p>
+      </section>
+
+      <section class="card">
         <h2>エンジン</h2>
         <div class="form-row">
           <span class="form-label">動作モード</span>
